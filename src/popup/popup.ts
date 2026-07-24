@@ -211,12 +211,20 @@ function siteManager(active: SwitchProfile): HTMLElement {
 
   const route = resolveRoute(config, active, matchUrl, tab.host, tempRules);
   const via = route.bypassed
-    ? { tile: builtinTile('D', 18), name: 'Direct (bypass)' }
-    : targetChip(route.targetId, 18);
+    ? { tile: builtinTile('D', 22), name: 'Direct (bypass)' }
+    : targetChip(route.targetId, 22);
 
-  /* rule row: edit the matching rule, or add one; greyed while an override is set */
+  /* --- route summary --- */
+  const routeSummary = el(
+    'div',
+    { class: 'site-route' },
+    el('span', { class: 'site-route-lead' }, 'Now routing via'),
+    el('span', { class: 'via' }, via.tile, el('span', { class: 'via-name' }, via.name))
+  );
+
+  /* --- rule block: edit the matching rule or add one; greyed while overridden --- */
   const matched = matchedRuleFor(active, matchUrl, tab.host);
-  let ruleRow: HTMLElement;
+  let ruleBlock: HTMLElement;
   if (matched) {
     const sel = siteTargetSelect(matched.targetId, (v) => {
       matched.targetId = v;
@@ -224,12 +232,16 @@ function siteManager(active: SwitchProfile): HTMLElement {
       render();
     });
     sel.disabled = hasOverride;
-    ruleRow = el(
+    ruleBlock = el(
       'div',
-      { class: `site-line${hasOverride ? ' greyed' : ''}` },
-      el('span', { class: 'site-tag' }, 'Rule'),
-      el('span', { class: 'mono site-pattern', title: matched.pattern }, matched.pattern),
-      sel
+      { class: `site-block${hasOverride ? ' greyed' : ''}` },
+      el('div', { class: 'site-block-head' }, el('span', { class: 'site-block-label' }, 'Rule for this site')),
+      el(
+        'div',
+        { class: 'site-block-ctl' },
+        el('span', { class: 'mono site-pattern', title: matched.pattern }, matched.pattern),
+        sel
+      )
     );
   } else {
     const sel = siteTargetSelect(proxyProfiles(config)[0]?.id ?? DIRECT, () => undefined);
@@ -255,67 +267,87 @@ function siteManager(active: SwitchProfile): HTMLElement {
           render();
         },
       },
-      '+ Add'
+      'Add rule'
     );
-    ruleRow = el(
+    ruleBlock = el(
       'div',
-      { class: `site-line${hasOverride ? ' greyed' : ''}` },
-      el('span', { class: 'site-tag' }, 'No rule'),
-      sel,
-      add
+      { class: `site-block${hasOverride ? ' greyed' : ''}` },
+      el(
+        'div',
+        { class: 'site-block-head' },
+        el('span', { class: 'site-block-label' }, 'No rule for this site'),
+        el('span', { class: 'site-block-note' }, `routes via default`)
+      ),
+      el('div', { class: 'site-block-ctl' }, sel, add)
     );
   }
 
-  /* override row: always temporary, single slot, deletable */
-  let overrideRow: HTMLElement;
+  /* --- override block: always temporary, single slot, deletable --- */
+  const overrideHead = el(
+    'div',
+    { class: 'site-block-head' },
+    el('span', { class: 'site-block-label temp' }, 'Override'),
+    el('span', { class: 'site-block-note' }, 'temporary')
+  );
+  let overrideBlock: HTMLElement;
   if (override) {
-    const chip = targetChip(override.targetId, 16);
-    overrideRow = el(
+    const chip = targetChip(override.targetId, 18);
+    overrideBlock = el(
       'div',
-      { class: 'site-line override active' },
-      el('span', { class: 'site-tag temp' }, 'Override'),
+      { class: 'site-block override active' },
+      overrideHead,
       el(
-        'span',
-        { class: 'ov-info' },
-        chip.tile,
-        el('span', { class: 'mono', title: override.pattern }, override.pattern)
-      ),
-      el('button', {
-        class: 'btn ghost icon',
-        title: 'Remove override',
-        innerHTML: '&#10005;',
-        onclick: () => {
-          void setOverride(active.id, null);
-          toast('Override removed');
-          render();
-        },
-      })
+        'div',
+        { class: 'site-block-ctl' },
+        el(
+          'span',
+          { class: 'ov-chip' },
+          chip.tile,
+          el('span', { class: 'mono', title: override.pattern }, override.pattern),
+          el('span', { class: 'ov-arrow', innerHTML: '&#8594;' }),
+          el('span', { class: 'ov-target' }, chip.name)
+        ),
+        el('button', {
+          class: 'btn ghost icon ov-remove',
+          title: 'Remove override',
+          innerHTML: '&#10005;',
+          onclick: () => {
+            void setOverride(active.id, null);
+            toast('Override removed');
+            render();
+          },
+        })
+      )
     );
   } else {
     const sel = siteTargetSelect(proxyProfiles(config)[0]?.id ?? DIRECT, () => undefined);
-    overrideRow = el(
+    overrideBlock = el(
       'div',
-      { class: 'site-line override' },
-      el('span', { class: 'site-tag temp' }, 'Override'),
-      sel,
+      { class: 'site-block override' },
+      overrideHead,
       el(
-        'button',
-        {
-          class: 'btn sm',
-          title: `Temporarily route *.${tab.host} until the browser restarts`,
-          onclick: () => {
-            void setOverride(active.id, {
-              id: uid(),
-              enabled: true,
-              type: 'hostWildcard',
-              pattern: `*.${tab!.host}`,
-              targetId: sel.value,
-            });
-            toast('Override set');
-            render();
+        'div',
+        { class: 'site-block-ctl' },
+        sel,
+        el(
+          'button',
+          {
+            class: 'btn sm',
+            title: `Temporarily route *.${tab.host} until the browser restarts`,
+            onclick: () => {
+              void setOverride(active.id, {
+                id: uid(),
+                enabled: true,
+                type: 'hostWildcard',
+                pattern: `*.${tab!.host}`,
+                targetId: sel.value,
+              });
+              toast('Override set');
+              render();
+            },
           },
-        },
-        'Set'
+          'Set'
+        )
       )
     );
   }
@@ -323,14 +355,11 @@ function siteManager(active: SwitchProfile): HTMLElement {
   return el(
     'div',
     { class: 'card site-mgr' },
-    el(
-      'div',
-      { class: 'site-route' },
-      el('span', { class: 'site-route-lead' }, 'Currently'),
-      el('span', { class: 'arrow', innerHTML: '&#8594;' }),
-      el('span', { class: 'via' }, via.tile, via.name)
-    ),
-    el('div', { class: 'site-rows' }, ruleRow, overrideRow)
+    routeSummary,
+    el('div', { class: 'site-div' }),
+    ruleBlock,
+    el('div', { class: 'site-div' }),
+    overrideBlock
   );
 }
 

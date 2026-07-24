@@ -109,22 +109,29 @@ body {
 .side .tools .btn { flex: none; padding: 7px 12px; }
 
 /* pinned to the very bottom of the sidebar */
-.side-github {
+.side-footer {
   margin-top: auto;
   display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.side-link {
+  display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 7px;
-  padding: 12px 8px 4px;
+  gap: 8px;
+  padding: 8px 8px;
+  border-radius: var(--radius-sm);
   color: var(--text-dim);
   text-decoration: none;
   font-weight: 600;
   font-size: 12.5px;
-  border-top: 1px solid var(--border);
-  transition: color 0.13s;
+  transition: color 0.13s, background 0.13s;
 }
-.side-github:hover { color: var(--text); }
-.side-github svg { flex: none; }
+.side-link:hover { color: var(--text); background: var(--surface-hover); }
+.side-link svg { flex: none; }
+.side-link.ipcheck:hover { color: var(--accent-2); }
 
 /* ---- editor pane ---- */
 .pane { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
