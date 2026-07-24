@@ -24,7 +24,7 @@ options ┘        (config)                     └─> action icon / badge / ti
 | `src/shared/pac.ts` | Generates the PAC script from a switch profile |
 | `src/shared/state.ts` | Storage load/save + `sanitizeConfig` (also validates imports/sync), temp rules |
 | `src/shared/rulelist.ts` | AutoProxy/GFWList + Switchy list parsing (with base64 decode + memo) |
-| `src/shared/sync.ts` | Chunked config mirroring over `chrome.storage.sync`, last-write-wins by revision |
+| `src/shared/sync.ts` | Config mirroring over `chrome.storage.sync`: byte-bounded chunks, rule-list bodies excluded (refetchable), pre-push rev check, last-write-wins by revision |
 | `src/shared/avatar.ts` | Initials avatars (DiceBear-initials style, local): derivation, contrast, DOM tile |
 | `src/background.ts` | The applier: settings, icon painting, proxy-error badge |
 | `src/popup/` | Switcher UI + live route preview |

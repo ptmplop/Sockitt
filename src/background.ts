@@ -1,5 +1,5 @@
 import { initialsFor, textColorFor } from './shared/avatar';
-import { resolveRoute } from './shared/match';
+import { pacRequestUrl, resolveRoute } from './shared/match';
 import { compilePac, fixedServersValue, staticTerminal } from './shared/pac';
 import {
   loadConfig,
@@ -7,6 +7,7 @@ import {
   onConfigChanged,
   onTempRulesChanged,
   saveConfig,
+  saveConfigRaw,
 } from './shared/state';
 import { applyFromSync, onSyncChanged, pullFromSync, pushToSync } from './shared/sync';
 import { Config, DIRECT, Profile, SYSTEM, SwitchRule, profileById } from './shared/types';
@@ -17,8 +18,15 @@ const REVERT_COOLDOWN_MS = 30_000;
 const ALARM_PREFIX = 'rl:';
 
 let lastRevert = 0;
+let lastActiveId: string | undefined;
+/** Most recently applied config; lets tab events gate without a storage read. */
+let cachedConfig: Config | null = null;
 
 /* ---------------- proxy application ---------------- */
+
+function hasBypass(bypass: string[]): boolean {
+  return bypass.some((b) => b.trim().length > 0);
+}
 
 function settingsValueFor(
   config: Config,
@@ -34,7 +42,11 @@ function settingsValueFor(
   if (terminal === 'direct') {
     return { value: { mode: 'direct' }, label: profile.name, profile };
   }
-  if (terminal) {
+  // A proxy with an empty bypass list can take the fast fixed_servers path.
+  // With a bypass list, compile a PAC instead so bypass entries mean the same
+  // thing regardless of how the profile was reached (Chrome-native bypass
+  // semantics differ from Sockitt's PAC semantics).
+  if (terminal && !hasBypass(terminal.bypass)) {
     return {
       value: fixedServersValue(terminal.host, terminal.port, terminal.bypass),
       label: profile.name,
@@ -53,15 +65,20 @@ function settingsValueFor(
 
 async function applyActive(): Promise<void> {
   const config = await loadConfig();
+  cachedConfig = config;
   const tempRules = await loadTempRules(config.activeId);
   const { value, label, profile } = settingsValueFor(config, tempRules);
 
   await chrome.proxy.settings.set({ value, scope: 'regular' });
-  await chrome.storage.session.remove(ERROR_KEY);
-  await chrome.action.setBadgeText({ text: '' });
-  await chrome.action.setTitle({ title: `Sockitt — ${label}` });
-  await paintIcon(profile);
-  await chrome.action.setPopup({ popup: config.settings.quickSwitch ? '' : 'popup.html' });
+
+  // Independent action/session updates — no ordering dependency between them.
+  await Promise.all([
+    chrome.storage.session.remove(ERROR_KEY),
+    chrome.action.setBadgeText({ text: '' }),
+    chrome.action.setTitle({ title: `Sockitt — ${label}` }),
+    paintIcon(profile),
+    chrome.action.setPopup({ popup: config.settings.quickSwitch ? '' : 'popup.html' }),
+  ]);
 
   const current = await chrome.proxy.settings.get({});
   if (current.levelOfControl === 'controlled_by_other_extensions') {
@@ -72,8 +89,25 @@ async function applyActive(): Promise<void> {
     });
   }
 
+  // Reload the active tab only when the *active profile* actually changed and
+  // the setting is on — done here, after proxy.settings.set, so the reload
+  // can't race ahead of the new route (the old popup-side reload could).
+  const switched = lastActiveId !== undefined && lastActiveId !== config.activeId;
+  lastActiveId = config.activeId;
+  if (switched && config.settings.refreshOnSwitch) await reloadActiveTab();
+
+  await refreshActiveTabBadge(config);
   await scheduleRuleListUpdates(config);
   if (config.settings.syncEnabled) await pushToSync(config);
+}
+
+async function reloadActiveTab(): Promise<void> {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    if (tab?.id !== undefined) await chrome.tabs.reload(tab.id);
+  } catch {
+    // no active tab or no permission — nothing to reload
+  }
 }
 
 /* ---------------- toolbar icon ---------------- */
@@ -167,7 +201,9 @@ async function updateRuleList(profileId: string): Promise<void> {
     if (!text.trim()) throw new Error('empty response');
     profile.text = text;
     profile.lastUpdated = Date.now();
-    await saveConfig(config);
+    // saveConfigRaw (no rev bump): an unattended fetch must not masquerade as a
+    // user edit that syncs this device's activeId to the others.
+    await saveConfigRaw(config);
   } catch {
     // Network failures keep the previous list; next alarm retries.
   }
@@ -175,25 +211,39 @@ async function updateRuleList(profileId: string): Promise<void> {
 
 /* ---------------- per-tab result badge (optional "tabs" permission) ---------------- */
 
-async function updateTabBadge(tabId: number): Promise<void> {
-  const config = await loadConfig();
+/** Repaint the focused tab's badge after a profile/temp-rule change. */
+async function refreshActiveTabBadge(config: Config): Promise<void> {
   if (!config.settings.badgeResult) return;
-  const active = profileById(config, config.activeId);
-  if (!active || staticTerminal(config, active) !== null) return; // unconditional — the icon already says it
   try {
-    const granted = await chrome.permissions.contains({ permissions: ['tabs'] });
-    if (!granted) return;
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    if (tab?.id !== undefined) await updateTabBadge(tab.id, config);
+  } catch {
+    // no active tab
+  }
+}
+
+/**
+ * Paint or CLEAR the per-tab route badge. Always resolves to one or the other
+ * so a stale badge from a previous profile can't linger.
+ */
+async function updateTabBadge(tabId: number, config: Config | null = cachedConfig): Promise<void> {
+  const cfg = config ?? (await loadConfig());
+  const clear = () => chrome.action.setBadgeText({ tabId, text: '' }).catch(() => undefined);
+
+  if (!cfg.settings.badgeResult) return; // feature off — leave global badge alone
+  const active = profileById(cfg, cfg.activeId);
+  // Unconditional profile (proxy/alias/direct): the icon already says it.
+  if (!active || staticTerminal(cfg, active) !== null) return void (await clear());
+  try {
+    if (!(await chrome.permissions.contains({ permissions: ['tabs'] }))) return;
     const errorStore = await chrome.storage.session.get(ERROR_KEY);
-    if (errorStore[ERROR_KEY]) return; // don't paint over the error badge
+    if (errorStore[ERROR_KEY]) return; // leave the global error badge visible
     const tab = await chrome.tabs.get(tabId);
-    if (!tab.url || !/^https?:/i.test(tab.url)) {
-      await chrome.action.setBadgeText({ tabId, text: '' });
-      return;
-    }
-    const tempRules = await loadTempRules(config.activeId);
+    if (!tab.url || !/^https?:/i.test(tab.url)) return void (await clear());
+    const tempRules = await loadTempRules(cfg.activeId);
     const host = new URL(tab.url).hostname;
-    const route = resolveRoute(config, active, tab.url, host, tempRules);
-    const target = profileById(config, route.targetId);
+    const route = resolveRoute(cfg, active, pacRequestUrl(tab.url), host, tempRules);
+    const target = profileById(cfg, route.targetId);
     const text = target && !route.bypassed ? initialsFor(target) : 'DIR';
     await chrome.action.setBadgeBackgroundColor({ tabId, color: target?.color ?? NEUTRAL });
     await chrome.action.setBadgeText({ tabId, text });
@@ -208,17 +258,21 @@ async function maybePullSync(): Promise<void> {
   const config = await loadConfig();
   if (!config.settings.syncEnabled) return;
   const remote = await pullFromSync(config.rev);
-  if (remote && remote.settings.syncEnabled) await applyFromSync(remote);
+  if (remote && remote.settings.syncEnabled) await applyFromSync(remote, config);
 }
 
 /* ---------------- wiring ---------------- */
 
+// Pull BEFORE applying/pushing so a stale device can't overwrite newer remote
+// data on wake-up. applyActive's own pushToSync is a no-op right after a pull
+// (rev already matches), so no echo.
 chrome.runtime.onInstalled.addListener(() => {
-  void applyActive().then(maybePullSync);
+  void maybePullSync().then(applyActive);
 });
 
 chrome.runtime.onStartup.addListener(() => {
   void (async () => {
+    await maybePullSync();
     const config = await loadConfig();
     const startup = config.settings.startupProfileId;
     const valid =
@@ -229,11 +283,13 @@ chrome.runtime.onStartup.addListener(() => {
     } else {
       await applyActive();
     }
-    await maybePullSync();
   })();
 });
 
-onConfigChanged(() => void applyActive());
+onConfigChanged((config) => {
+  cachedConfig = config;
+  void applyActive();
+});
 onTempRulesChanged(() => void applyActive());
 
 onSyncChanged(() => void maybePullSync());
@@ -266,6 +322,9 @@ chrome.tabs.onActivated.addListener((info) => void updateTabBadge(info.tabId));
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.url) void updateTabBadge(tabId);
 });
+
+// activeTab is granted only after the user interacts with the action; the
+// badge/reload paths degrade gracefully when it isn't.
 
 chrome.proxy.onProxyError.addListener((details) => {
   void (async () => {

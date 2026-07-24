@@ -15,6 +15,9 @@ import { Config, DIRECT, Profile, ProxyProfile, SwitchRule, profileById } from '
  * Each reachable profile compiles to one function; switch/virtual/rulelist
  * targets call each other, cycles fall back to DIRECT.
  */
+/** Prefix for rule-list dictionary keys — see emitBuckets. */
+const DK = '$';
+
 export function compilePac(config: Config, root: Profile, tempRules: SwitchRule[] = []): string {
   const regexes: string[] = [];
   const tables: string[] = []; // dict/array literals for rule-list buckets
@@ -23,6 +26,7 @@ export function compilePac(config: Config, root: Profile, tempRules: SwitchRule[
   const emitting = new Set<string>();
   const need = { ip: false, lv: false, date: false, endsWith: false, suffixWalk: false, loops: false };
 
+  const J = (s: string): string => JSON.stringify(s);
   const regexLiteral = (source: string): string => `new RegExp(${JSON.stringify(source)})`;
 
   const regexRef = (source: string): string => {
@@ -141,6 +145,10 @@ export function compilePac(config: Config, root: Profile, tempRules: SwitchRule[
    * thousands of sequential conditions.
    */
   const emitBuckets = (conds: CompiledCondition[]): string => {
+    // Keys are prefixed with DK so that dangerous names — notably "__proto__",
+    // which an object literal treats as a prototype setter rather than an own
+    // key — become ordinary own properties both in TS and in the emitted
+    // literal. Lookups below prepend the same prefix.
     const exact: Record<string, 1> = {};
     const suffix: Record<string, 1> = {};
     const keywords: string[] = [];
@@ -149,8 +157,8 @@ export function compilePac(config: Config, root: Profile, tempRules: SwitchRule[
     let extra = '';
     for (const c of conds) {
       switch (c.op) {
-        case 'hostEq': exact[c.host] = 1; break;
-        case 'suffix': suffix[c.alsoBare] = 1; break;
+        case 'hostEq': exact[DK + c.host] = 1; break;
+        case 'suffix': suffix[DK + c.alsoBare] = 1; break;
         case 'urlKeyword': keywords.push(c.text); break;
         case 'hostRegex': hostRegexes.push(c.source); break;
         case 'urlRegex': urlRegexes.push(c.source); break;
@@ -160,7 +168,7 @@ export function compilePac(config: Config, root: Profile, tempRules: SwitchRule[
       }
     }
     const parts: string[] = [];
-    if (Object.keys(exact).length) parts.push(`${tableRef(JSON.stringify(exact))}[h]===1`);
+    if (Object.keys(exact).length) parts.push(`${tableRef(JSON.stringify(exact))}[${J(DK)}+h]===1`);
     if (Object.keys(suffix).length) {
       need.suffixWalk = true;
       parts.push(`SW(h,${tableRef(JSON.stringify(suffix))})`);
@@ -197,7 +205,7 @@ export function compilePac(config: Config, root: Profile, tempRules: SwitchRule[
   }
   if (need.suffixWalk) {
     helpers.push(
-      'function SW(h,d){var p=h;for(;;){if(d[p]===1)return true;var j=p.indexOf(".");if(j<0)return false;p=p.slice(j+1);}}'
+      `function SW(h,d){var p=h;for(;;){if(d[${J(DK)}+p]===1)return true;var j=p.indexOf(".");if(j<0)return false;p=p.slice(j+1);}}`
     );
   }
   if (need.loops) {
@@ -222,7 +230,7 @@ export function compilePac(config: Config, root: Profile, tempRules: SwitchRule[
       : '');
 
   return [
-    `/* Sockitt: ${root.name.replace(/\*\//g, '')} */`,
+    `/* Sockitt: ${root.name.replace(/[/*\r\n]+/g, ' ')} */`,
     `var R=[${regexes.map(regexLiteral).join(',')}];`,
     'var ip=-1,lv=0,wd=0,mins=0;',
     ...helpers,

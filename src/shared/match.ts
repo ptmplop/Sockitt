@@ -178,6 +178,22 @@ export function compileBypassEntry(entry: string): CompiledCondition {
   return compileHostWildcard(e);
 }
 
+/**
+ * The URL as Chrome hands it to a PAC script. Chrome strips the path and query
+ * from https:// (and ftp/wss) URLs for privacy, passing only `scheme://host/`;
+ * http:// URLs keep their full path. The popup preview and per-tab badge must
+ * match against THIS, not the raw tab URL, or they disagree with real routing.
+ */
+export function pacRequestUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    if (u.protocol === 'http:') return url;
+    return `${u.protocol}//${u.host}/`;
+  } catch {
+    return url;
+  }
+}
+
 export function hostLevelCount(host: string): number {
   let levels = 1;
   for (let i = 0; i < host.length; i++) if (host.charCodeAt(i) === 46) levels++;

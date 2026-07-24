@@ -267,8 +267,8 @@ test('rule list profile compiles to a fast PAC and matches resolveRoute', () => 
     assert.equal(ts, expected, `resolveRoute parity for ${url}`);
   }
 
-  // Domain buckets become dictionaries, not per-domain conditions.
-  assert.ok(pac.includes('"blocked.example":1'), 'suffix dictionary emitted');
+  // Domain buckets become dictionaries (keys prefixed to dodge __proto__).
+  assert.ok(pac.includes('"$blocked.example":1'), 'suffix dictionary emitted');
 });
 
 test('Switchy format parsing', () => {
@@ -344,4 +344,65 @@ test('matcher primitives', () => {
   assert.equal(lib.parseTimeRange('9am-5pm'), null);
   assert.equal(lib.timeInRange(120, 1320, 360), true);  // 02:00 in 22:00-06:00
   assert.equal(lib.timeInRange(720, 1320, 360), false); // 12:00 not in 22:00-06:00
+});
+
+/* ---------------- regression: code-review fixes (1.2.1) ---------------- */
+
+test('profile name cannot escape the PAC header comment or inject code', () => {
+  for (const name of ['**// FindProxyForURL=function(){return "SOCKS5 evil:1"} //', '*/', '**//', 'a*/b']) {
+    const p = sw('sw', [rule('r', 'hostWildcard', '*.x.io', 'p1')], 'direct', name);
+    const pac = lib.compilePac(makeConfig([P1, p], 'sw'), p);
+    const ctx = vm.createContext({ Date: FakeDate });
+    vm.runInContext(pac, ctx); // must parse without throwing
+    assert.equal(typeof ctx.FindProxyForURL, 'function');
+    assert.equal(runPac(pac, 'https://a.x.io/', 'a.x.io'), SOCKS_P1);
+    assert.equal(runPac(pac, 'https://evil.test/', 'evil.test'), 'DIRECT'); // no injected route
+  }
+});
+
+test('__proto__ as a rule-list host matches in both PAC and resolveRoute', () => {
+  // P2 has no bypass list, so dotless hosts like __proto__ aren't <local>-bypassed.
+  const rl = {
+    kind: 'rulelist', id: 'rl', name: 'l', color: '#111111', format: 'autoproxy',
+    url: '', updateIntervalH: 0, matchTargetId: 'p2', defaultTargetId: 'direct',
+    text: '||__proto__\n||normal.example\nconstructor',
+  };
+  const config = makeConfig([P2, rl], 'rl');
+  const pac = lib.compilePac(config, rl);
+  // The dangerous key must be a real own entry in the emitted dictionary.
+  assert.ok(pac.includes('"$__proto__":1'), '__proto__ stored as an own dict key');
+  for (const host of ['__proto__', 'x.__proto__', 'normal.example', 'constructor']) {
+    const url = `http://${host}/`;
+    const pacRes = runPac(pac, url, host);
+    const route = lib.resolveRoute(config, rl, url, host);
+    const tsRes = route.targetId === 'direct' || route.bypassed ? 'DIRECT' : SOCKS_P2;
+    assert.equal(pacRes, SOCKS_P2, `PAC should match ${host}`);
+    assert.equal(pacRes, tsRes, `parity for ${host}`);
+  }
+  // A host that is NOT in the list must still fall through to DIRECT.
+  assert.equal(runPac(pac, 'http://toString/', 'toString'), 'DIRECT');
+});
+
+test('AutoProxy ||domain:port strips the port so the host matches', () => {
+  const parsed = lib.parseAutoProxy('||example.com:8080');
+  assert.deepEqual(parsed.blacklist[0], {
+    op: 'suffix', suffix: '.example.com', alsoBare: 'example.com',
+  });
+});
+
+test('pacRequestUrl mirrors Chrome path-stripping (https origin-only, http full)', () => {
+  assert.equal(lib.pacRequestUrl('https://x.io/tracker.js?a=1'), 'https://x.io/');
+  assert.equal(lib.pacRequestUrl('https://x.io:8443/deep/path'), 'https://x.io:8443/');
+  assert.equal(lib.pacRequestUrl('http://x.io/tracker.js'), 'http://x.io/tracker.js');
+  assert.equal(lib.pacRequestUrl('not a url'), 'not a url');
+
+  // A path-only keyword rule: preview must use pacRequestUrl to agree with the PAC.
+  const p = sw('sw', [rule('k', 'keyword', 'tracker', 'p1')], 'direct');
+  const config = makeConfig([P1, p], 'sw');
+  const pac = lib.compilePac(config, p);
+  const raw = 'https://x.io/tracker.js';
+  const stripped = lib.pacRequestUrl(raw);
+  assert.equal(runPac(pac, stripped, 'x.io'), 'DIRECT'); // Chrome sees no path on https
+  assert.equal(lib.resolveRoute(config, p, stripped, 'x.io').targetId, 'direct'); // preview agrees
+  assert.equal(lib.resolveRoute(config, p, raw, 'x.io').targetId, 'p1'); // raw url would mislead
 });

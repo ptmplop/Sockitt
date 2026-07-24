@@ -14,10 +14,22 @@ import {
 const KEY = 'sockitt';
 const TEMP_KEY = 'sockitt-temp';
 
-const RULE_TYPES: RuleType[] = [
-  'hostWildcard', 'hostRegex', 'urlWildcard', 'urlRegex', 'ipCidr',
-  'keyword', 'hostLevels', 'weekday', 'time',
-];
+// Compiler-enforced: adding a RuleType without listing it here fails to build,
+// rather than silently dropping rules of the new type on load/import/sync.
+const RULE_TYPE_SET: Record<RuleType, true> = {
+  hostWildcard: true,
+  hostRegex: true,
+  urlWildcard: true,
+  urlRegex: true,
+  ipCidr: true,
+  keyword: true,
+  hostLevels: true,
+  weekday: true,
+  time: true,
+};
+function isRuleType(t: unknown): t is RuleType {
+  return typeof t === 'string' && t in RULE_TYPE_SET;
+}
 
 export function defaultConfig(): Config {
   return { version: 2, rev: 0, activeId: SYSTEM, profiles: [], settings: defaultSettings() };
@@ -165,7 +177,7 @@ function isValidRule(r: unknown): r is SwitchRule {
     typeof o.id === 'string' &&
     typeof o.pattern === 'string' &&
     typeof o.targetId === 'string' &&
-    RULE_TYPES.includes(o.type as RuleType)
+    isRuleType(o.type)
   );
 }
 
@@ -199,11 +211,11 @@ function sanitizeProfile(raw: unknown): Profile | null {
         for (const r of o.rules) {
           if (typeof r !== 'object' || r === null) continue;
           const rr = r as Record<string, unknown>;
-          if (!RULE_TYPES.includes(rr.type as RuleType)) continue;
+          if (!isRuleType(rr.type)) continue;
           rules.push({
             id: typeof rr.id === 'string' && rr.id ? rr.id : uid(),
             enabled: rr.enabled !== false,
-            type: rr.type as RuleType,
+            type: rr.type,
             pattern: typeof rr.pattern === 'string' ? rr.pattern : '',
             targetId: typeof rr.targetId === 'string' ? rr.targetId : DIRECT,
           });

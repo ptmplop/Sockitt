@@ -7,10 +7,12 @@ import {
   newRuleListProfile,
   newSwitchProfile,
   newVirtualProfile,
+  onConfigChanged,
   sanitizeConfig,
   saveConfig,
+  saveConfigRaw,
 } from '../shared/state';
-import { clearSync } from '../shared/sync';
+import { SYNC_ERROR_KEY, clearSync, pullFromSync } from '../shared/sync';
 import {
   Config,
   DIRECT,
@@ -34,6 +36,7 @@ const SETTINGS_ID = '@settings';
 let config: Config;
 let selectedId: string | null = null;
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
+let syncError: string | null = null;
 
 const RULE_TYPES: Record<RuleType, string> = {
   hostWildcard: 'Host wildcard',
@@ -54,9 +57,13 @@ const KIND_LABEL: Record<Profile['kind'], string> = {
   virtual: 'Aliases',
 };
 
+let savePending = false;
+
 function scheduleSave(): void {
+  savePending = true;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
+    savePending = false;
     void saveConfig(config).then(() => toast('Saved'));
   }, 300);
 }
@@ -828,13 +835,41 @@ function settingsPanel(): HTMLElement {
       'div',
       { class: 'card panel' },
       el('h3', {}, 'Sync'),
+      syncError ? el('div', { class: 'banner' }, `Sync error: ${syncError}`) : null,
       toggleRow(
         'Sync configuration',
-        'Mirror profiles and rules to your browser account (chrome.storage.sync) so other machines pick them up. Newest change wins.',
+        'Mirror profiles and rules to your browser account (chrome.storage.sync) so other machines pick them up. Newest change wins. Large rule-list bodies are not synced — set a URL so each machine can refresh its own copy.',
         s.syncEnabled,
-        (v) => {
-          s.syncEnabled = v;
-          if (!v) void clearSync();
+        async (v) => {
+          if (!v) {
+            s.syncEnabled = false;
+            void clearSync();
+            return;
+          }
+          // Joining: adopt an existing synced config instead of overwriting it
+          // with this machine's (so enabling sync on a fresh install can't wipe
+          // the group). pullFromSync(-1) returns any present remote.
+          const remote = await pullFromSync(-1);
+          if (remote) {
+            const localText = new Map(
+              config.profiles
+                .filter((p) => p.kind === 'rulelist' && p.text)
+                .map((p) => [p.id, (p as { text: string }).text])
+            );
+            for (const p of remote.profiles) {
+              if (p.kind === 'rulelist' && !p.text && localText.has(p.id)) {
+                p.text = localText.get(p.id)!;
+              }
+            }
+            remote.settings.syncEnabled = true;
+            config = remote;
+            selectedId = SETTINGS_ID;
+            await saveConfig(config);
+            toast('Adopted synced configuration');
+            render();
+            return;
+          }
+          s.syncEnabled = true;
         }
       )
     )
@@ -960,8 +995,40 @@ function render(): void {
   );
 }
 
+/**
+ * Adopt config written by the background (rule-list auto-update, quick-switch
+ * cycle, or a sync pull) so the page's long-lived snapshot can't silently
+ * revert those writes on the next edit. Skipped while the user has an edit
+ * pending (their in-progress change wins, last-write-wins as everywhere else).
+ */
+onConfigChanged((incoming) => {
+  if (savePending || incoming.rev === config.rev) return;
+  config = incoming;
+  if (selectedId && selectedId !== SETTINGS_ID && !config.profiles.some((p) => p.id === selectedId)) {
+    selectedId = config.profiles[0]?.id ?? null;
+  }
+  render();
+});
+
+function watchSyncError(): void {
+  void chrome.storage.session.get(SYNC_ERROR_KEY).then((s) => {
+    const err = (s as Record<string, { message: string }>)[SYNC_ERROR_KEY];
+    if (err?.message && err.message !== syncError) {
+      syncError = err.message;
+      if (selectedId === SETTINGS_ID) render();
+    }
+  });
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'session' || !changes[SYNC_ERROR_KEY]) return;
+    const next = changes[SYNC_ERROR_KEY].newValue as { message: string } | undefined;
+    syncError = next?.message ?? null;
+    if (selectedId === SETTINGS_ID) render();
+  });
+}
+
 void loadConfig().then((c) => {
   config = c;
   selectedId = config.profiles[0]?.id ?? null;
+  watchSyncError();
   render();
 });

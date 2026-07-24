@@ -1,5 +1,5 @@
 import { avatarEl, builtinTile, initialsFor } from '../shared/avatar';
-import { resolveRoute } from '../shared/match';
+import { pacRequestUrl, resolveRoute } from '../shared/match';
 import { parseRuleList } from '../shared/rulelist';
 import { loadConfig, loadTempRules, saveConfig, saveTempRules } from '../shared/state';
 import {
@@ -43,16 +43,13 @@ async function init(): Promise<void> {
   render();
 }
 
-function setActive(id: string): void {
+async function setActive(id: string): Promise<void> {
   config.activeId = id;
-  void saveConfig(config);
-  void loadTempRules(id).then((rules) => {
-    tempRules = rules;
-    render();
-  });
-  if (config.settings.refreshOnSwitch) {
-    void chrome.tabs.reload().catch(() => undefined);
-  }
+  // Load the new profile's temp rules before the single render so the tab card
+  // never flashes the previous profile's rules. The background applies the
+  // proxy (and reloads the tab if refreshOnSwitch is on) off the storage write.
+  tempRules = await loadTempRules(id);
+  await saveConfig(config);
   render();
 }
 
@@ -165,7 +162,7 @@ function tabCard(active: SwitchProfile): HTMLElement {
   if (!tab) {
     return el('div', { class: 'card tab-card muted' }, 'Open a website to preview its route.');
   }
-  const route = resolveRoute(config, active, tab.url, tab.host, tempRules);
+  const route = resolveRoute(config, active, pacRequestUrl(tab.url), tab.host, tempRules);
   const target = config.profiles.find((p) => p.id === route.targetId);
   const viaName = route.bypassed ? 'Direct (bypass)' : target?.name ?? 'Direct';
   const viaTile = target && !route.bypassed ? avatarEl(target, 18) : builtinTile('D', 18);
