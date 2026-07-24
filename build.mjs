@@ -21,7 +21,7 @@ await cleanDist();
 
 // Only the runtime icon sizes ship in the extension — not the source artwork,
 // the SVG, or the README screenshots that also live under img/.
-const ICONS = ['icon-16.png', 'icon-32.png', 'icon-48.png', 'icon-128.png'];
+const ICONS = ['icon-16.png', 'icon-32.png', 'icon-48.png', 'icon-128.png', 'logo-mark.png'];
 
 const options = {
   entryPoints: [

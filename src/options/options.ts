@@ -1,4 +1,5 @@
 import { avatarEl, builtinTile, initialsFor } from '../shared/avatar';
+import { docsPanel } from './docs';
 import { patternError } from '../shared/match';
 import { parseRuleList } from '../shared/rulelist';
 import {
@@ -32,6 +33,7 @@ import { el, toast } from '../shared/ui';
 
 const app = document.getElementById('app')!;
 const SETTINGS_ID = '@settings';
+const DOCS_ID = '@docs';
 
 let config: Config;
 let selectedId: string | null = null;
@@ -107,12 +109,12 @@ function sidebar(): HTMLElement {
     el(
       'div',
       { class: 'brand' },
-      el('img', { class: 'mark', src: 'img/icon-48.png', alt: '' }),
+      el('img', { class: 'mark', src: 'img/logo-mark.png', alt: '' }),
       el(
         'span',
         { class: 'brand-text' },
         el('span', { class: 'brand-name' }, 'Sockitt'),
-        el('span', { class: 'brand-sub' }, 'SOCKS5 switcher')
+        el('span', { class: 'brand-sub' }, 'Proxy Switcher')
       )
     ),
     el(
@@ -131,15 +133,28 @@ function sidebar(): HTMLElement {
         },
         builtinTile('⚙', 22),
         el('span', { class: 'name' }, 'Settings')
-      )
+      ),
+      el(
+        'button',
+        {
+          class: `nav-item${selectedId === DOCS_ID ? ' selected' : ''}`,
+          onclick: () => {
+            selectedId = DOCS_ID;
+            render();
+          },
+        },
+        builtinTile('?', 22),
+        el('span', { class: 'name' }, 'Docs')
+      ),
+      el('div', { class: 'section-label' }, 'Create'),
+      el('button', { class: 'btn create-btn primary', onclick: () => addProfile(newProxyProfile) }, 'New proxy'),
+      el('button', { class: 'btn create-btn', onclick: () => addProfile(newSwitchProfile) }, 'New auto switch'),
+      el('button', { class: 'btn create-btn', onclick: () => addProfile(newRuleListProfile) }, 'New rule list'),
+      el('button', { class: 'btn create-btn', onclick: () => addProfile(newVirtualProfile) }, 'New alias')
     ),
     el(
       'div',
       { class: 'actions' },
-      el('button', { class: 'btn primary', onclick: () => addProfile(newProxyProfile) }, 'New proxy'),
-      el('button', { class: 'btn', onclick: () => addProfile(newSwitchProfile) }, 'New auto switch'),
-      el('button', { class: 'btn', onclick: () => addProfile(newRuleListProfile) }, 'New rule list'),
-      el('button', { class: 'btn', onclick: () => addProfile(newVirtualProfile) }, 'New alias'),
       el(
         'div',
         { class: 'tools' },
@@ -957,7 +972,7 @@ function emptyPane(): HTMLElement {
   return el(
     'div',
     { class: 'card hero' },
-    el('img', { class: 'mark hero-mark', src: 'img/icon-128.png', alt: '' }),
+    el('img', { class: 'mark hero-mark', src: 'img/logo-mark.png', alt: '' }),
     el('h2', {}, 'Route traffic your way'),
     el('p', {}, 'Create a SOCKS5 proxy profile, then add an Auto Switch profile to route sites by rule — host wildcards, regex, CIDR blocks, keywords, or time windows.'),
     el(
@@ -989,7 +1004,14 @@ function editorFor(profile: Profile): HTMLElement {
 function render(): void {
   const profile = selected();
   sideNode = sidebar();
-  const content = selectedId === SETTINGS_ID ? settingsPanel() : profile ? editorFor(profile) : emptyPane();
+  const content =
+    selectedId === DOCS_ID
+      ? docsPanel()
+      : selectedId === SETTINGS_ID
+        ? settingsPanel()
+        : profile
+          ? editorFor(profile)
+          : emptyPane();
   app.replaceChildren(
     el('div', { class: 'layout' }, sideNode, el('div', { class: 'content' }, content))
   );

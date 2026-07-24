@@ -325,7 +325,7 @@ function siteManager(active: SwitchProfile): HTMLElement {
     el(
       'div',
       { class: 'site-route' },
-      el('span', { class: 'host', title: tab.host }, tab.host),
+      el('span', { class: 'site-route-lead' }, 'Currently'),
       el('span', { class: 'arrow', innerHTML: '&#8594;' }),
       el('span', { class: 'via' }, via.tile, via.name)
     ),
@@ -362,7 +362,7 @@ function render(): void {
       el(
         'div',
         { class: 'pop-head' },
-        el('span', { class: 'brand' }, el('img', { class: 'mark', src: 'img/icon-48.png', alt: '' }), 'Sockitt'),
+        el('span', { class: 'brand' }, el('img', { class: 'mark', src: 'img/logo-mark.png', alt: '' }), 'Sockitt'),
         el('button', {
           class: 'btn ghost icon',
           title: 'Options',
@@ -378,9 +378,14 @@ function render(): void {
               { class: 'site-section' },
               el(
                 'div',
-                { class: 'section-label with-hint' },
-                el('span', {}, `Auto switch${tab ? ' · ' + tab.host : ''}`),
-                tempRules[0] ? el('span', { class: 'temp-badge' }, 'OVERRIDE ACTIVE') : null
+                { class: 'site-head' },
+                el(
+                  'div',
+                  { class: 'site-head-top' },
+                  el('span', { class: 'site-head-label' }, 'Auto switch'),
+                  tempRules[0] ? el('span', { class: 'temp-badge' }, 'OVERRIDE ACTIVE') : null
+                ),
+                tab ? el('span', { class: 'site-head-host', title: tab.host }, tab.host) : null
               ),
               siteManager(activeProfile)
             )
