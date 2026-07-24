@@ -1,4 +1,7 @@
 node_modules/
 dist/
 sockitt.zip
+sockitt.crx
+.crx-tmp/
+*.pem
 .DS_Store

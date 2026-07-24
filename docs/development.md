@@ -83,3 +83,21 @@ UI code is deliberately thin enough to verify by hand.
    has `manifest.json` at its root, exactly the layout the Chrome Web Store
    dashboard expects, so the same artifact serves both direct installs and
    store submission.
+
+## Signing (Chrome Web Store verified CRX uploads)
+
+The store item is opted in to **verified CRX uploads**, so each store upload
+must be a `.crx` signed with our private key.
+
+- The **private key lives outside the repo** at `../sockitt-signing-key.pem`
+  (the `personal/` folder), is gitignored, and must be backed up securely.
+  Losing it means the item can no longer be updated.
+- Produce a signed package with `npm run crx`, which builds `dist/` and writes
+  `sockitt.crx` signed with that key (override the path with `SOCKITT_CRX_KEY`,
+  or the browser with `CHROME`). Upload `sockitt.crx` to the store.
+- The matching **public key** (SubjectPublicKeyInfo PEM) is the value pasted
+  into the store's verified-upload field. The extension ID derived from it is
+  `fmpcgjkpojmmaciakgknagcogmlfofkg`.
+- The GitHub release keeps shipping the unpacked `sockitt.zip` for
+  Load-unpacked installs; `sockitt.crx` is only for store uploads and is never
+  committed.

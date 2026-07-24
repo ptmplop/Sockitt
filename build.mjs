@@ -1,9 +1,11 @@
 import * as esbuild from 'esbuild';
-import { cp, mkdir, readdir, rm } from 'node:fs/promises';
+import { cp, mkdir, readdir, rename, rm, access } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
+import { resolve } from 'node:path';
 
 const watch = process.argv.includes('--watch');
 const zip = process.argv.includes('--zip');
+const crx = process.argv.includes('--crx');
 
 // Clean the CONTENTS of dist/ without removing the directory itself. Removing
 // and recreating dist/ changes its inode and breaks Chrome's handle to an
@@ -61,5 +63,45 @@ if (watch) {
     execFileSync('zip', ['-r', '-X', '../sockitt.zip', '.'], { cwd: 'dist', stdio: 'inherit' });
     console.log('packaged → sockitt.zip');
   }
+  if (crx) await packCrx();
   console.log('build complete → dist/');
+}
+
+/**
+ * Sign dist/ into sockitt.crx for Chrome Web Store "verified CRX uploads".
+ * The private key stays out of the repo; point at it with SOCKITT_CRX_KEY
+ * (defaults to ../sockitt-signing-key.pem, i.e. the personal/ folder). Uses a
+ * local Chrome/Chromium (CHROME env, or a common macOS/Linux path).
+ */
+async function packCrx() {
+  const key = resolve(process.env.SOCKITT_CRX_KEY || '../sockitt-signing-key.pem');
+  await access(key).catch(() => {
+    throw new Error(`signing key not found at ${key} (set SOCKITT_CRX_KEY)`);
+  });
+  const candidates = [
+    process.env.CHROME,
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    'google-chrome',
+    'chromium',
+  ].filter(Boolean);
+  const dist = resolve('dist');
+  let packed = false;
+  for (const chrome of candidates) {
+    try {
+      execFileSync(chrome, [
+        '--headless=new', '--no-sandbox', '--no-message-box',
+        `--pack-extension=${dist}`, `--pack-extension-key=${key}`,
+        `--user-data-dir=${resolve('.crx-tmp')}`,
+      ], { stdio: 'ignore' });
+      packed = true;
+      break;
+    } catch {
+      /* try next candidate */
+    }
+  }
+  await rm('.crx-tmp', { recursive: true, force: true });
+  if (!packed) throw new Error('could not run Chrome to pack the CRX (set CHROME to its path)');
+  await rm('sockitt.crx', { force: true });
+  await rename('dist.crx', 'sockitt.crx');
+  console.log('signed → sockitt.crx');
 }
