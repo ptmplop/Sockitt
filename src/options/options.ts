@@ -60,6 +60,8 @@ const NAV_ICON = {
     '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
   grip:
     '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="6" x2="9" y2="6"/><line x1="15" y1="6" x2="15" y2="6"/><line x1="9" y1="12" x2="9" y2="12"/><line x1="15" y1="12" x2="15" y2="12"/><line x1="9" y1="18" x2="9" y2="18"/><line x1="15" y1="18" x2="15" y2="18"/></svg>',
+  plus:
+    '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
 };
 
 /** Neutral tile holding a nav-icon SVG — same tile as builtinTile, crisp glyph. */
@@ -196,10 +198,30 @@ function sidebar(): HTMLElement {
         el('span', { class: 'name' }, 'Docs')
       ),
       el('div', { class: 'section-label' }, 'Create'),
-      el('button', { class: 'btn create-btn', onclick: () => addProfile(newProxyProfile) }, 'New proxy'),
-      el('button', { class: 'btn create-btn', onclick: () => addProfile(newSwitchProfile) }, 'New auto switch'),
-      el('button', { class: 'btn create-btn', onclick: () => addProfile(newRuleListProfile) }, 'New rule list'),
-      el('button', { class: 'btn create-btn', onclick: () => addProfile(newVirtualProfile) }, 'New alias')
+      el(
+        'button',
+        { class: 'nav-item', onclick: () => addProfile(newProxyProfile) },
+        iconTile(NAV_ICON.plus, 22),
+        el('span', { class: 'name' }, 'Proxy')
+      ),
+      el(
+        'button',
+        { class: 'nav-item', onclick: () => addProfile(newSwitchProfile) },
+        iconTile(NAV_ICON.plus, 22),
+        el('span', { class: 'name' }, 'Auto switch')
+      ),
+      el(
+        'button',
+        { class: 'nav-item', onclick: () => addProfile(newRuleListProfile) },
+        iconTile(NAV_ICON.plus, 22),
+        el('span', { class: 'name' }, 'Rule list')
+      ),
+      el(
+        'button',
+        { class: 'nav-item', onclick: () => addProfile(newVirtualProfile) },
+        iconTile(NAV_ICON.plus, 22),
+        el('span', { class: 'name' }, 'Alias')
+      )
     ),
     el(
       'div',
