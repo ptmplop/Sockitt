@@ -217,6 +217,23 @@ select.input { cursor: pointer; appearance: auto; }
   font-size: 12px;
 }
 
+/* warning variant: something needs attention but nothing is broken */
+.warn-banner {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  margin-bottom: 14px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--amber) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--amber) 45%, transparent);
+  color: var(--amber);
+  font-weight: 600;
+  font-size: 12px;
+}
+.warn-banner .btn { flex: none; }
+
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: var(--surface-hover); border-radius: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }

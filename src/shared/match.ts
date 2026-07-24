@@ -204,6 +204,25 @@ export function timeInRange(mins: number, from: number, to: number): boolean {
   return from <= to ? mins >= from && mins <= to : mins >= from || mins <= to;
 }
 
+/**
+ * Compiled-regex memo. Conditions carry regex SOURCE strings (the PAC
+ * generator emits them as text), so the TS-side tester would otherwise build
+ * a fresh RegExp per rule per evaluation — noticeable when the popup or the
+ * per-tab badge walks a large rule set. Flagless regexes are stateless, so
+ * sharing instances is safe. Bounded defensively: huge rule lists could
+ * otherwise grow it without limit.
+ */
+const RE_CACHE = new Map<string, RegExp>();
+function cachedRegex(source: string): RegExp {
+  let re = RE_CACHE.get(source);
+  if (!re) {
+    if (RE_CACHE.size >= 1000) RE_CACHE.clear();
+    re = new RegExp(source);
+    RE_CACHE.set(source, re);
+  }
+  return re;
+}
+
 export function testCondition(
   c: CompiledCondition,
   url: string,
@@ -217,9 +236,9 @@ export function testCondition(
     case 'hostEq':
       return h === c.host;
     case 'hostRegex':
-      return new RegExp(c.source).test(h);
+      return cachedRegex(c.source).test(h);
     case 'urlRegex':
-      return new RegExp(c.source).test(url);
+      return cachedRegex(c.source).test(url);
     case 'urlKeyword':
       return url.includes(c.text);
     case 'cidr': {

@@ -48,7 +48,16 @@ function version(): string {
   }
 }
 
+/** The docs never change within a session; build the tree once per page. */
+let cachedPanel: HTMLElement | null = null;
+
 export function docsPanel(): HTMLElement {
+  cachedPanel ??= buildDocsPanel();
+  return cachedPanel;
+}
+
+function buildDocsPanel(): HTMLElement {
+  const v = version();
   return el(
     'div',
     { class: 'pane docs' },
@@ -57,7 +66,7 @@ export function docsPanel(): HTMLElement {
       'div',
       { class: 'doc-head' },
       el('h2', { class: 'doc-title' }, 'Documentation'),
-      version() ? el('span', { class: 'doc-version' }, version()) : null
+      v ? el('span', { class: 'doc-version' }, v) : null
     ),
 
     card(
@@ -136,7 +145,7 @@ export function docsPanel(): HTMLElement {
       ),
       p(
         'For HTTP/HTTPS proxies you can set a username and password. Answering proxy authentication challenges needs an optional permission (', code('webRequest'),
-        ' plus access to all sites); Sockitt asks for it the first time you set a username, and only then. SOCKS proxies cannot be authenticated by Chromium; secure them with an IP allow-list or a local tunnel instead.'
+        ' plus access to all sites); Sockitt asks for it when you set credentials, and only then. If credentials arrive another way (an imported backup), the options page shows a notice with an ', code('Enable authentication'), ' button. Credentials stay on the device where you enter them — they are never synced. SOCKS proxies cannot be authenticated by Chromium; secure them with an IP allow-list or a local tunnel instead.'
       )
     ),
 
@@ -185,7 +194,7 @@ export function docsPanel(): HTMLElement {
       'Settings reference',
       el('h4', { class: 'doc-sub' }, 'Switching'),
       terms([
-        ['Quick switch', ['When on, clicking the toolbar icon cycles through the profiles you’ve ticked instead of opening the popup. The cycle keyboard shortcut works either way.']],
+        ['Quick switch', ['When on, clicking the toolbar icon cycles through the profiles you’ve ticked instead of opening the popup (while it’s on, the popup itself is unavailable). Tick at least two entries — with fewer, the cycle falls back to Direct, System, and every profile. The cycle keyboard shortcut works either way.']],
         ['On browser startup, activate', ['Which profile becomes active when the browser starts. ', code('Last used'), ' keeps whatever was active before.']],
         ['Reload tab after switching', ['Reload the active tab after you pick a profile in the popup, so the page reloads through the new route.']],
       ]),
@@ -198,7 +207,7 @@ export function docsPanel(): HTMLElement {
       ]),
       el('h4', { class: 'doc-sub' }, 'Sync'),
       terms([
-        ['Sync configuration', ['Mirrors profiles and rules to your browser account so other machines pick them up; the newest change wins. Large rule-list bodies are not synced, so set a URL and each machine refreshes its own copy. Enabling sync on a machine that already has a synced setup adopts the existing one rather than overwriting it.']],
+        ['Sync configuration', ['Mirrors profiles and rules to your browser account so other machines pick them up; the newest change wins. Large rule-list bodies are not synced, so set a URL and each machine refreshes its own copy. Proxy credentials are never synced — enter them on each machine. Enabling sync on a machine that already has a synced setup adopts the existing one rather than overwriting it.']],
       ])
     ),
 
@@ -215,7 +224,7 @@ export function docsPanel(): HTMLElement {
     card(
       'Backup, import, and reset',
       terms([
-        ['Export', ['Downloads your entire configuration as a JSON file.']],
+        ['Export', ['Downloads your entire configuration as a JSON file — including any proxy usernames and passwords, in plain text, so a restore brings everything back. Treat backups as secrets if your proxies use credentials.']],
         ['Import', ['Loads a configuration from a JSON file, replacing the current one. Imported data is validated, so a malformed file can’t break the extension.']],
         ['Reset', ['Removes all profiles and rules and returns to the System profile. Settings are kept.']],
       ])
@@ -225,7 +234,7 @@ export function docsPanel(): HTMLElement {
       'Keyboard shortcuts',
       p('Set or change these at ', code('chrome://extensions/shortcuts'), '.'),
       ul([
-        el('span', {}, code('Alt+Shift+S'), ' opens the Sockitt popup (default).'),
+        el('span', {}, code('Alt+Shift+S'), ' activates the toolbar button (default): it opens the popup — or, with Quick switch on, cycles to the next profile, exactly like clicking the icon.'),
         el('span', {}, 'Cycle to the next quick-switch profile: unbound by default; assign a key if you use Quick switch.'),
       ])
     ),

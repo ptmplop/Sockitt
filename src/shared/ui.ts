@@ -26,7 +26,7 @@ export function el<K extends keyof HTMLElementTagNameMap>(
 let toastNode: HTMLElement | null = null;
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
-export function toast(message: string): void {
+export function toast(message: string, durationMs = 1600): void {
   if (!toastNode) {
     toastNode = el('div', { class: 'toast' });
     document.body.append(toastNode);
@@ -34,5 +34,5 @@ export function toast(message: string): void {
   toastNode.textContent = message;
   toastNode.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toastNode?.classList.remove('show'), 1600);
+  toastTimer = setTimeout(() => toastNode?.classList.remove('show'), durationMs);
 }

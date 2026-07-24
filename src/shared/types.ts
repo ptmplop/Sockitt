@@ -60,6 +60,21 @@ export function schemeSupportsAuth(scheme: ProxyScheme): boolean {
   return scheme === 'http' || scheme === 'https';
 }
 
+/**
+ * Optional permissions needed to answer proxy auth challenges. Single source
+ * of truth: the options page requests exactly what the background registers
+ * against — a divergent copy would make the grant stop satisfying the check.
+ */
+export const AUTH_PERMS: chrome.permissions.Permissions = {
+  permissions: ['webRequest', 'webRequestAuthProvider'],
+  origins: ['<all_urls>'],
+};
+
+/** true when the profile carries credentials the auth handler would serve. */
+export function hasCredentials(p: ProxyProfile): boolean {
+  return schemeSupportsAuth(p.scheme) && Boolean(p.username || p.password);
+}
+
 export const SCHEME_LABELS: Record<ProxyScheme, string> = {
   socks5: 'SOCKS5',
   socks4: 'SOCKS4',
@@ -119,8 +134,17 @@ export interface Settings {
   badgeResult: boolean;
 }
 
+/**
+ * Config schema version. Synced payloads carry it in their meta record, and a
+ * device refuses to adopt a payload from a different schema — an older
+ * install's sanitizer would silently strip fields it doesn't know (e.g. the
+ * v3 scheme/username/password) and push the gutted config back to every
+ * device. Bump on any field change an old sanitizer would destroy.
+ */
+export const CONFIG_VERSION = 3;
+
 export interface Config {
-  version: 2;
+  version: number;
   /** Monotonic revision (ms timestamp) used for sync conflict resolution. */
   rev: number;
   /** 'direct' | 'system' | a profile id. */

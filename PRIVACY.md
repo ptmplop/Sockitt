@@ -25,12 +25,16 @@ ever sent to the developer or to any third party.
   your configuration is mirrored through your browser's built-in account sync
   (`chrome.storage.sync`) so your other signed-in browsers can pick it up. This
   data travels through your browser vendor's sync service under your own
-  account; the developer has no access to it and operates no server.
+  account; the developer has no access to it and operates no server. Proxy
+  credentials are excluded from sync — they never leave the device.
 - **Proxy credentials (optional)** - if you add a username and password to an
   HTTP or HTTPS proxy profile, they are stored with that profile locally and
   used only to answer that proxy's authentication challenges. They are never
   transmitted anywhere except to the proxy you configured, as part of normal
-  proxy authentication.
+  proxy authentication, and they are excluded from Sync. The one way they can
+  leave the device is a backup you create yourself: the Export button writes
+  your full configuration — credentials included, in plain text — to a JSON
+  file, so treat exported backups as secrets.
 - **The active tab's address** - when you open the popup (or enable the
   optional per-tab route badge), Sockitt reads the current tab's URL to show
   which proxy that page will use and to let you add or override a rule for it.

@@ -105,9 +105,10 @@ Extra capabilities are strictly opt-in and requested only when you use them:
 - **Per-tab route badge** requests `tabs`.
 - **HTTP/HTTPS proxy authentication** requests `webRequest`,
   `webRequestAuthProvider`, and all-sites access, which Chromium needs to answer
-  proxy auth challenges. Sockitt asks the first time you set a username.
+  proxy auth challenges. Sockitt asks when you set credentials.
 - **Sync** stores your configuration in your own browser account
-  (`chrome.storage.sync`).
+  (`chrome.storage.sync`). Proxy credentials are never synced; enter them on
+  each machine.
 
 ## Limitations
 

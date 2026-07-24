@@ -94,11 +94,18 @@ and asserts they agree, so the preview cannot drift from reality.
 
 HTTP and HTTPS proxies can carry a username and password. Because Chrome's proxy
 config cannot hold credentials, the worker answers proxy auth challenges through
-`chrome.webRequest.onAuthRequired`, matching the challenger's host and port to
-an in-memory endpoint-to-credentials map (the handler is synchronous, as MV3
-requires). This needs the optional `webRequest`, `webRequestAuthProvider`, and
-all-sites permissions, which the options page requests only when a user sets a
-username. SOCKS proxies cannot be authenticated by Chromium.
+`chrome.webRequest.onAuthRequired`. The listener is registered synchronously at
+the worker's top level (MV3 only wakes a suspended worker for listeners
+registered in the first synchronous turn) and uses `asyncBlocking`, so a
+freshly woken worker can read credentials from storage before responding.
+Challenger host and port are matched, lowercased, against an
+endpoint-to-credentials map; a repeat challenge for the same request means the
+proxy rejected the stored credentials, so the handler answers it empty rather
+than looping, which hands control to the browser's own login dialog. This
+needs the optional `webRequest`, `webRequestAuthProvider`, and all-sites
+permissions, which the options page requests only when a user sets
+credentials; credentials are excluded from sync and never leave the device.
+SOCKS proxies cannot be authenticated by Chromium.
 
 ## Error surfacing
 

@@ -106,7 +106,7 @@ async function applyActive(): Promise<void> {
   if (switched && config.settings.refreshOnSwitch) await reloadActiveTab();
 
   rebuildCredentials(config);
-  await syncAuthHandler();
+  registerAuthListener();
   await refreshActiveTabBadge(config);
   await scheduleRuleListUpdates(config);
   if (config.settings.syncEnabled) await pushToSync(config);
@@ -114,47 +114,117 @@ async function applyActive(): Promise<void> {
 
 /* ---------------- proxy authentication (http/https, optional perms) ---------------- */
 
-const AUTH_PERMS: chrome.permissions.Permissions = {
-  permissions: ['webRequest', 'webRequestAuthProvider'],
-  origins: ['<all_urls>'],
-};
 const credByEndpoint = new Map<string, { username: string; password: string }>();
-let authListenerAdded = false;
+/** false until the map reflects stored config in THIS worker instance. */
+let credsLoaded = false;
+/**
+ * requestIds already answered once. Chrome re-fires onAuthRequired for the
+ * same request when the supplied credentials are rejected — answering again
+ * with the same pair would loop forever and suppress the browser's own
+ * dialog, so a repeat challenge gets {} and the user can type a correction.
+ */
+const answeredChallenges = new Set<string>();
+const MAX_TRACKED_CHALLENGES = 500;
 
-/** Endpoint→credentials for every http/https proxy that has a username. */
+/**
+ * Endpoint→credentials for every http/https proxy that has credentials. Keys
+ * are lowercased: challenger.host arrives canonicalized, while profile.host
+ * is whatever the user typed.
+ */
 function rebuildCredentials(config: Config): void {
   credByEndpoint.clear();
   for (const p of proxyProfiles(config)) {
-    if (schemeSupportsAuth(p.scheme) && p.username) {
-      credByEndpoint.set(`${p.host}:${p.port}`, { username: p.username, password: p.password ?? '' });
+    if (schemeSupportsAuth(p.scheme) && (p.username || p.password)) {
+      credByEndpoint.set(`${p.host.trim().toLowerCase()}:${p.port}`, {
+        username: p.username ?? '',
+        password: p.password ?? '',
+      });
     }
   }
+  credsLoaded = true;
 }
 
-/** Synchronous: MV3 blocking onAuthRequired can't await, so look up in memory. */
-function onAuthRequired(
-  details: chrome.webRequest.OnAuthRequiredDetails
-): chrome.webRequest.BlockingResponse {
-  if (!details.isProxy || !details.challenger) return {};
-  const cred = credByEndpoint.get(`${details.challenger.host}:${details.challenger.port}`);
-  return cred ? { authCredentials: cred } : {};
+function credentialsFor(challenger: {
+  host: string;
+  port: number;
+}): { username: string; password: string } | undefined {
+  return credByEndpoint.get(`${challenger.host.toLowerCase()}:${challenger.port}`);
 }
 
 /**
- * Register the proxy-auth handler once, only when credentials exist and the
- * optional webRequest/webRequestAuthProvider/host permissions have been
- * granted (the options page requests them when a user saves credentials).
+ * asyncBlocking: the handler may respond after a storage read, so a freshly
+ * woken worker (whose in-memory map is empty) can still answer the very
+ * challenge that woke it.
  */
-async function syncAuthHandler(): Promise<void> {
-  if (authListenerAdded || credByEndpoint.size === 0) return;
-  const granted = await chrome.permissions.contains(AUTH_PERMS).catch(() => false);
-  if (!granted || !chrome.webRequest?.onAuthRequired) return;
-  try {
-    chrome.webRequest.onAuthRequired.addListener(onAuthRequired, { urls: ['<all_urls>'] }, ['blocking']);
-    authListenerAdded = true;
-  } catch {
-    // APIs unavailable despite the permission check — leave unregistered
+function onAuthRequired(
+  details: chrome.webRequest.OnAuthRequiredDetails,
+  asyncCallback?: (response: chrome.webRequest.BlockingResponse) => void
+): chrome.webRequest.BlockingResponse | undefined {
+  // asyncBlocking delivers the answer via the callback; the return value is
+  // ignored. respond() returns undefined so `return respond(...)` typechecks.
+  const respond = (r: chrome.webRequest.BlockingResponse): undefined => {
+    asyncCallback?.(r);
+    return undefined;
+  };
+  if (!details.isProxy || !details.challenger) return respond({});
+  // Keyed on request AND challenger: a repeat from the same proxy means our
+  // credentials were rejected, but a redirect that crosses onto a second
+  // authenticating proxy re-uses the requestId and still deserves an answer.
+  const challengeKey = `${details.requestId}|${details.challenger.host}:${details.challenger.port}`;
+  if (answeredChallenges.has(challengeKey)) return respond({}); // rejected creds — don't loop
+  if (answeredChallenges.size >= MAX_TRACKED_CHALLENGES) {
+    // Evict only the oldest marker (Sets iterate in insertion order): a
+    // wholesale clear would forget in-flight challenges mid-burst and let a
+    // rejected pair be re-answered.
+    const oldest = answeredChallenges.values().next().value;
+    if (oldest !== undefined) answeredChallenges.delete(oldest);
   }
+  answeredChallenges.add(challengeKey);
+  if (credsLoaded) {
+    const cred = credentialsFor(details.challenger);
+    return respond(cred ? { authCredentials: cred } : {});
+  }
+  void loadConfig()
+    .then((config) => {
+      rebuildCredentials(config);
+      const cred = credentialsFor(details.challenger!);
+      respond(cred ? { authCredentials: cred } : {});
+    })
+    // A dropped callback would hold the request forever under asyncBlocking.
+    .catch(() => respond({}));
+}
+
+/**
+ * Register at the worker's top level, in the first synchronous turn — MV3
+ * only wakes a suspended worker for events whose listeners were registered
+ * there. chrome.webRequest exists only once the optional permission has been
+ * granted (in a past or current session); until then this is a silent no-op
+ * and the permissions.onAdded hook below retries after a grant.
+ */
+function registerAuthListener(): void {
+  try {
+    if (!chrome.webRequest?.onAuthRequired) return;
+    if (chrome.webRequest.onAuthRequired.hasListener(onAuthRequired)) return;
+    chrome.webRequest.onAuthRequired.addListener(
+      onAuthRequired,
+      { urls: ['<all_urls>'] },
+      ['asyncBlocking']
+    );
+  } catch {
+    // API surface incomplete (e.g. webRequestAuthProvider missing) — the
+    // options page only ever requests the permissions together, so retrying
+    // on the next grant is enough.
+  }
+}
+
+/** After a revoke→re-grant the old registration may be dead; start fresh. */
+function reregisterAuthListener(): void {
+  try {
+    chrome.webRequest?.onAuthRequired?.removeListener(onAuthRequired);
+  } catch {
+    // never registered
+  }
+  registerAuthListener();
 }
 
 async function reloadActiveTab(): Promise<void> {
@@ -319,6 +389,10 @@ async function maybePullSync(): Promise<void> {
 
 /* ---------------- wiring ---------------- */
 
+// First synchronous turn: the auth listener must be registered here (not from
+// an async path) or Chrome won't wake this worker for proxy 407 challenges.
+registerAuthListener();
+
 // Pull BEFORE applying/pushing so a stale device can't overwrite newer remote
 // data on wake-up. applyActive's own pushToSync is a no-op right after a pull
 // (rev already matches), so no echo.
@@ -350,7 +424,14 @@ onTempRulesChanged(() => void applyActive());
 
 onSyncChanged(() => void maybePullSync());
 
-chrome.permissions.onAdded.addListener(() => void syncAuthHandler());
+chrome.permissions.onAdded.addListener((added) => {
+  // Only auth-related grants warrant touching the listener — reregistering on
+  // an unrelated grant (e.g. "tabs") would trade a wake-eligible first-turn
+  // registration for an async one until the next worker restart.
+  if (added.permissions?.some((p) => p === 'webRequest' || p === 'webRequestAuthProvider')) {
+    reregisterAuthListener();
+  }
+});
 
 chrome.action.onClicked.addListener(() => void cycleProfile());
 

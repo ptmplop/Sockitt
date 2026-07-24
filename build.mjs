@@ -13,9 +13,9 @@ const crx = process.argv.includes('--crx');
 // keeps the same directory so a loaded extension survives a rebuild.
 async function cleanDist() {
   await mkdir('dist', { recursive: true });
-  for (const entry of await readdir('dist')) {
-    await rm(`dist/${entry}`, { recursive: true, force: true });
-  }
+  await Promise.all(
+    (await readdir('dist')).map((entry) => rm(`dist/${entry}`, { recursive: true, force: true }))
+  );
   await mkdir('dist/img', { recursive: true });
 }
 
@@ -41,13 +41,15 @@ const options = {
 };
 
 async function copyStatic() {
-  await cp('static/manifest.json', 'dist/manifest.json');
-  await cp('src/theme.css', 'dist/theme.css');
-  await cp('src/popup/popup.html', 'dist/popup.html');
-  await cp('src/popup/popup.css', 'dist/popup.css');
-  await cp('src/options/options.html', 'dist/options.html');
-  await cp('src/options/options.css', 'dist/options.css');
-  for (const icon of ICONS) await cp(`img/${icon}`, `dist/img/${icon}`);
+  await Promise.all([
+    cp('static/manifest.json', 'dist/manifest.json'),
+    cp('src/theme.css', 'dist/theme.css'),
+    cp('src/popup/popup.html', 'dist/popup.html'),
+    cp('src/popup/popup.css', 'dist/popup.css'),
+    cp('src/options/options.html', 'dist/options.html'),
+    cp('src/options/options.css', 'dist/options.css'),
+    ...ICONS.map((icon) => cp(`img/${icon}`, `dist/img/${icon}`)),
+  ]);
 }
 
 if (watch) {

@@ -1,11 +1,13 @@
 import { sanitizeConfig, saveConfigRaw } from './state';
-import { Config, Profile } from './types';
+import { CONFIG_VERSION, Config, Profile, schemeSupportsAuth } from './types';
 
 /**
  * Mirror the config over chrome.storage.sync. sync items are capped (~8 KB
  * each, ~100 KB total), so:
  *   - Rule-list bodies are excluded when they can be refetched from a URL, and
  *     large pasted bodies are dropped too, keeping the payload small.
+ *   - Proxy credentials are excluded on principle, not size: they never leave
+ *     the device (see PRIVACY.md); each machine keeps its own copy.
  *   - The remaining JSON is split into byte-bounded chunks (never mid-codepoint)
  *     under a meta record carrying the revision.
  *   - Every push first checks the remote revision and refuses to overwrite a
@@ -22,6 +24,8 @@ export const SYNC_ERROR_KEY = 'sockitt-sync-error';
 interface SyncMeta {
   rev: number;
   chunks: number;
+  /** Config schema version of the payload; absent = pre-v3 install. */
+  version?: number;
 }
 
 const encoder = new TextEncoder();
@@ -29,9 +33,19 @@ const encoder = new TextEncoder();
 let lastPushedRev = 0;
 let lastAppliedRev = 0;
 
-/** Strip rule-list bodies that other devices can refetch or that are too big. */
-function slimConfig(config: Config): Config {
+/**
+ * Strip what must not travel: rule-list bodies that other devices can refetch
+ * (or that are too big), and proxy credentials — PRIVACY.md promises those
+ * never leave the device, so each machine keeps its own copy (restored from
+ * the local config in applyFromSync, like rule-list text).
+ */
+export function slimConfig(config: Config): Config {
   const profiles: Profile[] = config.profiles.map((p) => {
+    if (p.kind === 'proxy') {
+      return p.username !== undefined || p.password !== undefined
+        ? { ...p, username: undefined, password: undefined }
+        : p;
+    }
     if (p.kind !== 'rulelist') return p;
     const keepText = !p.url && p.text.length <= INLINE_TEXT_MAX;
     return { ...p, text: keepText ? p.text : '' };
@@ -73,14 +87,29 @@ export async function pushToSync(config: Config): Promise<void> {
   try {
     const metaStore = await chrome.storage.sync.get(META);
     const remote = metaStore[META] as SyncMeta | undefined;
-    // Refuse to overwrite a strictly newer remote; a pull will reconcile.
-    if (remote && typeof remote.rev === 'number' && remote.rev > config.rev) {
-      lastPushedRev = config.rev; // don't keep retrying this stale push
-      return;
+    if (remote && typeof remote.rev === 'number') {
+      // Never overwrite a remote written by a different schema version, even
+      // with a newer rev — old installs have no gate and would adopt the
+      // overwrite (see remoteSyncState). Sync freezes both ways until every
+      // device runs this schema; the first push after they update resumes it.
+      if ((remote.version ?? 2) !== CONFIG_VERSION) {
+        lastPushedRev = config.rev; // don't keep retrying until the next edit
+        await recordError(
+          new Error('Sync paused: another device runs a different Sockitt version — update it to resume.')
+        );
+        return;
+      }
+      // Refuse to overwrite a strictly newer remote; a pull will reconcile.
+      if (remote.rev > config.rev) {
+        lastPushedRev = config.rev; // don't keep retrying this stale push
+        return;
+      }
     }
 
     const chunks = chunkByBytes(JSON.stringify(slimConfig(config)));
-    const items: Record<string, unknown> = { [META]: { rev: config.rev, chunks: chunks.length } };
+    const items: Record<string, unknown> = {
+      [META]: { rev: config.rev, chunks: chunks.length, version: CONFIG_VERSION },
+    };
     chunks.forEach((c, i) => (items[`${CHUNK}${i}`] = c));
     await chrome.storage.sync.set(items);
 
@@ -97,11 +126,37 @@ export async function pushToSync(config: Config): Promise<void> {
   }
 }
 
+/**
+ * What the remote holds: nothing, a payload this build can adopt, or one
+ * written by a different schema version. Callers that are about to overwrite
+ * the remote (the enable-sync join flow) must treat 'incompatible' as a hard
+ * stop — old installs have no version gate, so a push would propagate.
+ */
+export async function remoteSyncState(): Promise<'none' | 'compatible' | 'incompatible'> {
+  try {
+    const metaStore = await chrome.storage.sync.get(META);
+    const meta = metaStore[META] as SyncMeta | undefined;
+    if (!meta || typeof meta.rev !== 'number') return 'none';
+    return (meta.version ?? 2) === CONFIG_VERSION ? 'compatible' : 'incompatible';
+  } catch {
+    return 'none';
+  }
+}
+
 export async function pullFromSync(localRev: number): Promise<Config | null> {
   try {
     const metaStore = await chrome.storage.sync.get(META);
     const meta = metaStore[META] as SyncMeta | undefined;
     if (!meta || typeof meta.rev !== 'number' || meta.rev <= localRev) return null;
+    // Never adopt a payload from a different schema: an older install's
+    // sanitizer strips fields it doesn't know and would push the gutted
+    // config back to every device. Surface it instead of failing silently.
+    if ((meta.version ?? 2) !== CONFIG_VERSION) {
+      await recordError(
+        new Error('Sync paused: another device runs a different Sockitt version — update it to resume.')
+      );
+      return null;
+    }
     const keys = Array.from({ length: meta.chunks }, (_, i) => `${CHUNK}${i}`);
     const chunkStore = await chrome.storage.sync.get(keys);
     let json = '';
@@ -113,6 +168,8 @@ export async function pullFromSync(localRev: number): Promise<Config | null> {
     const config = sanitizeConfig(JSON.parse(json));
     if (!config) return null;
     config.rev = meta.rev;
+    // A good pull supersedes any lingering "sync paused" notice.
+    await clearError();
     return config;
   } catch {
     return null;
@@ -120,21 +177,33 @@ export async function pullFromSync(localRev: number): Promise<Config | null> {
 }
 
 /**
- * Apply a newer remote config to local storage. Rule-list bodies that were
- * stripped for sync are restored from the local copy (matched by id) so a pull
- * never wipes a locally-fetched list; anything still empty refetches on its
- * own alarm. Records the applied revision so the resulting local change isn't
- * pushed straight back out.
+ * Apply a newer remote config to local storage. Fields that were stripped for
+ * sync are restored from the local copy (matched by id): rule-list bodies so
+ * a pull never wipes a locally-fetched list (anything still empty refetches
+ * on its own alarm), and proxy credentials, which deliberately never travel.
+ * Records the applied revision so the resulting local change isn't pushed
+ * straight back out.
  */
 export async function applyFromSync(remote: Config, local: Config): Promise<void> {
   const localText = new Map<string, string>();
+  const localCreds = new Map<string, { username?: string; password?: string }>();
   for (const p of local.profiles) {
     if (p.kind === 'rulelist' && p.text) localText.set(p.id, p.text);
+    if (p.kind === 'proxy' && (p.username || p.password)) {
+      localCreds.set(p.id, { username: p.username, password: p.password });
+    }
   }
   for (const p of remote.profiles) {
     if (p.kind === 'rulelist' && !p.text) {
       const text = localText.get(p.id);
       if (text) p.text = text;
+    }
+    if (p.kind === 'proxy' && p.username === undefined && p.password === undefined) {
+      const cred = localCreds.get(p.id);
+      if (cred && schemeSupportsAuth(p.scheme)) {
+        p.username = cred.username;
+        p.password = cred.password;
+      }
     }
   }
   lastAppliedRev = remote.rev;

@@ -9,7 +9,7 @@ before(async () => {
   const result = await build({
     stdin: {
       contents:
-        "export * from './src/shared/pac'; export * from './src/shared/match'; export * from './src/shared/rulelist';",
+        "export * from './src/shared/pac'; export * from './src/shared/match'; export * from './src/shared/rulelist'; export { sanitizeConfig } from './src/shared/state'; export { slimConfig } from './src/shared/sync';",
       resolveDir: new URL('..', import.meta.url).pathname,
       loader: 'ts',
     },
@@ -50,7 +50,7 @@ const SOCKS_P2 = 'SOCKS5 198.51.100.3:9050';
 
 function makeConfig(profiles, activeId) {
   return {
-    version: 2, rev: 0, activeId, profiles,
+    version: 3, rev: 0, activeId, profiles,
     settings: {
       quickSwitch: false, quickSwitchIds: [], syncEnabled: false, startupProfileId: '',
       revertExternal: false, confirmDeletion: true, addToBottom: true,
@@ -434,4 +434,54 @@ test('fixedServersValue maps scheme through for the fast path', () => {
   assert.equal(v.rules.singleProxy.port, 8080);
   assert.deepEqual(v.rules.bypassList, ['<local>']);
   assert.equal(lib.fixedServersValue('socks4', 'h', 1, []).rules.singleProxy.scheme, 'socks4');
+});
+
+/* ---------------- sanitizer: schemes and credentials (1.6.3) ---------------- */
+
+const rawProxy = (over = {}) => ({
+  kind: 'proxy', id: 'p', name: 'P', color: '#123456',
+  scheme: 'http', host: 'Proxy.Example.COM', port: 8080, bypass: [],
+  username: 'user', password: 'pass', ...over,
+});
+const sanitizedProxy = (raw) =>
+  lib.sanitizeConfig(makeConfig([raw], 'p')).profiles[0];
+
+test('sanitize keeps every known scheme and coerces unknown ones to socks5', () => {
+  for (const scheme of ['socks5', 'socks4', 'http', 'https']) {
+    assert.equal(sanitizedProxy(rawProxy({ scheme })).scheme, scheme);
+  }
+  for (const scheme of ['quic', '', 42, null, 'toString']) {
+    assert.equal(sanitizedProxy(rawProxy({ scheme })).scheme, 'socks5', String(scheme));
+  }
+});
+
+test('sanitize drops credentials for SOCKS schemes and keeps them for http/https', () => {
+  const socks = sanitizedProxy(rawProxy({ scheme: 'socks5' }));
+  assert.equal(socks.username, undefined);
+  assert.equal(socks.password, undefined);
+  const http = sanitizedProxy(rawProxy());
+  assert.equal(http.username, 'user');
+  assert.equal(http.password, 'pass');
+  // Password-only credentials are valid (empty username HTTP auth) and survive.
+  const pwOnly = sanitizedProxy(rawProxy({ username: undefined }));
+  assert.equal(pwOnly.username, undefined);
+  assert.equal(pwOnly.password, 'pass');
+});
+
+test('slimConfig strips credentials (and refetchable list bodies) for sync', () => {
+  const listed = {
+    kind: 'rulelist', id: 'rl', name: 'L', color: '#123456', format: 'autoproxy',
+    url: 'https://x.io/list.txt', updateIntervalH: 24,
+    matchTargetId: 'p', defaultTargetId: 'direct', text: '||example.com',
+  };
+  const slim = lib.slimConfig(
+    makeConfig([rawProxy({ username: 'agent-99', password: 'sekrit-hunter2' }), listed], 'p')
+  );
+  const proxy = slim.profiles[0];
+  assert.equal(proxy.username, undefined);
+  assert.equal(proxy.password, undefined);
+  assert.equal(slim.profiles[1].text, '');
+  // ...and the stripped values vanish from the synced JSON entirely.
+  const json = JSON.stringify(slim);
+  assert.ok(!json.includes('sekrit-hunter2') && !json.includes('agent-99'));
 });

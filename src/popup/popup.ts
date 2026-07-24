@@ -62,6 +62,10 @@ async function setActive(id: string): Promise<void> {
 async function loadOverride(profileId: string): Promise<void> {
   const rules = await loadTempRules(profileId);
   tempRules = rules.slice(0, 1);
+  // Legacy-state cleanup. Awaited: saveTempRules is a read-modify-write over
+  // the shared map, so letting it float would race the user's own override
+  // clicks. The branch never fires on the common path (≤1 rule), so first
+  // paint doesn't pay for it.
   if (rules.length > 1) await saveTempRules(profileId, tempRules);
 }
 
@@ -207,7 +211,19 @@ function siteManager(active: SwitchProfile): HTMLElement {
   }
   const matchUrl = pacRequestUrl(tab.url);
   const override = tempRules[0];
-  const hasOverride = !!override;
+  // Grey out the rule controls only when the override actually captures THIS
+  // site — an override set on another site must not lock editing here.
+  const overridesThisSite =
+    !!override && testCondition(compileRule(override), matchUrl, tab.host);
+
+  /** The quick "*.currenthost → target" rule both blocks below create. */
+  const siteRule = (targetId: string): SwitchRule => ({
+    id: uid(),
+    enabled: true,
+    type: 'hostWildcard',
+    pattern: `*.${tab!.host}`,
+    targetId,
+  });
 
   const route = resolveRoute(config, active, matchUrl, tab.host, tempRules);
   const via = route.bypassed
@@ -231,10 +247,10 @@ function siteManager(active: SwitchProfile): HTMLElement {
       void saveConfig(config);
       render();
     });
-    sel.disabled = hasOverride;
+    sel.disabled = overridesThisSite;
     ruleBlock = el(
       'div',
-      { class: `site-block${hasOverride ? ' greyed' : ''}` },
+      { class: `site-block${overridesThisSite ? ' greyed' : ''}` },
       el('div', { class: 'site-block-head' }, el('span', { class: 'site-block-label' }, 'Rule for this site')),
       el(
         'div',
@@ -245,21 +261,15 @@ function siteManager(active: SwitchProfile): HTMLElement {
     );
   } else {
     const sel = siteTargetSelect(proxyProfiles(config)[0]?.id ?? DIRECT, () => undefined);
-    sel.disabled = hasOverride;
+    sel.disabled = overridesThisSite;
     const add = el(
       'button',
       {
         class: 'btn sm',
-        disabled: hasOverride,
+        disabled: overridesThisSite,
         title: `Add a rule routing *.${tab.host}`,
         onclick: () => {
-          const rule: SwitchRule = {
-            id: uid(),
-            enabled: true,
-            type: 'hostWildcard',
-            pattern: `*.${tab!.host}`,
-            targetId: sel.value,
-          };
+          const rule = siteRule(sel.value);
           if (config.settings.addToBottom) active.rules.push(rule);
           else active.rules.unshift(rule);
           void saveConfig(config);
@@ -271,7 +281,7 @@ function siteManager(active: SwitchProfile): HTMLElement {
     );
     ruleBlock = el(
       'div',
-      { class: `site-block${hasOverride ? ' greyed' : ''}` },
+      { class: `site-block${overridesThisSite ? ' greyed' : ''}` },
       el(
         'div',
         { class: 'site-block-head' },
@@ -335,13 +345,7 @@ function siteManager(active: SwitchProfile): HTMLElement {
             class: 'btn sm',
             title: `Temporarily route *.${tab.host} until the browser restarts`,
             onclick: () => {
-              void setOverride(active.id, {
-                id: uid(),
-                enabled: true,
-                type: 'hostWildcard',
-                pattern: `*.${tab!.host}`,
-                targetId: sel.value,
-              });
+              void setOverride(active.id, siteRule(sel.value));
               toast('Override set');
               render();
             },
@@ -405,7 +409,7 @@ function render(): void {
         ? enter(
             el(
               'div',
-              { class: 'site-section' },
+              {},
               el(
                 'div',
                 { class: 'site-head' },

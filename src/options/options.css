@@ -104,8 +104,7 @@ body {
   color: #fff;
 }
 .nav .create-btn { margin: 0 4px; width: calc(100% - 8px); justify-content: flex-start; }
-.side .actions { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
-.side .tools { display: flex; gap: 4px; justify-content: center; }
+.side .tools { display: flex; gap: 4px; justify-content: center; margin-top: 8px; }
 .side .tools .btn { flex: none; padding: 7px 12px; }
 
 /* pinned to the very bottom of the sidebar */

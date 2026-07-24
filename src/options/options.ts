@@ -11,10 +11,11 @@ import {
   onConfigChanged,
   sanitizeConfig,
   saveConfig,
-  saveConfigRaw,
 } from '../shared/state';
-import { SYNC_ERROR_KEY, clearSync, pullFromSync } from '../shared/sync';
+import { SYNC_ERROR_KEY, applyFromSync, clearSync, pullFromSync, remoteSyncState } from '../shared/sync';
 import {
+  AUTH_PERMS,
+  CONFIG_VERSION,
   Config,
   DIRECT,
   PALETTE,
@@ -27,6 +28,7 @@ import {
   SwitchProfile,
   SYSTEM,
   VirtualProfile,
+  hasCredentials,
   proxyProfiles,
   reachableFrom,
   schemeSupportsAuth,
@@ -157,14 +159,10 @@ function sidebar(): HTMLElement {
     ),
     el(
       'div',
-      { class: 'actions' },
-      el(
-        'div',
-        { class: 'tools' },
-        el('button', { class: 'btn ghost', onclick: exportConfig }, 'Export'),
-        el('button', { class: 'btn ghost', onclick: importConfig }, 'Import'),
-        el('button', { class: 'btn ghost danger', onclick: resetConfig }, 'Reset')
-      )
+      { class: 'tools' },
+      el('button', { class: 'btn ghost', onclick: exportConfig }, 'Export'),
+      el('button', { class: 'btn ghost', onclick: importConfig }, 'Import'),
+      el('button', { class: 'btn ghost danger', onclick: resetConfig }, 'Reset')
     ),
     el(
       'div',
@@ -349,17 +347,71 @@ function targetSelect(ownerId: string, value: string, onChange: (v: string) => v
 
 /* ---------- proxy editor ---------- */
 
-const AUTH_PERMS: chrome.permissions.Permissions = {
-  permissions: ['webRequest', 'webRequestAuthProvider'],
-  origins: ['<all_urls>'],
-};
+/**
+ * Whether the auth permission is currently granted; null until the first
+ * check resolves. Kept fresh so the banner below can flag configs whose
+ * credentials arrived without a grant (import, or set on another device).
+ */
+let authPermGranted: boolean | null = null;
+
+async function refreshAuthPermState(): Promise<void> {
+  const granted = await chrome.permissions.contains(AUTH_PERMS).catch(() => false);
+  if (granted !== authPermGranted) {
+    authPermGranted = granted;
+    updateAuthBanner();
+  }
+}
 
 async function requestAuthPermission(): Promise<boolean> {
   const has = await chrome.permissions.contains(AUTH_PERMS).catch(() => false);
-  if (has) return true;
+  if (has) {
+    authPermGranted = true;
+    updateAuthBanner();
+    return true;
+  }
   const granted = await chrome.permissions.request(AUTH_PERMS).catch(() => false);
   toast(granted ? 'Authentication enabled' : 'Permission needed for proxy auth');
+  authPermGranted = granted;
+  updateAuthBanner();
   return granted;
+}
+
+/** Credentials exist but the permission to answer challenges doesn't. */
+function authPermMissing(): boolean {
+  return authPermGranted === false && proxyProfiles(config).some(hasCredentials);
+}
+
+function authWarningBanner(): HTMLElement | null {
+  if (!authPermMissing()) return null;
+  return el(
+    'div',
+    { class: 'warn-banner' },
+    el(
+      'span',
+      {},
+      'A proxy profile has credentials, but the permission to answer authentication challenges hasn’t been granted — proxy auth is inactive.'
+    ),
+    el(
+      'button',
+      { class: 'btn sm', onclick: () => void requestAuthPermission() },
+      'Enable authentication'
+    )
+  );
+}
+
+/**
+ * Toggle the banner in place instead of re-rendering the page: permission
+ * state can change while the user is mid-typing in the editor (the prompt is
+ * triggered from a field's onchange), and a full render would wipe the
+ * uncommitted sibling field.
+ */
+function updateAuthBanner(): void {
+  const content = document.querySelector('.content');
+  if (!content) return;
+  const existing = content.querySelector(':scope > .warn-banner');
+  const fresh = authWarningBanner();
+  if (fresh && !existing) content.prepend(fresh);
+  else if (!fresh && existing) existing.remove();
 }
 
 function proxyEditor(profile: ProxyProfile): HTMLElement {
@@ -369,11 +421,11 @@ function proxyEditor(profile: ProxyProfile): HTMLElement {
   }
   schemeSel.value = profile.scheme;
   schemeSel.onchange = () => {
+    // Deliberately keep username/password: a transient flip through a SOCKS
+    // option (misclick, arrow-keying past) must not destroy saved credentials.
+    // The sanitizer drops them at the load boundary if the profile is left on
+    // a scheme that can't use them.
     profile.scheme = schemeSel.value as ProxyScheme;
-    if (!schemeSupportsAuth(profile.scheme)) {
-      profile.username = undefined;
-      profile.password = undefined;
-    }
     scheduleSave();
     render();
   };
@@ -464,7 +516,8 @@ function authSection(profile: ProxyProfile): HTMLElement {
     onchange: () => {
       profile.username = username.value.trim() || undefined;
       scheduleSave();
-      if (profile.username) void requestAuthPermission();
+      if (hasCredentials(profile)) void requestAuthPermission();
+      else updateAuthBanner(); // may have just cleared the banner's cause
     },
   }) as HTMLInputElement;
 
@@ -477,7 +530,8 @@ function authSection(profile: ProxyProfile): HTMLElement {
     onchange: () => {
       profile.password = password.value || undefined;
       scheduleSave();
-      if (profile.username) void requestAuthPermission();
+      if (hasCredentials(profile)) void requestAuthPermission();
+      else updateAuthBanner(); // may have just cleared the banner's cause
     },
   }) as HTMLInputElement;
 
@@ -494,7 +548,7 @@ function authSection(profile: ProxyProfile): HTMLElement {
     el(
       'span',
       { class: 'note' },
-      'Credentials are used only for HTTP/HTTPS proxies. Answering proxy auth needs an optional permission (webRequest + all sites); Sockitt asks for it when you set a username.'
+      'Credentials are used only for HTTP/HTTPS proxies. Answering proxy auth needs an optional permission (webRequest + all sites); Sockitt asks for it when you set credentials here. Credentials stay on this device — they are not synced.'
     ),
     el(
       'button',
@@ -895,7 +949,7 @@ function settingsPanel(): HTMLElement {
       el('h3', {}, 'Switching'),
       toggleRow(
         'Quick switch',
-        'Toolbar click cycles the profiles below instead of opening the popup. The cycle keyboard shortcut always works (set it at chrome://extensions/shortcuts).',
+        'Toolbar click cycles the profiles below instead of opening the popup. Tick at least two — with fewer, the cycle falls back to Direct, System, and every profile. The cycle keyboard shortcut always works (set it at chrome://extensions/shortcuts).',
         s.quickSwitch,
         (v) => {
           s.quickSwitch = v;
@@ -980,25 +1034,24 @@ function settingsPanel(): HTMLElement {
             void clearSync();
             return;
           }
+          // A remote written by a different schema version must not be joined:
+          // enabling would push this config over it, and old installs (which
+          // have no version gate) would adopt the overwrite — wiping the group.
+          if ((await remoteSyncState()) === 'incompatible') {
+            toast('Sync unavailable: update Sockitt on your other devices first');
+            return false; // snap the toggle back off
+          }
           // Joining: adopt an existing synced config instead of overwriting it
           // with this machine's (so enabling sync on a fresh install can't wipe
-          // the group). pullFromSync(-1) returns any present remote.
+          // the group). pullFromSync(-1) returns any present remote;
+          // applyFromSync restores this machine's rule-list bodies and
+          // credentials, which never travel through sync.
           const remote = await pullFromSync(-1);
           if (remote) {
-            const localText = new Map(
-              config.profiles
-                .filter((p) => p.kind === 'rulelist' && p.text)
-                .map((p) => [p.id, (p as { text: string }).text])
-            );
-            for (const p of remote.profiles) {
-              if (p.kind === 'rulelist' && !p.text && localText.has(p.id)) {
-                p.text = localText.get(p.id)!;
-              }
-            }
             remote.settings.syncEnabled = true;
+            await applyFromSync(remote, config);
             config = remote;
             selectedId = SETTINGS_ID;
-            await saveConfig(config);
             toast('Adopted synced configuration');
             render();
             return;
@@ -1044,7 +1097,13 @@ function exportConfig(): void {
   });
   a.click();
   URL.revokeObjectURL(a.href);
-  toast('Exported');
+  // The backup is the full config — a restore must round-trip everything —
+  // so say out loud when that includes secrets.
+  if (proxyProfiles(config).some((p) => p.username || p.password)) {
+    toast('Exported — the backup contains proxy passwords in plain text, keep it safe', 4500);
+  } else {
+    toast('Exported');
+  }
 }
 
 function importConfig(): void {
@@ -1070,7 +1129,7 @@ function importConfig(): void {
 function resetConfig(): void {
   if (!confirmMaybe('Delete all profiles and rules?')) return;
   config = {
-    version: 2,
+    version: CONFIG_VERSION,
     rev: config.rev,
     activeId: SYSTEM,
     profiles: [],
@@ -1089,7 +1148,7 @@ function emptyPane(): HTMLElement {
     { class: 'card hero' },
     el('img', { class: 'mark hero-mark', src: 'img/logo-mark.png', alt: '' }),
     el('h2', {}, 'Route traffic your way'),
-    el('p', {}, 'Create a SOCKS5 proxy profile, then add an Auto Switch profile to route sites by rule - host wildcards, regex, CIDR blocks, keywords, or time windows.'),
+    el('p', {}, 'Create a proxy profile (SOCKS5, SOCKS4, HTTP, or HTTPS), then add an Auto Switch profile to route sites by rule - host wildcards, regex, CIDR blocks, keywords, or time windows.'),
     el(
       'div',
       { class: 'cta' },
@@ -1128,7 +1187,12 @@ function render(): void {
           ? editorFor(profile)
           : emptyPane();
   app.replaceChildren(
-    el('div', { class: 'layout' }, sideNode, el('div', { class: 'content' }, content))
+    el(
+      'div',
+      { class: 'layout' },
+      sideNode,
+      el('div', { class: 'content' }, authWarningBanner(), content)
+    )
   );
 }
 
@@ -1139,9 +1203,34 @@ function render(): void {
  * pending (their in-progress change wins, last-write-wins as everywhere else).
  */
 onConfigChanged((incoming) => {
-  if (savePending || incoming.rev === config.rev) return;
+  if (savePending) return;
+  if (incoming.rev === config.rev) {
+    // Same rev: either the echo of this page's own save, or a background
+    // rule-list refresh (updateRuleList deliberately keeps rev unchanged so
+    // an unattended fetch doesn't masquerade as a user edit). Merge just the
+    // fetched list bodies — adopting wholesale would clobber deliberate
+    // unsaved state in this snapshot, but ignoring them entirely would make
+    // the next edit here write stale list text back over the fetch.
+    let changed = false;
+    for (const p of config.profiles) {
+      if (p.kind !== 'rulelist') continue;
+      const inc = incoming.profiles.find((q) => q.id === p.id);
+      if (inc?.kind === 'rulelist' && (inc.text !== p.text || inc.lastUpdated !== p.lastUpdated)) {
+        p.text = inc.text;
+        p.lastUpdated = inc.lastUpdated;
+        changed = true;
+      }
+    }
+    if (changed && selected()?.kind === 'rulelist') render();
+    return;
+  }
   config = incoming;
-  if (selectedId && selectedId !== SETTINGS_ID && !config.profiles.some((p) => p.id === selectedId)) {
+  if (
+    selectedId &&
+    selectedId !== SETTINGS_ID &&
+    selectedId !== DOCS_ID &&
+    !config.profiles.some((p) => p.id === selectedId)
+  ) {
     selectedId = config.profiles[0]?.id ?? null;
   }
   render();
@@ -1168,4 +1257,9 @@ void loadConfig().then((c) => {
   selectedId = config.profiles[0]?.id ?? null;
   watchSyncError();
   render();
+  // After first paint: flag credentials that arrived without their permission
+  // (imported configs, or profiles created before auth support).
+  void refreshAuthPermState();
+  chrome.permissions.onAdded.addListener(() => void refreshAuthPermState());
+  chrome.permissions.onRemoved.addListener(() => void refreshAuthPermState());
 });

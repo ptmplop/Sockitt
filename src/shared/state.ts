@@ -1,4 +1,5 @@
 import {
+  CONFIG_VERSION,
   Config,
   DIRECT,
   PALETTE,
@@ -33,8 +34,26 @@ function isRuleType(t: unknown): t is RuleType {
   return typeof t === 'string' && t in RULE_TYPE_SET;
 }
 
+// Same compiler-enforced pattern for schemes: a new ProxyScheme fails to build
+// here, rather than being silently rewritten to socks5 on load/import/sync.
+const SCHEME_SET: Record<ProxyScheme, true> = {
+  socks5: true,
+  socks4: true,
+  http: true,
+  https: true,
+};
+function isScheme(s: unknown): s is ProxyScheme {
+  return typeof s === 'string' && Object.hasOwn(SCHEME_SET, s);
+}
+
 export function defaultConfig(): Config {
-  return { version: 2, rev: 0, activeId: SYSTEM, profiles: [], settings: defaultSettings() };
+  return {
+    version: CONFIG_VERSION,
+    rev: 0,
+    activeId: SYSTEM,
+    profiles: [],
+    settings: defaultSettings(),
+  };
 }
 
 export async function loadConfig(): Promise<Config> {
@@ -136,7 +155,7 @@ export function sanitizeConfig(raw: unknown): Config | null {
   }
 
   return {
-    version: 2,
+    version: CONFIG_VERSION,
     rev: typeof o.rev === 'number' && Number.isFinite(o.rev) ? o.rev : 0,
     activeId,
     profiles,
@@ -197,8 +216,7 @@ function sanitizeProfile(raw: unknown): Profile | null {
   switch (o.kind) {
     case 'proxy': {
       const port = Number(o.port);
-      const scheme: ProxyScheme =
-        o.scheme === 'socks4' || o.scheme === 'http' || o.scheme === 'https' ? o.scheme : 'socks5';
+      const scheme: ProxyScheme = isScheme(o.scheme) ? o.scheme : 'socks5';
       const username = typeof o.username === 'string' && o.username ? o.username : undefined;
       const password = typeof o.password === 'string' && o.password ? o.password : undefined;
       return {
