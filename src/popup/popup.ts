@@ -36,6 +36,18 @@ let proxyError: { message: string } | null = null;
 let tempRules: SwitchRule[] = [];
 let firstRender = true;
 
+/**
+ * Settings glyph for the popup's two "open options" buttons — a Feather-style
+ * horizontal-sliders icon (segmented tracks + ring handles so it reads on any
+ * background). Matches the line-icon style used on the options page.
+ */
+const SETTINGS_ICON =
+  '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+  '<line x1="3" y1="6" x2="12.5" y2="6"/><line x1="19.5" y1="6" x2="21" y2="6"/><circle cx="16" cy="6" r="2.5"/>' +
+  '<line x1="3" y1="12" x2="5.5" y2="12"/><line x1="12.5" y1="12" x2="21" y2="12"/><circle cx="9" cy="12" r="2.5"/>' +
+  '<line x1="3" y1="18" x2="10.5" y2="18"/><line x1="17.5" y1="18" x2="21" y2="18"/><circle cx="14" cy="18" r="2.5"/>' +
+  '</svg>';
+
 /* ---- exit-IP check (hero card) ---- */
 
 type ExitState =
@@ -524,7 +536,7 @@ function render(): void {
         el('button', {
           class: 'btn ghost icon cog',
           title: 'Options',
-          innerHTML: '&#9881;',
+          innerHTML: SETTINGS_ICON,
           onclick: () => chrome.runtime.openOptionsPage(),
         })
       ),
@@ -574,7 +586,7 @@ function render(): void {
         el(
           'button',
           { class: 'btn ghost foot-manage', onclick: () => chrome.runtime.openOptionsPage() },
-          el('span', { innerHTML: '&#9881;' }),
+          el('span', { class: 'foot-ico', innerHTML: SETTINGS_ICON }),
           'Manage profiles & rules'
         )
       )

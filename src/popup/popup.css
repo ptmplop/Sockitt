@@ -24,10 +24,9 @@ body {
 .pop-head .cog {
   width: 36px;
   height: 36px;
-  font-size: 21px;
-  line-height: 1;
   color: var(--text-dim);
 }
+.pop-head .cog svg { width: 18px; height: 18px; display: block; }
 .pop-head .cog:hover { color: var(--text); background: var(--surface-hover); }
 
 /* ---- entrance motion ---- */
@@ -264,6 +263,11 @@ button.exit-enable:hover { text-decoration: underline; }
 .site-block-note { font-size: 10.5px; color: var(--text-dim); }
 .site-block-ctl { display: flex; align-items: center; gap: 8px; }
 .site-block-ctl select { flex: 1; min-width: 0; }
+/* Keep every control in the row the same height — the proxy select rendered
+   taller than the pattern box because it inherits the larger body font. */
+.site-block-ctl select,
+.site-block-ctl .btn.sm,
+.site-block-ctl .site-pattern { height: 32px; }
 
 .site-pattern {
   flex: none;
@@ -273,7 +277,8 @@ button.exit-enable:hover { text-decoration: underline; }
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  padding: 6px 10px;
+  padding: 0 10px;
+  line-height: 30px; /* height (32) minus 1px border top+bottom → vertically centred */
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -315,3 +320,5 @@ button.exit-enable:hover { text-decoration: underline; }
   font-weight: 600;
 }
 .foot-manage:hover { color: var(--text); }
+.foot-ico { display: inline-flex; align-items: center; }
+.foot-ico svg { width: 15px; height: 15px; display: block; }
