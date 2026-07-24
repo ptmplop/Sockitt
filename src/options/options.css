@@ -374,3 +374,38 @@ textarea.input { resize: vertical; min-height: 88px; line-height: 1.6; }
   .side { position: static; height: auto; overflow-y: visible; border-right: none; border-bottom: 1px solid var(--border); }
   .content { padding: 24px 20px 60px; }
 }
+
+/* ---- route inspector ---- */
+.inspect-form { display: flex; gap: 10px; }
+.inspect-form .input.mono { flex: 1; min-width: 0; }
+.inspect-form select { flex: none; max-width: 220px; }
+.inspect-results { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+.chain { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.chain-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px 5px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  font-weight: 600;
+  font-size: 12.5px;
+}
+.chain-step { display: inline-flex; align-items: center; gap: 8px; color: var(--text-dim); font-size: 12px; }
+.chain-why::before { content: "→"; margin-right: 8px; color: var(--text-dim); }
+.chain-why { font-style: italic; }
+.chain-final { font-weight: 700; font-size: 13px; }
+.chain-final.bypassed { color: var(--amber); }
+
+/* ---- proxy health dots (sidebar) + connection test ---- */
+.health-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.health-dot.ok { background: #35c46f; }
+.health-dot.slow { background: var(--amber); }
+.health-dot.bad { background: var(--danger); }
+.test-row { display: flex; align-items: center; gap: 12px; }
+.test-row .test-result { margin: 0; }
+
+/* ---- first-proxy confetti ---- */
+.confetti-layer { position: fixed; inset: 0; pointer-events: none; z-index: 100; overflow: hidden; }
+.confetti { position: absolute; width: 8px; height: 12px; border-radius: 2px; opacity: 0; }

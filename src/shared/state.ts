@@ -17,6 +17,25 @@ import {
 const KEY = 'sockitt';
 const TEMP_KEY = 'sockitt-temp';
 
+/* Session-storage channels shared between the worker and the UI pages. */
+/** Last proxy error, set by the worker, shown by the popup. */
+export const ERROR_KEY = 'sockitt-error';
+/** Written by the worker after each proxy application (popup exit-IP re-check). */
+export const APPLIED_KEY = 'sockitt-applied';
+/** Proxy-test request (options page → worker). */
+export const TEST_KEY = 'sockitt-test';
+/** Proxy-test response (worker → options page). */
+export const TEST_RESULT_KEY = 'sockitt-test-result';
+/** Per-session proxy health results keyed by profile id (sidebar dots). */
+export const HEALTH_KEY = 'sockitt-health';
+
+export interface HealthEntry {
+  ok: boolean;
+  /** Lookup round-trip in ms; null when the test failed. */
+  ms: number | null;
+  at: number;
+}
+
 // Compiler-enforced: adding a RuleType without listing it here fails to build,
 // rather than silently dropping rules of the new type on load/import/sync.
 const RULE_TYPE_SET: Record<RuleType, true> = {
@@ -170,6 +189,7 @@ function sanitizeSettings(raw: unknown, ids: Set<string>): Settings {
   const bool = (v: unknown, fallback: boolean): boolean =>
     typeof v === 'boolean' ? v : fallback;
   const startup = typeof o.startupProfileId === 'string' ? o.startupProfileId : '';
+  const incognito = typeof o.incognitoProfileId === 'string' ? o.incognitoProfileId : '';
   return {
     quickSwitch: bool(o.quickSwitch, d.quickSwitch),
     quickSwitchIds: Array.isArray(o.quickSwitchIds)
@@ -188,6 +208,11 @@ function sanitizeSettings(raw: unknown, ids: Set<string>): Settings {
     addToBottom: bool(o.addToBottom, d.addToBottom),
     refreshOnSwitch: bool(o.refreshOnSwitch, d.refreshOnSwitch),
     badgeResult: bool(o.badgeResult, d.badgeResult),
+    exitIpCheck: bool(o.exitIpCheck, d.exitIpCheck),
+    incognitoProfileId:
+      incognito === '' || incognito === DIRECT || incognito === SYSTEM || ids.has(incognito)
+        ? incognito
+        : '',
   };
 }
 

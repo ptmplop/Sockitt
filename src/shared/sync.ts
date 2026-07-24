@@ -88,18 +88,34 @@ export async function pushToSync(config: Config): Promise<void> {
     const metaStore = await chrome.storage.sync.get(META);
     const remote = metaStore[META] as SyncMeta | undefined;
     if (remote && typeof remote.rev === 'number') {
-      // Never overwrite a remote written by a different schema version, even
-      // with a newer rev — old installs have no gate and would adopt the
-      // overwrite (see remoteSyncState). Sync freezes both ways until every
-      // device runs this schema; the first push after they update resumes it.
-      if ((remote.version ?? 2) !== CONFIG_VERSION) {
+      const remoteVersion = remote.version ?? 2;
+      // A NEWER-schema remote must never be overwritten: our payload would
+      // lack fields its devices rely on. Pause until this machine updates.
+      if (remoteVersion > CONFIG_VERSION) {
         lastPushedRev = config.rev; // don't keep retrying until the next edit
         await recordError(
-          new Error('Sync paused: another device runs a different Sockitt version — update it to resume.')
+          new Error(
+            'Sync paused: another device runs a newer Sockitt version — update this one to resume.'
+          )
         );
         return;
       }
-      // Refuse to overwrite a strictly newer remote; a pull will reconcile.
+      // A version-less remote (Sockitt ≤ 1.6.2) may mean pre-gate devices are
+      // still alive; they adopt anything we push and their sanitizer would
+      // strip newer fields, destroying their local config. Hard stop.
+      if (remoteVersion < 3) {
+        lastPushedRev = config.rev;
+        await recordError(
+          new Error(
+            'Sync paused: a device running Sockitt 1.6.2 or older wrote the synced data. Update every device, then toggle Sync off and on here to resume.'
+          )
+        );
+        return;
+      }
+      // remoteVersion 3..CONFIG_VERSION: those are gated builds — overwriting
+      // is safe (an older gated build pauses until updated rather than
+      // adopting), and it is exactly how the remote migrates to this schema.
+      // The normal newest-wins rule still applies.
       if (remote.rev > config.rev) {
         lastPushedRev = config.rev; // don't keep retrying this stale push
         return;
@@ -127,17 +143,17 @@ export async function pushToSync(config: Config): Promise<void> {
 }
 
 /**
- * What the remote holds: nothing, a payload this build can adopt, or one
- * written by a different schema version. Callers that are about to overwrite
- * the remote (the enable-sync join flow) must treat 'incompatible' as a hard
- * stop — old installs have no version gate, so a push would propagate.
+ * What the remote holds: nothing, a payload this build can adopt (same or
+ * older schema — older upgrades safely through sanitize), or one written by a
+ * NEWER schema, which the enable-sync join flow must treat as a hard stop:
+ * adopting it would strip fields, and pushing over it would gut the fleet.
  */
 export async function remoteSyncState(): Promise<'none' | 'compatible' | 'incompatible'> {
   try {
     const metaStore = await chrome.storage.sync.get(META);
     const meta = metaStore[META] as SyncMeta | undefined;
     if (!meta || typeof meta.rev !== 'number') return 'none';
-    return (meta.version ?? 2) === CONFIG_VERSION ? 'compatible' : 'incompatible';
+    return (meta.version ?? 2) <= CONFIG_VERSION ? 'compatible' : 'incompatible';
   } catch {
     return 'none';
   }
@@ -148,12 +164,16 @@ export async function pullFromSync(localRev: number): Promise<Config | null> {
     const metaStore = await chrome.storage.sync.get(META);
     const meta = metaStore[META] as SyncMeta | undefined;
     if (!meta || typeof meta.rev !== 'number' || meta.rev <= localRev) return null;
-    // Never adopt a payload from a different schema: an older install's
-    // sanitizer strips fields it doesn't know and would push the gutted
-    // config back to every device. Surface it instead of failing silently.
-    if ((meta.version ?? 2) !== CONFIG_VERSION) {
+    // Never adopt a payload from a NEWER schema: this build's sanitizer would
+    // strip fields it doesn't know and could push the gutted config back.
+    // OLDER payloads are safe in this direction — sanitizeConfig fills in
+    // whatever the old schema lacked — and adopting them is how a freshly
+    // updated device stays current until the whole fleet migrates.
+    if ((meta.version ?? 2) > CONFIG_VERSION) {
       await recordError(
-        new Error('Sync paused: another device runs a different Sockitt version — update it to resume.')
+        new Error(
+          'Sync paused: another device runs a newer Sockitt version — update this one to resume.'
+        )
       );
       return null;
     }

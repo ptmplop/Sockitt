@@ -2,6 +2,12 @@ import { initialsFor, textColorFor } from './shared/avatar';
 import { pacRequestUrl, resolveRoute } from './shared/match';
 import { compilePac, fixedServersValue, staticTerminal } from './shared/pac';
 import {
+  APPLIED_KEY,
+  ERROR_KEY,
+  HEALTH_KEY,
+  HealthEntry,
+  TEST_KEY,
+  TEST_RESULT_KEY,
   loadConfig,
   loadTempRules,
   onConfigChanged,
@@ -9,6 +15,7 @@ import {
   saveConfig,
   saveConfigRaw,
 } from './shared/state';
+import { checkExitIp } from './shared/exitip';
 import { applyFromSync, onSyncChanged, pullFromSync, pushToSync } from './shared/sync';
 import {
   Config,
@@ -21,7 +28,6 @@ import {
   schemeSupportsAuth,
 } from './shared/types';
 
-const ERROR_KEY = 'sockitt-error';
 const NEUTRAL = '#8b93a7';
 const REVERT_COOLDOWN_MS = 30_000;
 const ALARM_PREFIX = 'rl:';
@@ -79,10 +85,14 @@ async function applyActive(): Promise<void> {
   const { value, label, profile } = settingsValueFor(config, tempRules);
 
   await chrome.proxy.settings.set({ value, scope: 'regular' });
+  await applyIncognito(config);
 
   // Independent action/session updates — no ordering dependency between them.
+  // APPLIED_KEY lands after settings.set above, so a popup exit-IP check it
+  // triggers rides the NEW route, never the one being replaced.
   await Promise.all([
     chrome.storage.session.remove(ERROR_KEY),
+    chrome.storage.session.set({ [APPLIED_KEY]: { activeId: config.activeId, at: Date.now() } }),
     chrome.action.setBadgeText({ text: '' }),
     chrome.action.setTitle({ title: `Sockitt — ${label}` }),
     paintIcon(profile),
@@ -225,6 +235,121 @@ function reregisterAuthListener(): void {
     // never registered
   }
   registerAuthListener();
+}
+
+/**
+ * Incognito windows can follow their own profile (settings.incognitoProfileId,
+ * '' = same as regular). Needs "Allow in Incognito" at chrome://extensions;
+ * without it the regular settings span incognito as before.
+ *
+ * Relies on the manifest's default "incognito": spanning mode — the single
+ * worker sees incognito auth challenges too. Switching to "split" would
+ * silently break proxy auth for incognito windows.
+ */
+async function applyIncognito(config: Config): Promise<void> {
+  try {
+    const allowed = await chrome.extension.isAllowedIncognitoAccess();
+    if (!allowed) return;
+    const id = config.settings.incognitoProfileId;
+    if (!id) {
+      await chrome.proxy.settings.clear({ scope: 'incognito_persistent' });
+      return;
+    }
+    const { value } = settingsValueFor({ ...config, activeId: id }, []);
+    await chrome.proxy.settings.set({ value, scope: 'incognito_persistent' });
+  } catch {
+    // Incognito access revoked mid-flight or scope unsupported — regular
+    // settings keep spanning incognito, which is the pre-feature behavior.
+  }
+}
+
+/* ---------------- on-demand proxy test (options page "Test connection") ---------------- */
+
+let testInFlight = false;
+/** Epoch ms until which proxy-error events are ignored (see runProxyTest). */
+let suppressProxyErrorsUntil = 0;
+/**
+ * Set while a test proxy is applied. If the worker dies mid-test (crash, not
+ * idle suspension — the in-flight fetch keeps it alive), the temporary proxy
+ * would outlive it; the top-level wake check below restores from this marker.
+ */
+const TESTING_KEY = 'sockitt-testing';
+
+/**
+ * Briefly route ALL traffic through the profile under test (no bypass, so the
+ * probe definitely traverses it), measure an exit-IP lookup, then restore the
+ * real configuration via applyActive. Session-storage in/out because UI pages
+ * never touch chrome.proxy directly.
+ */
+async function runProxyTest(req: { profileId: string; nonce: number }): Promise<void> {
+  if (testInFlight) {
+    // Answer rather than silently drop — the options page disabled its button
+    // and is waiting for a result.
+    await chrome.storage.session
+      .set({
+        [TEST_RESULT_KEY]: {
+          nonce: req.nonce,
+          profileId: req.profileId,
+          ok: false,
+          error: 'another test is already running',
+        },
+      })
+      .catch(() => undefined);
+    return;
+  }
+  testInFlight = true;
+  // Page traffic routed through the (possibly dead) test proxy will emit
+  // proxy errors; suppress the error banner/badge for the window so a late
+  // event can't paint a false failure over the restored config.
+  suppressProxyErrorsUntil = Date.now() + 12_000;
+  const result: Record<string, unknown> = { nonce: req.nonce, profileId: req.profileId, ok: false };
+  try {
+    const config = await loadConfig();
+    const profile = profileById(config, req.profileId);
+    if (!profile || profile.kind !== 'proxy') throw new Error('profile not found');
+    const testValue = fixedServersValue(profile.scheme, profile.host, profile.port, []);
+    const expected = JSON.stringify(testValue);
+    await chrome.storage.session.set({ [TESTING_KEY]: true });
+    await chrome.proxy.settings.set({ value: testValue, scope: 'regular' });
+    // Compare against the value we INTENDED to set, both now and after the
+    // probe — a before/after snapshot pair would miss an applyActive that
+    // stomped the test proxy before the first read (both reads would then
+    // agree on the wrong route). Racing applyActive can fire because the
+    // options page saves the edited profile just before requesting the test.
+    const applied = await chrome.proxy.settings.get({});
+    if (applied.levelOfControl === 'controlled_by_other_extensions') {
+      throw new Error('another extension controls the proxy settings');
+    }
+    if (JSON.stringify(applied.value) !== expected) {
+      throw new Error('interrupted by a configuration change — try again');
+    }
+    const info = await checkExitIp(8000);
+    const after = await chrome.proxy.settings.get({});
+    if (JSON.stringify(after.value) !== expected) {
+      throw new Error('interrupted by a configuration change — try again');
+    }
+    Object.assign(result, { ok: true, ...info });
+  } catch (e) {
+    result.error = e instanceof Error ? e.message : String(e);
+  } finally {
+    await applyActive().catch(() => undefined);
+    await chrome.storage.session.remove(TESTING_KEY).catch(() => undefined);
+    // Keep suppressing briefly after restore for errors still in flight.
+    suppressProxyErrorsUntil = Date.now() + 3000;
+    testInFlight = false;
+  }
+  try {
+    const store = await chrome.storage.session.get(HEALTH_KEY);
+    const health = (store[HEALTH_KEY] as Record<string, HealthEntry> | undefined) ?? {};
+    health[req.profileId] = {
+      ok: result.ok === true,
+      ms: result.ok === true ? (result.ms as number) : null,
+      at: Date.now(),
+    };
+    await chrome.storage.session.set({ [TEST_RESULT_KEY]: result, [HEALTH_KEY]: health });
+  } catch {
+    // session storage unavailable — the options page just never hears back
+  }
 }
 
 async function reloadActiveTab(): Promise<void> {
@@ -393,6 +518,25 @@ async function maybePullSync(): Promise<void> {
 // an async path) or Chrome won't wake this worker for proxy 407 challenges.
 registerAuthListener();
 
+// If a previous worker instance died while a test proxy was applied, restore
+// the real configuration now (the marker only survives a mid-test death).
+void chrome.storage.session
+  .get(TESTING_KEY)
+  .then((s) => {
+    if (s[TESTING_KEY]) {
+      void chrome.storage.session.remove(TESTING_KEY);
+      void applyActive();
+    }
+  })
+  .catch(() => undefined);
+
+// Re-apply the incognito scope on every worker start. Enabling "Allow in
+// Incognito" reloads the extension but fires neither onInstalled nor
+// onStartup, so this is the only path that picks up a freshly granted access
+// (or a config set while access was off). Cheap and idempotent — it touches
+// only the incognito scope, gated on isAllowedIncognitoAccess.
+void loadConfig().then(applyIncognito).catch(() => undefined);
+
 // Pull BEFORE applying/pushing so a stale device can't overwrite newer remote
 // data on wake-up. applyActive's own pushToSync is a no-op right after a pull
 // (rev already matches), so no echo.
@@ -421,6 +565,14 @@ onConfigChanged((config) => {
   void applyActive();
 });
 onTempRulesChanged(() => void applyActive());
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'session' || !changes[TEST_KEY]) return;
+  const req = changes[TEST_KEY].newValue as { profileId?: unknown; nonce?: unknown } | undefined;
+  if (req && typeof req.profileId === 'string' && typeof req.nonce === 'number') {
+    void runProxyTest({ profileId: req.profileId, nonce: req.nonce });
+  }
+});
 
 onSyncChanged(() => void maybePullSync());
 
@@ -466,6 +618,10 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 // badge/reload paths degrade gracefully when it isn't.
 
 chrome.proxy.onProxyError.addListener((details) => {
+  // Ignore errors that a connection test provoked by routing page traffic
+  // through the candidate proxy — otherwise a late event paints a false
+  // failure over the already-restored working configuration.
+  if (testInFlight || Date.now() < suppressProxyErrorsUntil) return;
   void (async () => {
     await chrome.storage.session.set({
       [ERROR_KEY]: {

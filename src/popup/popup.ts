@@ -1,7 +1,15 @@
 import { avatarEl, builtinTile } from '../shared/avatar';
+import { EXIT_IP_PERMS, checkExitIp, flagEmoji } from '../shared/exitip';
 import { compileRule, pacRequestUrl, resolveRoute, testCondition } from '../shared/match';
 import { parseRuleList } from '../shared/rulelist';
-import { loadConfig, loadTempRules, saveConfig, saveTempRules } from '../shared/state';
+import {
+  APPLIED_KEY,
+  ERROR_KEY,
+  loadConfig,
+  loadTempRules,
+  saveConfig,
+  saveTempRules,
+} from '../shared/state';
 import {
   Config,
   DIRECT,
@@ -28,10 +36,87 @@ let proxyError: { message: string } | null = null;
 let tempRules: SwitchRule[] = [];
 let firstRender = true;
 
+/* ---- exit-IP check (hero card) ---- */
+
+type ExitState =
+  | { phase: 'idle' }
+  | { phase: 'no-perm' }
+  | { phase: 'checking' }
+  | { phase: 'ok'; ip: string; iso?: string; country?: string; ms: number }
+  | { phase: 'error'; message: string };
+
+let exit: ExitState = { phase: 'idle' };
+let exitTimer: ReturnType<typeof setTimeout> | undefined;
+/** Monotonic guard: a stale in-flight check must not overwrite a newer one. */
+let exitSeq = 0;
+
+async function maybeCheckExit(): Promise<void> {
+  if (!config.settings.exitIpCheck) {
+    exit = { phase: 'idle' };
+    return;
+  }
+  const has = await chrome.permissions.contains(EXIT_IP_PERMS).catch(() => false);
+  if (!has) {
+    exitSeq++; // invalidate any in-flight check so it can't overwrite this
+    exit = { phase: 'no-perm' };
+    updateExitLine();
+    return;
+  }
+  await runExitCheck();
+}
+
+async function runExitCheck(): Promise<void> {
+  const seq = ++exitSeq;
+  exit = { phase: 'checking' };
+  updateExitLine();
+  try {
+    const info = await checkExitIp(6000);
+    if (seq !== exitSeq) return;
+    exit = { phase: 'ok', ...info };
+  } catch (e) {
+    if (seq !== exitSeq) return;
+    exit = { phase: 'error', message: e instanceof Error ? e.message : String(e) };
+  }
+  updateExitLine();
+}
+
+/**
+ * Patch the exit line in place. A full render() here would land mid-user-
+ * interaction (checks resolve seconds after open) and destroy open dropdowns.
+ */
+function updateExitLine(): void {
+  const meta = document.querySelector('.hero-meta');
+  if (!meta) return;
+  meta.querySelector(':scope > .exit-line')?.remove();
+  const line = exitLine();
+  if (line) meta.append(line);
+}
+
+/** Debounced: the background announces each proxy application; re-check then. */
+function scheduleExitCheck(): void {
+  clearTimeout(exitTimer);
+  exitTimer = setTimeout(() => void maybeCheckExit(), 350);
+}
+
+async function enableExitCheck(): Promise<void> {
+  // Button click = the user gesture chrome.permissions.request needs.
+  const granted = await chrome.permissions.request(EXIT_IP_PERMS).catch(() => false);
+  if (granted) await runExitCheck();
+}
+
+/** The sock earns a wiggle when the route changes. */
+function wiggleSock(): void {
+  const mark = document.querySelector<HTMLElement>('.pop-head .mark');
+  if (!mark || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  mark.classList.remove('wiggle');
+  void mark.offsetWidth; // restart the animation if one is mid-flight
+  mark.classList.add('wiggle');
+}
+
 async function init(): Promise<void> {
   config = await loadConfig();
-  const session = await chrome.storage.session.get('sockitt-error').catch(() => ({}));
-  proxyError = (session as Record<string, { message: string }>)['sockitt-error'] ?? null;
+  const session = await chrome.storage.session.get(ERROR_KEY).catch(() => ({}));
+  proxyError = (session as Record<string, { message: string }>)[ERROR_KEY] ?? null;
   await loadOverride(config.activeId);
   try {
     const [active] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
@@ -42,6 +127,10 @@ async function init(): Promise<void> {
     tab = null;
   }
   render();
+  void maybeCheckExit();
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'session' && changes[APPLIED_KEY]) scheduleExitCheck();
+  });
 }
 
 async function setActive(id: string): Promise<void> {
@@ -50,8 +139,15 @@ async function setActive(id: string): Promise<void> {
   // never flashes the previous profile's state. The background applies the
   // proxy (and reloads the tab if refreshOnSwitch is on) off the storage write.
   await loadOverride(id);
+  // Drop the previous route's exit reading so the hero never pairs the new
+  // profile's name with the old IP/flag; the APPLIED_KEY re-check fills it in.
+  if (config.settings.exitIpCheck && exit.phase === 'ok') {
+    exitSeq++; // invalidate any in-flight check
+    exit = { phase: 'checking' };
+  }
   await saveConfig(config);
   render();
+  wiggleSock();
 }
 
 /**
@@ -144,11 +240,39 @@ function hero(): HTMLElement {
       'div',
       { class: 'hero-meta' },
       el('div', { class: 'hero-name' }, name),
-      el('div', { class: 'hero-status' }, status)
+      el('div', { class: 'hero-status' }, status),
+      exitLine()
     )
   );
   card.style.setProperty('--tint', tint);
   return card;
+}
+
+/** One quiet line under the hero status: where traffic actually exits. */
+function exitLine(): HTMLElement | null {
+  if (!config.settings.exitIpCheck) return null;
+  switch (exit.phase) {
+    case 'idle':
+      return null;
+    case 'no-perm':
+      return el(
+        'button',
+        { class: 'exit-line exit-enable', onclick: () => void enableExitCheck() },
+        'Show exit IP…'
+      );
+    case 'checking':
+      return el('span', { class: 'exit-line' }, 'checking exit…');
+    case 'ok': {
+      const flag = flagEmoji(exit.iso);
+      return el(
+        'span',
+        { class: 'exit-line', title: exit.country ?? '' },
+        `${exit.ip}${flag ? ` ${flag}` : ''} · ${exit.ms} ms`
+      );
+    }
+    case 'error':
+      return el('span', { class: 'exit-line err', title: exit.message }, 'exit check failed');
+  }
 }
 
 /* ---- rows ---- */

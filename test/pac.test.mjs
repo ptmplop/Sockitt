@@ -50,7 +50,7 @@ const SOCKS_P2 = 'SOCKS5 198.51.100.3:9050';
 
 function makeConfig(profiles, activeId) {
   return {
-    version: 3, rev: 0, activeId, profiles,
+    version: 4, rev: 0, activeId, profiles,
     settings: {
       quickSwitch: false, quickSwitchIds: [], syncEnabled: false, startupProfileId: '',
       revertExternal: false, confirmDeletion: true, addToBottom: true,
@@ -466,6 +466,60 @@ test('sanitize drops credentials for SOCKS schemes and keeps them for http/https
   const pwOnly = sanitizedProxy(rawProxy({ username: undefined }));
   assert.equal(pwOnly.username, undefined);
   assert.equal(pwOnly.password, 'pass');
+});
+
+/* ---------------- route tracing (1.7) ---------------- */
+
+test('resolveRoute trace records the full chain: rule → alias → proxy', () => {
+  const alias = { kind: 'virtual', id: 'al', name: 'Alias', color: '#123456', targetId: 'p1' };
+  const swp = sw('sw', [rule('r1', 'hostWildcard', '*.example.com', 'al')], 'direct');
+  const config = makeConfig([P1, alias, swp], 'sw');
+  const trace = [];
+  const route = lib.resolveRoute(config, swp, 'https://a.example.com/', 'a.example.com', [], new Date(), trace);
+  assert.equal(route.targetId, 'p1');
+  assert.deepEqual(
+    trace.map((e) => [e.from, e.to, e.kind]),
+    [['sw', 'al', 'rule'], ['al', 'p1', 'alias']]
+  );
+  assert.equal(trace[0].pattern, '*.example.com');
+
+  // No match → the default edge is traced.
+  const trace2 = [];
+  lib.resolveRoute(config, swp, 'https://other.io/', 'other.io', [], new Date(), trace2);
+  assert.deepEqual(trace2.map((e) => [e.from, e.to, e.kind]), [['sw', 'direct', 'default']]);
+});
+
+test('resolveRoute with a trace matches resolveRoute without one', () => {
+  const swp = sw('sw', BASE_RULES, 'p2');
+  const config = makeConfig([P1, P2, swp], 'sw');
+  for (const [url, host] of [
+    ['https://x.example.com/', 'x.example.com'],
+    ['https://api.example.io/', 'api.example.io'],
+    ['https://nothing.io/', 'nothing.io'],
+  ]) {
+    const plain = lib.resolveRoute(config, swp, url, host);
+    const traced = lib.resolveRoute(config, swp, url, host, [], new Date(), []);
+    assert.deepEqual(traced, plain, url);
+  }
+});
+
+test('sanitize validates the new v4 settings fields', () => {
+  const cfg = makeConfig([P1], 'p1');
+  cfg.settings.exitIpCheck = false;
+  cfg.settings.incognitoProfileId = 'p1';
+  const clean = lib.sanitizeConfig(cfg);
+  assert.equal(clean.settings.exitIpCheck, false);
+  assert.equal(clean.settings.incognitoProfileId, 'p1');
+
+  cfg.settings.incognitoProfileId = 'no-such-profile';
+  assert.equal(lib.sanitizeConfig(cfg).settings.incognitoProfileId, '');
+
+  // Absent fields (pre-v4 config) fall back to defaults.
+  delete cfg.settings.exitIpCheck;
+  delete cfg.settings.incognitoProfileId;
+  const upgraded = lib.sanitizeConfig(cfg);
+  assert.equal(upgraded.settings.exitIpCheck, true);
+  assert.equal(upgraded.settings.incognitoProfileId, '');
 });
 
 test('slimConfig strips credentials (and refetchable list bodies) for sync', () => {

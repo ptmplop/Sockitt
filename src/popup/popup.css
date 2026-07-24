@@ -162,6 +162,43 @@ body {
   white-space: nowrap;
 }
 
+/* ---- exit-IP line in the hero card ---- */
+.exit-line {
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--text-dim);
+  margin-top: 2px;
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.exit-line.err { font-family: inherit; color: var(--danger); }
+button.exit-enable {
+  font-family: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  cursor: pointer;
+  text-align: left;
+}
+button.exit-enable:hover { text-decoration: underline; }
+
+/* ---- sock wiggle on switch ---- */
+@keyframes sock-wiggle {
+  0% { transform: rotate(0); }
+  25% { transform: rotate(-14deg) scale(1.08); }
+  55% { transform: rotate(10deg); }
+  80% { transform: rotate(-5deg); }
+  100% { transform: rotate(0); }
+}
+.pop-head .mark.wiggle { animation: sock-wiggle 0.45s ease; }
+@media (prefers-reduced-motion: reduce) {
+  .pop-head .mark.wiggle { animation: none; }
+}
+
 /* flat buttons in the popup - no raised/3d shadow */
 .pop .btn,
 .pop .btn.primary,

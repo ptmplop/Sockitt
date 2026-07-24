@@ -1,9 +1,15 @@
 import { avatarEl, builtinTile, initialsFor } from '../shared/avatar';
 import { docsPanel } from './docs';
-import { patternError } from '../shared/match';
+import { EXIT_IP_PERMS, flagEmoji } from '../shared/exitip';
+import { TraceEdge, pacRequestUrl, patternError, resolveRoute } from '../shared/match';
 import { parseRuleList } from '../shared/rulelist';
 import {
+  HEALTH_KEY,
+  HealthEntry,
+  TEST_KEY,
+  TEST_RESULT_KEY,
   loadConfig,
+  loadTempRules,
   newProxyProfile,
   newRuleListProfile,
   newSwitchProfile,
@@ -39,11 +45,17 @@ import { el, toast } from '../shared/ui';
 const app = document.getElementById('app')!;
 const SETTINGS_ID = '@settings';
 const DOCS_ID = '@docs';
+const INSPECT_ID = '@inspect';
 
 let config: Config;
 let selectedId: string | null = null;
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 let syncError: string | null = null;
+/** Route-inspector state, module-level so it survives re-renders. */
+let inspectUrl = '';
+let inspectStartId = ''; // '' = the active profile
+/** Session proxy-test results for the sidebar health dots. */
+let healthMap: Record<string, HealthEntry> = {};
 
 const RULE_TYPES: Record<RuleType, string> = {
   hostWildcard: 'Host wildcard',
@@ -75,6 +87,14 @@ function scheduleSave(): void {
   }, 300);
 }
 
+/** Persist a pending debounced edit right now (e.g. before a proxy test). */
+async function flushPendingSave(): Promise<void> {
+  if (!savePending) return;
+  clearTimeout(saveTimer);
+  savePending = false;
+  await saveConfig(config);
+}
+
 function selected(): Profile | null {
   return config.profiles.find((p) => p.id === selectedId) ?? null;
 }
@@ -86,6 +106,19 @@ function confirmMaybe(message: string): boolean {
 /* ---------- sidebar ---------- */
 
 function sidebar(): HTMLElement {
+  const healthDot = (p: Profile): HTMLElement | null => {
+    // hasOwn: imported ids are arbitrary strings ("__proto__" would otherwise
+    // read Object.prototype and paint a phantom dot).
+    const h =
+      p.kind === 'proxy' && Object.hasOwn(healthMap, p.id) ? healthMap[p.id] : undefined;
+    if (!h) return null;
+    const grade = h.ok ? (h.ms !== null && h.ms < 800 ? 'ok' : 'slow') : 'bad';
+    return el('span', {
+      class: `health-dot ${grade}`,
+      title: h.ok ? `Last test: ${h.ms} ms` : 'Last test: unreachable',
+    });
+  };
+
   const item = (p: Profile) =>
     el(
       'button',
@@ -98,6 +131,7 @@ function sidebar(): HTMLElement {
       },
       avatarEl(p, 22),
       el('span', { class: 'name' }, p.name),
+      healthDot(p),
       config.activeId === p.id ? el('span', { class: 'badge' }, 'ACTIVE') : null
     );
 
@@ -138,6 +172,18 @@ function sidebar(): HTMLElement {
         },
         builtinTile('⚙', 22),
         el('span', { class: 'name' }, 'Settings')
+      ),
+      el(
+        'button',
+        {
+          class: `nav-item${selectedId === INSPECT_ID ? ' selected' : ''}`,
+          onclick: () => {
+            selectedId = INSPECT_ID;
+            render();
+          },
+        },
+        builtinTile('⌕', 22),
+        el('span', { class: 'name' }, 'Route inspector')
       ),
       el(
         'button',
@@ -202,6 +248,38 @@ function addProfile(factory: (existing: Profile[]) => Profile): void {
   selectedId = profile.id;
   scheduleSave();
   render();
+  // The very first proxy is a small occasion.
+  if (profile.kind === 'proxy' && proxyProfiles(config).length === 1) confettiBurst();
+}
+
+/** A brief, dependency-free burst of PALETTE-coloured pieces. */
+function confettiBurst(): void {
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const layer = el('div', { class: 'confetti-layer' });
+  document.body.append(layer);
+  for (let i = 0; i < 36; i++) {
+    const piece = el('span', { class: 'confetti' });
+    piece.style.background = PALETTE[i % PALETTE.length]!;
+    piece.style.left = `${innerWidth / 2}px`;
+    piece.style.top = '30%';
+    layer.append(piece);
+    const dx = (Math.random() - 0.5) * innerWidth * 0.7;
+    const dy = innerHeight * (0.4 + Math.random() * 0.5);
+    const rot = (Math.random() - 0.5) * 720;
+    piece.animate(
+      [
+        { transform: 'translate(0, 0) rotate(0)', opacity: 1 },
+        {
+          transform: `translate(${dx * 0.7}px, ${-80 - Math.random() * 140}px) rotate(${rot / 2}deg)`,
+          opacity: 1,
+          offset: 0.3,
+        },
+        { transform: `translate(${dx}px, ${dy}px) rotate(${rot}deg)`, opacity: 0 },
+      ],
+      { duration: 900 + Math.random() * 500, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' }
+    );
+  }
+  setTimeout(() => layer.remove(), 1500);
 }
 
 /* ---------- shared editor chrome ---------- */
@@ -317,6 +395,7 @@ function dangerZone(profile: Profile): HTMLElement {
             (id) => id !== profile.id
           );
           if (config.settings.startupProfileId === profile.id) config.settings.startupProfileId = '';
+          if (config.settings.incognitoProfileId === profile.id) config.settings.incognitoProfileId = '';
           if (config.activeId === profile.id) config.activeId = SYSTEM;
           selectedId = config.profiles[0]?.id ?? null;
           scheduleSave();
@@ -379,6 +458,13 @@ async function requestAuthPermission(): Promise<boolean> {
 /** Credentials exist but the permission to answer challenges doesn't. */
 function authPermMissing(): boolean {
   return authPermGranted === false && proxyProfiles(config).some(hasCredentials);
+}
+
+/** ipconfig.is origin grant, needed by the exit-IP check and the proxy test. */
+async function ensureExitIpPermission(): Promise<boolean> {
+  const has = await chrome.permissions.contains(EXIT_IP_PERMS).catch(() => false);
+  if (has) return true;
+  return chrome.permissions.request(EXIT_IP_PERMS).catch(() => false);
 }
 
 function authWarningBanner(): HTMLElement | null {
@@ -473,6 +559,56 @@ function proxyEditor(profile: ProxyProfile): HTMLElement {
     : el('div', { class: 'field' }, el('span', { class: 'note' },
         'Chromium cannot authenticate SOCKS proxies - secure the proxy by IP allow-list or a local tunnel (e.g. ssh -D).'));
 
+  const testResult = el('span', {
+    class: 'note test-result',
+    dataset: { profile: profile.id },
+  });
+  testResult.textContent = healthText(profile.id);
+  const testBtn = el(
+    'button',
+    {
+      class: 'btn test-btn',
+      dataset: { profile: profile.id },
+      onclick: async () => {
+        if (!(await ensureExitIpPermission())) {
+          testResult.textContent = 'Needs access to ipconfig.is to run the check.';
+          return;
+        }
+        if (
+          hasCredentials(profile) &&
+          !(await chrome.permissions.contains(AUTH_PERMS).catch(() => false))
+        ) {
+          // Without the auth grant a 407 goes unanswered and the test would
+          // paint a red dot on a proxy that is actually fine.
+          testResult.textContent =
+            'Credentials are set but the auth permission is missing — click Enable authentication first.';
+          return;
+        }
+        // Make sure the test runs against what the form shows, not a
+        // 300ms-stale snapshot still waiting in the save debounce.
+        await flushPendingSave();
+        (testBtn as HTMLButtonElement).disabled = true;
+        testResult.textContent = 'Testing — briefly routing through this proxy…';
+        // The worker owns chrome.proxy; hand it the request over session storage.
+        await chrome.storage.session.set({
+          [TEST_KEY]: { profileId: profile.id, nonce: Date.now() },
+        });
+      },
+    },
+    'Test connection'
+  );
+  const testRow = el(
+    'div',
+    { class: 'field' },
+    el('label', {}, 'Connection test'),
+    el('div', { class: 'test-row' }, testBtn, testResult),
+    el(
+      'span',
+      { class: 'note' },
+      'Routes your browsing through this proxy for a few seconds to fetch ipconfig.is (exit IP, country, latency), then restores your configuration.'
+    )
+  );
+
   return el(
     'div',
     { class: 'pane' },
@@ -488,7 +624,8 @@ function proxyEditor(profile: ProxyProfile): HTMLElement {
         el('div', { class: 'field' }, el('label', {}, 'Host'), host),
         el('div', { class: 'field' }, el('label', {}, 'Port'), port)
       ),
-      authPanel
+      authPanel,
+      testRow
     ),
     el(
       'div',
@@ -940,6 +1077,33 @@ function settingsPanel(): HTMLElement {
     scheduleSave();
   };
 
+  const incognito = el('select', { class: 'input' }) as HTMLSelectElement;
+  incognito.append(
+    el('option', { value: '' }, 'Same as regular windows'),
+    el('option', { value: DIRECT }, 'Direct'),
+    el('option', { value: SYSTEM }, 'System')
+  );
+  for (const p of config.profiles) incognito.append(el('option', { value: p.id }, p.name));
+  incognito.value = s.incognitoProfileId;
+  incognito.onchange = () => {
+    s.incognitoProfileId = incognito.value;
+    scheduleSave();
+  };
+  const incognitoNote = el(
+    'span',
+    { class: 'note' },
+    'Route incognito windows through their own profile; regular windows are unaffected.'
+  );
+  void chrome.extension
+    .isAllowedIncognitoAccess()
+    .then((allowed) => {
+      if (!allowed) {
+        incognitoNote.textContent =
+          'Requires "Allow in Incognito" for Sockitt at chrome://extensions — until then, incognito follows the regular profile.';
+      }
+    })
+    .catch(() => undefined);
+
   return el(
     'div',
     { class: 'pane' },
@@ -961,6 +1125,13 @@ function settingsPanel(): HTMLElement {
         { class: 'field', style: { maxWidth: '280px' } },
         el('label', {}, 'On browser startup, activate'),
         startup
+      ),
+      el(
+        'div',
+        { class: 'field', style: { maxWidth: '280px' } },
+        el('label', {}, 'Incognito windows use'),
+        incognito,
+        incognitoNote
       ),
       toggleRow(
         'Reload tab after switching',
@@ -1003,6 +1174,18 @@ function settingsPanel(): HTMLElement {
         }
       ),
       toggleRow(
+        'Show exit IP in popup',
+        'When the popup opens and after each switch, fetch ipconfig.is to show where traffic actually exits (IP, country, latency). On by default; the popup asks for access to ipconfig.is the first time it runs. Turn off here to stop all lookups.',
+        s.exitIpCheck,
+        async (v) => {
+          if (v && !(await ensureExitIpPermission())) {
+            toast('Permission declined');
+            return false;
+          }
+          s.exitIpCheck = v;
+        }
+      ),
+      toggleRow(
         'Quick-added rules go to the bottom',
         'Rules added from the popup append below existing rules (off = they take top priority).',
         s.addToBottom,
@@ -1038,7 +1221,7 @@ function settingsPanel(): HTMLElement {
           // enabling would push this config over it, and old installs (which
           // have no version gate) would adopt the overwrite — wiping the group.
           if ((await remoteSyncState()) === 'incompatible') {
-            toast('Sync unavailable: update Sockitt on your other devices first');
+            toast('Sync unavailable: your synced data was written by a newer Sockitt — update this machine first', 4000);
             return false; // snap the toggle back off
           }
           // Joining: adopt an existing synced config instead of overwriting it
@@ -1133,11 +1316,161 @@ function resetConfig(): void {
     rev: config.rev,
     activeId: SYSTEM,
     profiles: [],
-    settings: { ...config.settings, quickSwitchIds: [], startupProfileId: '' },
+    settings: { ...config.settings, quickSwitchIds: [], startupProfileId: '', incognitoProfileId: '' },
   };
   selectedId = null;
   void saveConfig(config);
   render();
+}
+
+/* ---------- route inspector ---------- */
+
+function inspectChip(id: string): HTMLElement {
+  if (id === DIRECT) return el('span', { class: 'chain-chip' }, builtinTile('D', 18), 'Direct');
+  if (id === SYSTEM) return el('span', { class: 'chain-chip' }, builtinTile('S', 18), 'System');
+  const p = config.profiles.find((x) => x.id === id);
+  return p
+    ? el('span', { class: 'chain-chip' }, avatarEl(p, 18), p.name)
+    : el('span', { class: 'chain-chip' }, builtinTile('D', 18), 'Direct');
+}
+
+function inspectEdgeLabel(e: TraceEdge): string {
+  switch (e.kind) {
+    case 'rule':
+      return `rule ${e.pattern} (${e.ruleType ? RULE_TYPES[e.ruleType] : 'rule'}) matched`;
+    case 'temp-rule':
+      return `popup override ${e.pattern} matched`;
+    case 'default':
+      return 'no rule matched — everything else';
+    case 'alias':
+      return 'alias points at';
+    case 'list-match':
+      return 'rule list matched';
+    case 'list-default':
+      return 'no list match — default';
+  }
+}
+
+function inspectorPanel(): HTMLElement {
+  const results = el('div', { class: 'inspect-results' });
+  // Monotonic guard: runs await session storage, so a fast second keystroke
+  // could otherwise interleave with the first and stack a stale chain.
+  let inspectSeq = 0;
+
+  const urlInput = el('input', {
+    class: 'input mono',
+    value: inspectUrl,
+    placeholder: 'https://foo.example.com/path  (or just a hostname)',
+    spellcheck: false,
+  }) as HTMLInputElement;
+
+  const startSel = el('select', { class: 'input' }) as HTMLSelectElement;
+  startSel.append(el('option', { value: '' }, 'Active profile'));
+  for (const p of config.profiles) startSel.append(el('option', { value: p.id }, p.name));
+  startSel.value = [...startSel.options].some((o) => o.value === inspectStartId)
+    ? inspectStartId
+    : '';
+
+  const runInspect = async (): Promise<void> => {
+    const seq = ++inspectSeq;
+    inspectUrl = urlInput.value;
+    inspectStartId = startSel.value;
+    results.replaceChildren();
+    const raw = urlInput.value.trim();
+    if (!raw) return;
+
+    let u: URL;
+    try {
+      u = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`);
+    } catch {
+      results.append(el('span', { class: 'note' }, 'That does not parse as a URL or hostname.'));
+      return;
+    }
+    const matchUrl = pacRequestUrl(u.href);
+
+    const startId = startSel.value || config.activeId;
+    if (startId === DIRECT || startId === SYSTEM) {
+      results.append(
+        el(
+          'div',
+          { class: 'chain' },
+          inspectChip(startId),
+          el(
+            'span',
+            { class: 'chain-final note' },
+            startId === DIRECT
+              ? 'Direct is active — every request goes straight to the network.'
+              : 'System is active — the OS proxy settings decide; Sockitt rules do not apply.'
+          )
+        )
+      );
+      return;
+    }
+    const start = config.profiles.find((p) => p.id === startId);
+    if (!start) {
+      results.append(el('span', { class: 'note' }, 'Profile not found.'));
+      return;
+    }
+
+    // Match real routing: the popup's session override participates only when
+    // inspecting the profile that is actually active.
+    const temp = startId === config.activeId ? await loadTempRules(config.activeId) : [];
+    if (seq !== inspectSeq) return; // a newer run owns the results box
+    const trace: TraceEdge[] = [];
+    const route = resolveRoute(config, start, matchUrl, u.hostname, temp, new Date(), trace);
+
+    const chain = el('div', { class: 'chain' }, inspectChip(start.id));
+    for (const edge of trace) {
+      chain.append(
+        el('span', { class: 'chain-step' }, el('span', { class: 'chain-why' }, inspectEdgeLabel(edge))),
+        inspectChip(edge.to)
+      );
+    }
+
+    const terminal = config.profiles.find((p) => p.id === route.targetId);
+    const verdict =
+      route.targetId === DIRECT
+        ? 'Goes direct — no proxy.'
+        : terminal && terminal.kind === 'proxy'
+          ? `Routes via ${terminal.name} — ${SCHEME_LABELS[terminal.scheme]} ${terminal.host}:${terminal.port}${route.bypassed ? ', but its bypass list sends this host direct' : ''}.`
+          : 'Goes direct.';
+
+    results.append(
+      chain,
+      el('div', { class: `chain-final${route.bypassed ? ' bypassed' : ''}` }, verdict)
+    );
+    if (matchUrl !== u.href) {
+      results.append(
+        el(
+          'span',
+          { class: 'note' },
+          `Note: Chrome hides the path of ${u.protocol}// URLs from routing, so this was matched as ${matchUrl}.`
+        )
+      );
+    }
+  };
+
+  urlInput.oninput = () => void runInspect();
+  startSel.onchange = () => void runInspect();
+
+  if (inspectUrl.trim()) void runInspect();
+
+  return el(
+    'div',
+    { class: 'pane' },
+    el(
+      'div',
+      { class: 'card panel' },
+      el('h3', {}, 'Route inspector'),
+      el(
+        'p',
+        { class: 'note' },
+        'Type a URL to see exactly how it would route right now: which rule fires, the chain it walks, and where it lands. Runs the same resolver as real routing, including the popup override on the active profile.'
+      ),
+      el('div', { class: 'inspect-form' }, urlInput, startSel),
+      results
+    )
+  );
 }
 
 /* ---------- render ---------- */
@@ -1181,11 +1514,13 @@ function render(): void {
   const content =
     selectedId === DOCS_ID
       ? docsPanel()
-      : selectedId === SETTINGS_ID
-        ? settingsPanel()
-        : profile
-          ? editorFor(profile)
-          : emptyPane();
+      : selectedId === INSPECT_ID
+        ? inspectorPanel()
+        : selectedId === SETTINGS_ID
+          ? settingsPanel()
+          : profile
+            ? editorFor(profile)
+            : emptyPane();
   app.replaceChildren(
     el(
       'div',
@@ -1229,6 +1564,7 @@ onConfigChanged((incoming) => {
     selectedId &&
     selectedId !== SETTINGS_ID &&
     selectedId !== DOCS_ID &&
+    selectedId !== INSPECT_ID &&
     !config.profiles.some((p) => p.id === selectedId)
   ) {
     selectedId = config.profiles[0]?.id ?? null;
@@ -1252,10 +1588,68 @@ function watchSyncError(): void {
   });
 }
 
+/** Text for a proxy's connection-test line from its stored health entry. */
+function healthText(id: string): string {
+  const h = Object.hasOwn(healthMap, id) ? healthMap[id] : undefined;
+  if (!h) return '';
+  return h.ok ? `Exit reachable · ${h.ms} ms` : 'Last test failed';
+}
+
+/** Paint the connection-test line for whichever proxy editor is open. */
+function paintOpenTestResult(): void {
+  if (!selectedId) return;
+  const span = document.querySelector<HTMLElement>(
+    `.test-result[data-profile="${CSS.escape(selectedId)}"]`
+  );
+  if (span && !span.textContent) span.textContent = healthText(selectedId);
+}
+
+/** Proxy-test plumbing: dots for the sidebar, in-place result for the editor. */
+function watchProxyTests(): void {
+  void chrome.storage.session
+    .get(HEALTH_KEY)
+    .then((s) => {
+      healthMap = (s[HEALTH_KEY] as Record<string, HealthEntry> | undefined) ?? {};
+      if (Object.keys(healthMap).length) {
+        refreshSidebar();
+        paintOpenTestResult(); // the editor rendered before this fetch resolved
+      }
+    })
+    .catch(() => undefined);
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'session') return;
+    if (changes[HEALTH_KEY]) {
+      healthMap = (changes[HEALTH_KEY].newValue as Record<string, HealthEntry> | undefined) ?? {};
+      refreshSidebar();
+    }
+    if (changes[TEST_RESULT_KEY]) {
+      const r = changes[TEST_RESULT_KEY].newValue as
+        | { profileId?: string; ok?: boolean; ip?: string; iso?: string; ms?: number; error?: string }
+        | undefined;
+      if (!r?.profileId) return;
+      // Update the open editor in place — a full render would eat unsaved input.
+      // Re-enable and repaint only the button for the result's own profile: a
+      // dropped concurrent request now returns its own busy-response, so a
+      // blanket re-enable would wrongly reactivate a still-running test.
+      const sel = `[data-profile="${CSS.escape(r.profileId)}"]`;
+      const btn = document.querySelector<HTMLButtonElement>(`.test-btn${sel}`);
+      if (btn) btn.disabled = false;
+      const span = document.querySelector<HTMLElement>(`.test-result${sel}`);
+      if (span) {
+        const flag = flagEmoji(r.iso);
+        span.textContent = r.ok
+          ? `Exit ${r.ip}${flag ? ` ${flag}` : ''} · ${r.ms} ms`
+          : `Failed: ${r.error ?? 'unknown error'}`;
+      }
+    }
+  });
+}
+
 void loadConfig().then((c) => {
   config = c;
   selectedId = config.profiles[0]?.id ?? null;
   watchSyncError();
+  watchProxyTests();
   render();
   // After first paint: flag credentials that arrived without their permission
   // (imported configs, or profiles created before auth support).

@@ -45,6 +45,18 @@ ever sent to the developer or to any third party.
   on the schedule you set, and stores the returned text locally as routing
   patterns. These requests go from your browser to that URL; the developer is
   not involved and receives nothing.
+- **Exit-IP checks (optional)** - the popup's exit-IP line and the proxy
+  "Test connection" button fetch `ipconfig.is/json`, an IP-echo service
+  operated by the Sockitt developer, to display the IP address, country, and
+  latency your current route exits with. The popup check is on by default and
+  runs each time you open the popup and after every profile switch; the test
+  button runs only when you click it. The request carries no identifying
+  payload — the service simply reports the connecting address back, and
+  Sockitt keeps the result only in `chrome.storage.session` (in memory, not
+  written to disk; cleared when the browser closes). The popup check can be
+  turned off in Settings ("Show exit IP in popup"); with it off, and no manual
+  test, no such request is ever made. Access to `ipconfig.is` is an optional
+  permission requested the first time either feature runs.
 
 ## What the extension does not do
 
@@ -68,10 +80,11 @@ Sockitt requests only the permissions its features need. By default:
 `proxy` (apply proxy settings), `storage` (save your configuration),
 `activeTab` (read the current tab's URL in the popup), and `alarms` (schedule
 rule-list refreshes). Optional permissions are requested only when you turn on
-the feature that needs them: `tabs` (per-tab route badge), and `webRequest` +
+the feature that needs them: `tabs` (per-tab route badge), `webRequest` +
 `webRequestAuthProvider` + host access (only to answer HTTP/HTTPS proxy
-authentication challenges with your saved credentials). Sockitt requests no
-host permissions by default.
+authentication challenges with your saved credentials), and access to
+`ipconfig.is` (only for the exit-IP check and proxy connection test). Sockitt
+requests no host permissions by default.
 
 ## Data retention and removal
 

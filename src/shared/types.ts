@@ -132,6 +132,10 @@ export interface Settings {
   refreshOnSwitch: boolean;
   /** Per-tab badge showing where the tab routes (needs optional "tabs" permission). */
   badgeResult: boolean;
+  /** Show the exit IP/country in the popup (queries ipconfig.is; needs its origin permission). */
+  exitIpCheck: boolean;
+  /** Profile for incognito windows; '' follows the regular profile. */
+  incognitoProfileId: string;
 }
 
 /**
@@ -140,8 +144,9 @@ export interface Settings {
  * install's sanitizer would silently strip fields it doesn't know (e.g. the
  * v3 scheme/username/password) and push the gutted config back to every
  * device. Bump on any field change an old sanitizer would destroy.
+ * v4: settings gained exitIpCheck and incognitoProfileId.
  */
-export const CONFIG_VERSION = 3;
+export const CONFIG_VERSION = 4;
 
 export interface Config {
   version: number;
@@ -188,6 +193,8 @@ export function defaultSettings(): Settings {
     addToBottom: true,
     refreshOnSwitch: false,
     badgeResult: false,
+    exitIpCheck: true,
+    incognitoProfileId: '',
   };
 }
 

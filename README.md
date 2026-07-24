@@ -49,7 +49,16 @@ script.
   all by editing the alias once.
 - **Popup switcher.** Change profile in one click, see where the current tab
   routes, edit the matching rule inline, or set a temporary per-site override
-  that lasts only until the browser restarts.
+  that lasts only until the browser restarts. An exit-IP line shows the IP,
+  country, and latency your traffic actually exits with after every switch.
+- **Route inspector.** Trace any URL through your configuration with the same
+  resolver real routing uses — which rule fired, the chain it walked, where it
+  landed.
+- **Connection tests.** One click routes briefly through a proxy, measures the
+  exit IP/country/latency (auth included), restores your configuration, and
+  leaves a green/amber/red health dot in the sidebar.
+- **Incognito routing.** Optionally give incognito windows their own profile
+  (needs "Allow in Incognito").
 - **Quick switch.** Cycle a chosen set of profiles from the toolbar button or a
   keyboard shortcut, without opening the popup.
 - **Sync and control.** Optional configuration sync across machines via your
@@ -106,6 +115,9 @@ Extra capabilities are strictly opt-in and requested only when you use them:
 - **HTTP/HTTPS proxy authentication** requests `webRequest`,
   `webRequestAuthProvider`, and all-sites access, which Chromium needs to answer
   proxy auth challenges. Sockitt asks when you set credentials.
+- **Exit-IP check / connection tests** request access to `ipconfig.is`, the
+  IP-echo service they query. Asked the first time either feature is used; the
+  popup check can be disabled in Settings.
 - **Sync** stores your configuration in your own browser account
   (`chrome.storage.sync`). Proxy credentials are never synced; enter them on
   each machine.

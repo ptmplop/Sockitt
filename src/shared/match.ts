@@ -5,9 +5,23 @@ import {
   Profile,
   ProxyProfile,
   RouteResult,
+  RuleType,
   SwitchRule,
   profileById,
 } from './types';
+
+/**
+ * One hop of a traced route resolution (the options-page route inspector).
+ * `from` is always a profile id; `to` is a profile id or DIRECT.
+ */
+export interface TraceEdge {
+  from: string;
+  to: string;
+  kind: 'temp-rule' | 'rule' | 'default' | 'alias' | 'list-match' | 'list-default';
+  /** Matching rule's pattern, for rule kinds. */
+  pattern?: string;
+  ruleType?: RuleType;
+}
 
 /**
  * Compiled form of a single condition. Shapes are chosen so the PAC generator
@@ -275,7 +289,8 @@ export function resolveRoute(
   url: string,
   host: string,
   tempRules: SwitchRule[] = [],
-  now: Date = new Date()
+  now: Date = new Date(),
+  trace?: TraceEdge[]
 ): RouteResult {
   const visited = new Set<string>();
 
@@ -286,6 +301,10 @@ export function resolveRoute(
     return { targetId: target.id, ruleId };
   };
 
+  const step = (edge: TraceEdge): void => {
+    trace?.push(edge);
+  };
+
   const walk = (p: Profile | undefined, ruleId?: string): RouteResult => {
     if (!p || visited.has(p.id)) return { targetId: DIRECT, ruleId };
     visited.add(p.id);
@@ -293,19 +312,29 @@ export function resolveRoute(
       case 'proxy':
         return finish(p, ruleId);
       case 'virtual':
+        step({ from: p.id, to: p.targetId, kind: 'alias' });
         return p.targetId === DIRECT
           ? { targetId: DIRECT, ruleId }
           : walk(profileById(config, p.targetId), ruleId);
       case 'switch': {
-        const rules = p.id === profile.id ? [...tempRules, ...p.rules] : p.rules;
+        const temp = p.id === profile.id ? tempRules : [];
+        const rules = temp.length ? [...temp, ...p.rules] : p.rules;
         for (const rule of rules) {
           if (!rule.enabled) continue;
           if (testCondition(compileRule(rule), url, host, now)) {
+            step({
+              from: p.id,
+              to: rule.targetId,
+              kind: temp.includes(rule) ? 'temp-rule' : 'rule',
+              pattern: rule.pattern,
+              ruleType: rule.type,
+            });
             return rule.targetId === DIRECT
               ? { targetId: DIRECT, ruleId: rule.id }
               : walk(profileById(config, rule.targetId), rule.id);
           }
         }
+        step({ from: p.id, to: p.defaultTargetId, kind: 'default' });
         return p.defaultTargetId === DIRECT
           ? { targetId: DIRECT, ruleId }
           : walk(profileById(config, p.defaultTargetId), ruleId);
@@ -314,11 +343,9 @@ export function resolveRoute(
         const parsed = parseRuleList(p.format, p.text);
         const hit = (conds: CompiledCondition[]) =>
           conds.some((c) => testCondition(c, url, host, now));
-        const targetId = hit(parsed.whitelist)
-          ? p.defaultTargetId
-          : hit(parsed.blacklist)
-            ? p.matchTargetId
-            : p.defaultTargetId;
+        const matched = !hit(parsed.whitelist) && hit(parsed.blacklist);
+        const targetId = matched ? p.matchTargetId : p.defaultTargetId;
+        step({ from: p.id, to: targetId, kind: matched ? 'list-match' : 'list-default' });
         return targetId === DIRECT
           ? { targetId: DIRECT, ruleId }
           : walk(profileById(config, targetId), ruleId);
