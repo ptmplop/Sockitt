@@ -431,7 +431,7 @@ function proxyBypassControl(profile: ProxyProfile, host: string, matchUrl: strin
           'span',
           { class: 'ov-chip' },
           el('span', { class: 'mono', title: stored }, stored),
-          el('span', { class: 'ov-arrow' }, '→ Direct')
+          el('span', { class: 'ov-arrow', innerHTML: '&#8594; Direct' })
         ),
         el('button', {
           class: 'btn ghost icon ov-remove',

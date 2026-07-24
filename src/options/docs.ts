@@ -206,7 +206,7 @@ function buildDocsPanel(): HTMLElement {
       terms([
         ['Quick switch', ['When on, clicking the toolbar icon cycles through the profiles you’ve ticked instead of opening the popup (while it’s on, the popup itself is unavailable). Tick at least two entries — with fewer, the cycle falls back to Direct, System, and every profile. The cycle keyboard shortcut works either way.']],
         ['On browser startup, activate', ['Which profile becomes active when the browser starts. ', code('Last used'), ' keeps whatever was active before.']],
-        ['Incognito windows use', ['Route incognito windows through their own profile while regular windows keep the active one. Requires ', code('Allow in Incognito'), ' for Sockitt at ', code('chrome://extensions'), '; without it (or set to ', code('Same as regular'), '), incognito follows the regular profile.']],
+        ['Incognito windows use', ['Route incognito windows through their own profile while regular windows keep the active one. Requires ', code('Allow in Incognito'), ' for Sockitt at ', code('chrome://extensions'), '; without it (or set to ', code('Same as regular windows'), '), incognito follows the regular profile.']],
         ['Reload tab after switching', ['Reload the active tab after you pick a profile in the popup, so the page reloads through the new route.']],
       ]),
       el('h4', { class: 'doc-sub' }, 'Behaviour'),

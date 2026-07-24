@@ -26,19 +26,6 @@ export const APPLIED_KEY = 'sockitt-applied';
 export const TEST_KEY = 'sockitt-test';
 /** Proxy-test response (worker → options page). */
 export const TEST_RESULT_KEY = 'sockitt-test-result';
-/** Per-session proxy health results keyed by profile id (sidebar dots). */
-export const HEALTH_KEY = 'sockitt-health';
-
-export interface HealthEntry {
-  ok: boolean;
-  /** Lookup round-trip in ms; null when the test failed. */
-  ms: number | null;
-  at: number;
-  /** Exit details from the last successful test (absent on failure). */
-  ip?: string;
-  iso?: string;
-  country?: string;
-}
 
 // Compiler-enforced: adding a RuleType without listing it here fails to build,
 // rather than silently dropping rules of the new type on load/import/sync.

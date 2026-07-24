@@ -4,8 +4,6 @@ import { compilePac, fixedServersValue, staticTerminal } from './shared/pac';
 import {
   APPLIED_KEY,
   ERROR_KEY,
-  HEALTH_KEY,
-  HealthEntry,
   TEST_KEY,
   TEST_RESULT_KEY,
   loadConfig,
@@ -363,20 +361,7 @@ async function runProxyTest(req: {
     if (reapplyAfterTest) void applyActive();
   }
   try {
-    const store = await chrome.storage.session.get(HEALTH_KEY);
-    const health = (store[HEALTH_KEY] as Record<string, HealthEntry> | undefined) ?? {};
-    health[req.profileId] =
-      result.ok === true
-        ? {
-            ok: true,
-            ms: result.ms as number,
-            at: Date.now(),
-            ip: result.ip as string,
-            iso: result.iso as string | undefined,
-            country: result.country as string | undefined,
-          }
-        : { ok: false, ms: null, at: Date.now() };
-    await chrome.storage.session.set({ [TEST_RESULT_KEY]: result, [HEALTH_KEY]: health });
+    await chrome.storage.session.set({ [TEST_RESULT_KEY]: result });
   } catch {
     // session storage unavailable — the options page just never hears back
   }

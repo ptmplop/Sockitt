@@ -4,8 +4,6 @@ import { EXIT_IP_PERMS, flagEmoji } from '../shared/exitip';
 import { TraceEdge, pacRequestUrl, patternError, resolveRoute } from '../shared/match';
 import { parseRuleList } from '../shared/rulelist';
 import {
-  HEALTH_KEY,
-  HealthEntry,
   TEST_KEY,
   TEST_RESULT_KEY,
   loadConfig,
@@ -60,6 +58,8 @@ const NAV_ICON = {
     '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
   help:
     '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+  grip:
+    '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="6" x2="9" y2="6"/><line x1="15" y1="6" x2="15" y2="6"/><line x1="9" y1="12" x2="9" y2="12"/><line x1="15" y1="12" x2="15" y2="12"/><line x1="9" y1="18" x2="9" y2="18"/><line x1="15" y1="18" x2="15" y2="18"/></svg>',
 };
 
 /** Neutral tile holding a nav-icon SVG — same tile as builtinTile, crisp glyph. */
@@ -76,8 +76,6 @@ let syncError: string | null = null;
 /** Route-inspector state, module-level so it survives re-renders. */
 let inspectUrl = '';
 let inspectStartId = ''; // '' = the active profile
-/** Session proxy-test results for the sidebar health dots. */
-let healthMap: Record<string, HealthEntry> = {};
 
 const RULE_TYPES: Record<RuleType, string> = {
   hostWildcard: 'Host wildcard',
@@ -120,20 +118,6 @@ function confirmMaybe(message: string): boolean {
 /* ---------- sidebar ---------- */
 
 function sidebar(): HTMLElement {
-  const healthDot = (p: Profile): HTMLElement | null => {
-    // hasOwn: imported ids are arbitrary strings ("__proto__" would otherwise
-    // read Object.prototype and paint a phantom dot).
-    const h =
-      p.kind === 'proxy' && Object.hasOwn(healthMap, p.id) ? healthMap[p.id] : undefined;
-    if (!h) return null;
-    // Reachable is reachable — green if it connected, red if it didn't. Latency
-    // lives in the tooltip, not the colour.
-    const detail = h.ok
-      ? `Last test: ${h.ip}${h.country ? ` (${h.country})` : ''} · ${h.ms} ms`
-      : 'Last test: unreachable';
-    return el('span', { class: `health-dot ${h.ok ? 'ok' : 'bad'}`, title: detail });
-  };
-
   const item = (p: Profile) =>
     el(
       'button',
@@ -146,10 +130,7 @@ function sidebar(): HTMLElement {
       },
       avatarEl(p, 22),
       el('span', { class: 'name' }, p.name),
-      config.activeId === p.id ? el('span', { class: 'badge' }, 'ACTIVE') : null,
-      // Dot last so it's always flush-right and lines up across rows whether or
-      // not a row carries the ACTIVE badge.
-      healthDot(p)
+      config.activeId === p.id ? el('span', { class: 'badge' }, 'ACTIVE') : null
     );
 
   const groups = (['proxy', 'switch', 'rulelist', 'virtual'] as const).flatMap((kind) => {
@@ -574,20 +555,19 @@ function proxyEditor(profile: ProxyProfile): HTMLElement {
   const authPanel = schemeSupportsAuth(profile.scheme)
     ? authSection(profile)
     : el('div', { class: 'field' }, el('span', { class: 'note' },
-        'Chromium cannot authenticate SOCKS proxies - secure the proxy by IP allow-list or a local tunnel (e.g. ssh -D).'));
+        'Chromium cannot authenticate SOCKS proxies — secure the proxy by IP allow-list or a local tunnel (e.g. ssh -D).'));
 
   const testResult = el('span', {
     class: 'note test-result',
     dataset: { profile: profile.id },
-    title: healthTitle(profile.id),
   });
-  testResult.textContent = healthText(profile.id);
   const testBtn = el(
     'button',
     {
       class: 'btn test-btn',
       dataset: { profile: profile.id },
       onclick: async () => {
+        testResult.classList.remove('ok', 'bad');
         if (!(await ensureExitIpPermission())) {
           testResult.textContent = 'Needs access to ipconfig.is to run the check.';
           return;
@@ -658,7 +638,7 @@ function proxyEditor(profile: ProxyProfile): HTMLElement {
       el(
         'div',
         { class: 'field' },
-        el('label', {}, 'One entry per line - these hosts connect directly'),
+        el('label', {}, 'One entry per line — these hosts connect directly'),
         bypass,
         el('span', { class: 'note' }, '<local> matches plain hostnames and localhost. Also accepts *.suffix wildcards and IPv4 CIDR blocks.')
       )
@@ -775,7 +755,7 @@ function switchEditor(profile: SwitchProfile): HTMLElement {
     const row = el(
       'div',
       { class: `rule${rule.enabled ? '' : ' disabled'}`, dataset: { id: rule.id } },
-      el('span', { class: 'grip', title: 'Drag to reorder', draggable: true }, '⋮⋮'),
+      el('span', { class: 'grip', title: 'Drag to reorder', draggable: true, innerHTML: NAV_ICON.grip }),
       typeSel,
       pattern,
       targetSelect(profile.id, rule.targetId, (v) => {
@@ -786,7 +766,7 @@ function switchEditor(profile: SwitchProfile): HTMLElement {
       el('button', {
         class: 'btn ghost icon',
         title: 'Delete rule',
-        innerHTML: '✕',
+        innerHTML: '&#10005;',
         onclick: () => {
           profile.rules = profile.rules.filter((r) => r.id !== rule.id);
           scheduleSave();
@@ -816,7 +796,7 @@ function switchEditor(profile: SwitchProfile): HTMLElement {
     el(
       'div',
       { class: 'card panel' },
-      el('h3', {}, 'Rules - first match wins'),
+      el('h3', {}, 'Rules — first match wins'),
       rulesBox,
       el(
         'button',
@@ -1172,7 +1152,7 @@ function settingsPanel(): HTMLElement {
       el('h3', {}, 'Behaviour'),
       toggleRow(
         'Guard proxy control',
-        'If another extension takes over proxy settings, take them back automatically (at most every 30 s).',
+        'If another extension takes over proxy settings, take them back automatically (at most every 30 seconds).',
         s.revertExternal,
         (v) => {
           s.revertExternal = v;
@@ -1233,7 +1213,7 @@ function settingsPanel(): HTMLElement {
       syncError ? el('div', { class: 'banner' }, `Sync error: ${syncError}`) : null,
       toggleRow(
         'Sync configuration',
-        'Mirror profiles and rules to your browser account (chrome.storage.sync) so other machines pick them up. Newest change wins. Large rule-list bodies are not synced - set a URL so each machine can refresh its own copy.',
+        'Mirror profiles and rules to your browser account (chrome.storage.sync) so other machines pick them up. Newest change wins. Large rule-list bodies are not synced — set a URL so each machine can refresh its own copy.',
         s.syncEnabled,
         async (v) => {
           if (!v) {
@@ -1505,7 +1485,7 @@ function emptyPane(): HTMLElement {
     { class: 'card hero' },
     el('img', { class: 'mark hero-mark', src: 'img/logo-mark.png', alt: '' }),
     el('h2', {}, 'Route traffic your way'),
-    el('p', {}, 'Create a proxy profile (SOCKS5, SOCKS4, HTTP, or HTTPS), then add an Auto Switch profile to route sites by rule - host wildcards, regex, CIDR blocks, keywords, or time windows.'),
+    el('p', {}, 'Create a proxy profile (SOCKS5, SOCKS4, HTTP, or HTTPS), then add an Auto Switch profile to route sites by rule — host wildcards, regex, CIDR blocks, keywords, or time windows.'),
     el(
       'div',
       { class: 'cta' },
@@ -1553,6 +1533,8 @@ function render(): void {
       el('div', { class: 'content' }, authWarningBanner(), content)
     )
   );
+  // Expose the selected nav item to assistive tech (mirrors popup .row's aria-pressed).
+  sideNode.querySelector('.nav-item.selected')?.setAttribute('aria-current', 'page');
 }
 
 /**
@@ -1613,81 +1595,41 @@ function watchSyncError(): void {
 }
 
 /** "Exit 1.2.3.4 🇺🇸 · 45 ms" — shared by the live result and the reopen paint. */
-function exitLabel(x: { ip?: string; iso?: string; ms?: number | null }): string {
-  const flag = flagEmoji(x.iso);
-  return `Exit ${x.ip ?? '?'}${flag ? ` ${flag}` : ''} · ${x.ms} ms`;
-}
-
-/** Text for a proxy's connection-test line from its stored health entry. */
-function healthText(id: string): string {
-  const h = Object.hasOwn(healthMap, id) ? healthMap[id] : undefined;
-  if (!h) return '';
-  return h.ok ? exitLabel(h) : 'Last test failed';
-}
-
-/** Tooltip detail for the same entry (country name spelled out). */
-function healthTitle(id: string): string {
-  const h = Object.hasOwn(healthMap, id) ? healthMap[id] : undefined;
-  if (!h) return '';
-  if (!h.ok) return 'Last test: unreachable';
-  return h.country ? `${h.ip} · ${h.country}` : `${h.ip}`;
-}
-
-/** Paint the connection-test line for whichever proxy editor is open. */
-function paintOpenTestResult(): void {
-  if (!selectedId) return;
-  const span = document.querySelector<HTMLElement>(
-    `.test-result[data-profile="${CSS.escape(selectedId)}"]`
-  );
-  if (span && !span.textContent) {
-    span.textContent = healthText(selectedId);
-    span.title = healthTitle(selectedId);
-  }
-}
-
-/** Proxy-test plumbing: dots for the sidebar, in-place result for the editor. */
+/** Watch for connection-test results and paint the open editor's result line. */
 function watchProxyTests(): void {
-  void chrome.storage.session
-    .get(HEALTH_KEY)
-    .then((s) => {
-      healthMap = (s[HEALTH_KEY] as Record<string, HealthEntry> | undefined) ?? {};
-      if (Object.keys(healthMap).length) {
-        refreshSidebar();
-        paintOpenTestResult(); // the editor rendered before this fetch resolved
-      }
-    })
-    .catch(() => undefined);
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== 'session') return;
-    if (changes[HEALTH_KEY]) {
-      healthMap = (changes[HEALTH_KEY].newValue as Record<string, HealthEntry> | undefined) ?? {};
-      refreshSidebar();
-    }
-    if (changes[TEST_RESULT_KEY]) {
-      const r = changes[TEST_RESULT_KEY].newValue as
-        | {
-            profileId?: string;
-            ok?: boolean;
-            ip?: string;
-            iso?: string;
-            country?: string;
-            ms?: number;
-            error?: string;
-          }
-        | undefined;
-      if (!r?.profileId) return;
-      // Update the open editor in place — a full render would eat unsaved input.
-      // Re-enable and repaint only the button for the result's own profile: a
-      // dropped concurrent request now returns its own busy-response, so a
-      // blanket re-enable would wrongly reactivate a still-running test.
-      const sel = `[data-profile="${CSS.escape(r.profileId)}"]`;
-      const btn = document.querySelector<HTMLButtonElement>(`.test-btn${sel}`);
-      if (btn) btn.disabled = false;
-      const span = document.querySelector<HTMLElement>(`.test-result${sel}`);
-      if (span) {
-        span.textContent = r.ok ? exitLabel(r) : `Failed: ${r.error ?? 'unknown error'}`;
-        span.title = r.ok && r.country ? `${r.ip} · ${r.country}` : '';
-      }
+    if (area !== 'session' || !changes[TEST_RESULT_KEY]) return;
+    const r = changes[TEST_RESULT_KEY].newValue as
+      | {
+          profileId?: string;
+          ok?: boolean;
+          ip?: string;
+          iso?: string;
+          country?: string;
+          ms?: number;
+          error?: string;
+        }
+      | undefined;
+    if (!r?.profileId) return;
+    // Update the open editor in place — a full render would eat unsaved input.
+    // Re-enable only the button for the result's own profile: a dropped
+    // concurrent request returns its own busy-response, so a blanket re-enable
+    // would wrongly reactivate a still-running test.
+    const sel = `[data-profile="${CSS.escape(r.profileId)}"]`;
+    const btn = document.querySelector<HTMLButtonElement>(`.test-btn${sel}`);
+    if (btn) btn.disabled = false;
+    const span = document.querySelector<HTMLElement>(`.test-result${sel}`);
+    if (!span) return;
+    span.classList.remove('ok', 'bad');
+    if (r.ok) {
+      const flag = flagEmoji(r.iso);
+      span.textContent = `Connection successful · ${r.ip ?? '?'}${flag ? ` ${flag}` : ''} · ${r.ms} ms`;
+      span.title = r.country ? `${r.ip} · ${r.country}` : `${r.ip ?? ''}`;
+      span.classList.add('ok');
+    } else {
+      span.textContent = `Connection failed — ${r.error ?? 'unknown error'}`;
+      span.removeAttribute('title');
+      span.classList.add('bad');
     }
   });
 }

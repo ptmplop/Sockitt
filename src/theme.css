@@ -184,6 +184,7 @@ select.input { cursor: pointer; appearance: auto; }
 }
 .toggle:checked { background: var(--grad); border-color: transparent; }
 .toggle:checked::after { transform: translateX(14px); background: #fff; }
+.toggle:focus-visible { outline: none; box-shadow: var(--ring); }
 
 /* ---- toast ---- */
 .toast {
