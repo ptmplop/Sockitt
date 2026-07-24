@@ -364,7 +364,7 @@ function render(): void {
         { class: 'pop-head' },
         el('span', { class: 'brand' }, el('img', { class: 'mark', src: 'img/logo-mark.png', alt: '' }), 'Sockitt'),
         el('button', {
-          class: 'btn ghost icon',
+          class: 'btn ghost icon cog',
           title: 'Options',
           innerHTML: '&#9881;',
           onclick: () => chrome.runtime.openOptionsPage(),

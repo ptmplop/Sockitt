@@ -24,8 +24,8 @@ script.
 
 <table align="center">
   <tr>
-    <td align="center" valign="top"><img src="img/screenshots/popup.png" width="270" alt="Sockitt popup"><br><sub>Popup: switch profiles and manage the current site</sub></td>
-    <td align="center" valign="top"><img src="img/screenshots/options.png" width="540" alt="Sockitt options - Auto Switch rules"><br><sub>Options: rule-based auto routing</sub></td>
+    <td align="center" valign="top"><img src="img/screenshots/app-popup.png" width="270" alt="Sockitt popup"><br><sub>Popup: switch profiles and manage the current site</sub></td>
+    <td align="center" valign="top"><img src="img/screenshots/app-options.png" width="540" alt="Sockitt options - Auto Switch rules"><br><sub>Options: rule-based auto routing</sub></td>
   </tr>
 </table>
 

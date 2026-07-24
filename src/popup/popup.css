@@ -21,6 +21,14 @@ body {
 }
 .pop-head .brand { font-size: 16px; font-weight: 800; letter-spacing: -0.01em; }
 .pop-head .mark { width: 22px; height: 22px; }
+.pop-head .cog {
+  width: 36px;
+  height: 36px;
+  font-size: 21px;
+  line-height: 1;
+  color: var(--text-dim);
+}
+.pop-head .cog:hover { color: var(--text); background: var(--surface-hover); }
 
 /* ---- entrance motion ---- */
 @keyframes rise {
