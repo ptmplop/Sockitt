@@ -152,7 +152,7 @@ function sidebar(): HTMLElement {
         el('span', { class: 'name' }, 'Docs')
       ),
       el('div', { class: 'section-label' }, 'Create'),
-      el('button', { class: 'btn create-btn primary', onclick: () => addProfile(newProxyProfile) }, 'New proxy'),
+      el('button', { class: 'btn create-btn', onclick: () => addProfile(newProxyProfile) }, 'New proxy'),
       el('button', { class: 'btn create-btn', onclick: () => addProfile(newSwitchProfile) }, 'New auto switch'),
       el('button', { class: 'btn create-btn', onclick: () => addProfile(newRuleListProfile) }, 'New rule list'),
       el('button', { class: 'btn create-btn', onclick: () => addProfile(newVirtualProfile) }, 'New alias')
