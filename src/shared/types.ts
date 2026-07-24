@@ -32,16 +32,40 @@ interface ProfileBase {
   color: string;
 }
 
+/** Proxy protocols Chromium can route through. */
+export type ProxyScheme = 'socks5' | 'socks4' | 'http' | 'https';
+
 export interface ProxyProfile extends ProfileBase {
   kind: 'proxy';
+  scheme: ProxyScheme;
   host: string;
   port: number;
+  /**
+   * Optional proxy credentials. Only meaningful for http/https proxies —
+   * Chromium cannot authenticate SOCKS proxies. Supplied at runtime via
+   * chrome.webRequest.onAuthRequired (needs the optional webRequest +
+   * webRequestAuthProvider + host permissions).
+   */
+  username?: string;
+  password?: string;
   /**
    * Hosts reached directly even when this profile is active.
    * Supports: <local>, exact hosts, *.suffix wildcards, IPv4 CIDR.
    */
   bypass: string[];
 }
+
+/** true for schemes Chromium can authenticate with a username/password. */
+export function schemeSupportsAuth(scheme: ProxyScheme): boolean {
+  return scheme === 'http' || scheme === 'https';
+}
+
+export const SCHEME_LABELS: Record<ProxyScheme, string> = {
+  socks5: 'SOCKS5',
+  socks4: 'SOCKS4',
+  http: 'HTTP',
+  https: 'HTTPS',
+};
 
 export interface SwitchProfile extends ProfileBase {
   kind: 'switch';

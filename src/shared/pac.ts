@@ -1,6 +1,17 @@
 import { compileBypassEntry, compileRule, CompiledCondition } from './match';
 import { parseRuleList } from './rulelist';
-import { Config, DIRECT, Profile, ProxyProfile, SwitchRule, profileById } from './types';
+import { Config, DIRECT, Profile, ProxyProfile, ProxyScheme, SwitchRule, profileById } from './types';
+
+/** The PAC return token for a proxy scheme (PAC uses its own directive names). */
+export function pacDirective(scheme: ProxyScheme, host: string, port: number): string {
+  const addr = `${host}:${port}`;
+  switch (scheme) {
+    case 'socks5': return `SOCKS5 ${addr}`;
+    case 'socks4': return `SOCKS ${addr}`;
+    case 'http': return `PROXY ${addr}`;
+    case 'https': return `HTTPS ${addr}`;
+  }
+}
 
 /**
  * Compile the profile graph rooted at `root` into a PAC script.
@@ -103,7 +114,7 @@ export function compilePac(config: Config, root: Profile, tempRules: SwitchRule[
   const emitBody = (profile: Profile): string => {
     switch (profile.kind) {
       case 'proxy': {
-        const proxy = JSON.stringify(`SOCKS5 ${profile.host}:${profile.port}`);
+        const proxy = JSON.stringify(pacDirective(profile.scheme, profile.host, profile.port));
         const bypass = profile.bypass
           .map((entry) => compileBypassEntry(entry))
           .filter((c) => c.op !== 'never')
@@ -260,12 +271,12 @@ export function staticTerminal(config: Config, profile: Profile): ProxyProfile |
   return 'direct'; // dangling reference
 }
 
-/** Fixed-servers value for a plain SOCKS5 profile (non-PAC path). */
-export function fixedServersValue(host: string, port: number, bypass: string[]) {
+/** Fixed-servers value for a single-proxy profile (non-PAC fast path). */
+export function fixedServersValue(scheme: ProxyScheme, host: string, port: number, bypass: string[]) {
   return {
     mode: 'fixed_servers',
     rules: {
-      singleProxy: { scheme: 'socks5', host, port },
+      singleProxy: { scheme, host, port },
       bypassList: bypass.filter((b) => b.trim().length > 0),
     },
   } as const;

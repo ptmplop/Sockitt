@@ -215,6 +215,7 @@ textarea.input { resize: vertical; min-height: 88px; line-height: 1.6; }
 .rl-source { min-height: 140px; max-height: 320px; font-size: 11.5px; }
 .rl-actions { display: flex; gap: 12px; align-items: flex-end; }
 .field-grid.wide { grid-template-columns: 1fr 1fr; }
+.field-grid.trio { grid-template-columns: 150px 1fr 110px; }
 
 /* ---- settings ---- */
 .setting-row {

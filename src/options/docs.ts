@@ -51,7 +51,7 @@ export function docsPanel(): HTMLElement {
     card(
       'What Sockitt does',
       p(
-        'Sockitt routes your browser traffic through SOCKS5 proxies. You create ',
+        'Sockitt routes your browser traffic through proxies. You create ',
         el('em', {}, 'profiles'),
         ', pick which one is active from the toolbar popup, and — with an Auto Switch profile — let rules decide per site whether a request goes direct or through a proxy.'
       ),
@@ -76,7 +76,7 @@ export function docsPanel(): HTMLElement {
       terms([
         ['Direct (built-in)', ['No proxy — traffic goes straight to the network.']],
         ['System (built-in)', ['Follows the proxy settings configured in your operating system.']],
-        ['Proxy', ['A single SOCKS5 server (host, port, and a bypass list). Activate it to send everything through that server.']],
+        ['Proxy', ['A single proxy server — SOCKS5, SOCKS4, HTTP, or HTTPS — with a host, port, and bypass list. Activate it to send everything through that server.']],
         ['Auto Switch', ['An ordered list of rules that route each request to a target based on its URL, host, IP, or the time of day. This is the profile the popup lets you manage per site.']],
         ['Rule list', ['Subscribes to an AutoProxy/GFWList or Switchy-format list (by URL or pasted in) and routes matching sites to a chosen target.']],
         ['Alias', ['A pointer to another profile. Aim several rules at one alias, then change the alias target once to retarget them all together.']],
@@ -110,6 +110,24 @@ export function docsPanel(): HTMLElement {
       ),
       el('p', { class: 'doc-note' },
         'For https pages the browser only exposes the scheme and host to the proxy resolver, so URL-path rules effectively behave as host-level rules on https. Time and weekday decisions may take a moment to apply on already-visited sites because the browser briefly caches proxy decisions.')
+    ),
+
+    card(
+      'Proxy protocols & authentication',
+      p('A proxy profile can use any protocol Chromium supports:'),
+      table(
+        ['Protocol', 'Notes'],
+        [
+          [code('SOCKS5'), 'Recommended for SSH tunnels (ssh -D) and most proxies. No authentication (Chromium limitation).'],
+          [code('SOCKS4'), 'Older SOCKS; no authentication.'],
+          [code('HTTP'), 'Standard HTTP proxy. Supports username/password authentication.'],
+          [code('HTTPS'), 'HTTP proxy over TLS. Supports username/password authentication.'],
+        ]
+      ),
+      p(
+        'For HTTP/HTTPS proxies you can set a username and password. Answering proxy authentication challenges needs an optional permission (', code('webRequest'),
+        ' plus access to all sites) — Sockitt asks for it the first time you set a username, and only then. SOCKS proxies cannot be authenticated by Chromium; secure them with an IP allow-list or a local tunnel instead.'
+      )
     ),
 
     card(
@@ -205,7 +223,7 @@ export function docsPanel(): HTMLElement {
     card(
       'Limitations',
       ul([
-        'Chromium does not support SOCKS5 username/password authentication — secure your proxy with an IP allow-list or a local tunnel (ssh -D, WireGuard, etc.).',
+        'SOCKS proxies cannot be authenticated (a Chromium limitation) — use an IP allow-list or a local tunnel. HTTP/HTTPS proxies support username/password auth.',
         'IP / CIDR rules match literal IPv4 hosts only; Sockitt never resolves DNS while routing, and IPv6 CIDR is not supported.',
         'Chromium-family browsers only (Chrome, Edge, Brave, Opera, Vivaldi).',
       ])

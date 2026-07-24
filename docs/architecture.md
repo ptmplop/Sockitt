@@ -40,7 +40,7 @@ framework's runtime would be.
 |---|---|
 | Direct | `direct` |
 | System | `system` |
-| SOCKS5 profile (or an alias chain ending at one) | `fixed_servers` (scheme `socks5` + native bypass list) |
+| Proxy profile with empty bypass (or an alias chain ending at one) | `fixed_servers` with the profile's scheme (socks5/socks4/http/https) |
 | Auto Switch / rule list (anything conditional) | `pac_script` with generated code, `mandatory: true` |
 
 Profiles form a graph: switch rules and rule lists can target other profiles.

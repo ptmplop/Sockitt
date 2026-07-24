@@ -3,11 +3,13 @@ import {
   DIRECT,
   PALETTE,
   Profile,
+  ProxyScheme,
   RuleType,
   Settings,
   SwitchRule,
   SYSTEM,
   defaultSettings,
+  schemeSupportsAuth,
   uid,
 } from './types';
 
@@ -195,11 +197,19 @@ function sanitizeProfile(raw: unknown): Profile | null {
   switch (o.kind) {
     case 'proxy': {
       const port = Number(o.port);
+      const scheme: ProxyScheme =
+        o.scheme === 'socks4' || o.scheme === 'http' || o.scheme === 'https' ? o.scheme : 'socks5';
+      const username = typeof o.username === 'string' && o.username ? o.username : undefined;
+      const password = typeof o.password === 'string' && o.password ? o.password : undefined;
       return {
         kind: 'proxy',
         ...base,
+        scheme,
         host: typeof o.host === 'string' ? o.host.trim() : '',
         port: Number.isInteger(port) && port >= 1 && port <= 65535 ? port : 1080,
+        // Credentials only apply to http/https; drop them otherwise.
+        username: schemeSupportsAuth(scheme) ? username : undefined,
+        password: schemeSupportsAuth(scheme) ? password : undefined,
         bypass: Array.isArray(o.bypass)
           ? o.bypass.filter((b): b is string => typeof b === 'string')
           : [],
@@ -274,6 +284,7 @@ export function newProxyProfile(existing: Profile[]): Profile {
     id: uid(),
     name: nextName(existing, 'Proxy'),
     color: nextColor(existing),
+    scheme: 'socks5',
     host: '127.0.0.1',
     port: 1080,
     bypass: ['<local>'],

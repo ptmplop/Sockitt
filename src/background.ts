@@ -10,7 +10,16 @@ import {
   saveConfigRaw,
 } from './shared/state';
 import { applyFromSync, onSyncChanged, pullFromSync, pushToSync } from './shared/sync';
-import { Config, DIRECT, Profile, SYSTEM, SwitchRule, profileById } from './shared/types';
+import {
+  Config,
+  DIRECT,
+  Profile,
+  SYSTEM,
+  SwitchRule,
+  profileById,
+  proxyProfiles,
+  schemeSupportsAuth,
+} from './shared/types';
 
 const ERROR_KEY = 'sockitt-error';
 const NEUTRAL = '#8b93a7';
@@ -48,7 +57,7 @@ function settingsValueFor(
   // semantics differ from Sockitt's PAC semantics).
   if (terminal && !hasBypass(terminal.bypass)) {
     return {
-      value: fixedServersValue(terminal.host, terminal.port, terminal.bypass),
+      value: fixedServersValue(terminal.scheme, terminal.host, terminal.port, terminal.bypass),
       label: profile.name,
       profile,
     };
@@ -96,9 +105,56 @@ async function applyActive(): Promise<void> {
   lastActiveId = config.activeId;
   if (switched && config.settings.refreshOnSwitch) await reloadActiveTab();
 
+  rebuildCredentials(config);
+  await syncAuthHandler();
   await refreshActiveTabBadge(config);
   await scheduleRuleListUpdates(config);
   if (config.settings.syncEnabled) await pushToSync(config);
+}
+
+/* ---------------- proxy authentication (http/https, optional perms) ---------------- */
+
+const AUTH_PERMS: chrome.permissions.Permissions = {
+  permissions: ['webRequest', 'webRequestAuthProvider'],
+  origins: ['<all_urls>'],
+};
+const credByEndpoint = new Map<string, { username: string; password: string }>();
+let authListenerAdded = false;
+
+/** Endpoint→credentials for every http/https proxy that has a username. */
+function rebuildCredentials(config: Config): void {
+  credByEndpoint.clear();
+  for (const p of proxyProfiles(config)) {
+    if (schemeSupportsAuth(p.scheme) && p.username) {
+      credByEndpoint.set(`${p.host}:${p.port}`, { username: p.username, password: p.password ?? '' });
+    }
+  }
+}
+
+/** Synchronous: MV3 blocking onAuthRequired can't await, so look up in memory. */
+function onAuthRequired(
+  details: chrome.webRequest.OnAuthRequiredDetails
+): chrome.webRequest.BlockingResponse {
+  if (!details.isProxy || !details.challenger) return {};
+  const cred = credByEndpoint.get(`${details.challenger.host}:${details.challenger.port}`);
+  return cred ? { authCredentials: cred } : {};
+}
+
+/**
+ * Register the proxy-auth handler once, only when credentials exist and the
+ * optional webRequest/webRequestAuthProvider/host permissions have been
+ * granted (the options page requests them when a user saves credentials).
+ */
+async function syncAuthHandler(): Promise<void> {
+  if (authListenerAdded || credByEndpoint.size === 0) return;
+  const granted = await chrome.permissions.contains(AUTH_PERMS).catch(() => false);
+  if (!granted || !chrome.webRequest?.onAuthRequired) return;
+  try {
+    chrome.webRequest.onAuthRequired.addListener(onAuthRequired, { urls: ['<all_urls>'] }, ['blocking']);
+    authListenerAdded = true;
+  } catch {
+    // APIs unavailable despite the permission check — leave unregistered
+  }
 }
 
 async function reloadActiveTab(): Promise<void> {
@@ -293,6 +349,8 @@ onConfigChanged((config) => {
 onTempRulesChanged(() => void applyActive());
 
 onSyncChanged(() => void maybePullSync());
+
+chrome.permissions.onAdded.addListener(() => void syncAuthHandler());
 
 chrome.action.onClicked.addListener(() => void cycleProfile());
 

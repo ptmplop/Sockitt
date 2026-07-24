@@ -20,13 +20,16 @@ import {
   PALETTE,
   Profile,
   ProxyProfile,
+  ProxyScheme,
   RuleListProfile,
   RuleType,
+  SCHEME_LABELS,
   SwitchProfile,
   SYSTEM,
   VirtualProfile,
   proxyProfiles,
   reachableFrom,
+  schemeSupportsAuth,
   uid,
 } from '../shared/types';
 import { el, toast } from '../shared/ui';
@@ -317,7 +320,35 @@ function targetSelect(ownerId: string, value: string, onChange: (v: string) => v
 
 /* ---------- proxy editor ---------- */
 
+const AUTH_PERMS: chrome.permissions.Permissions = {
+  permissions: ['webRequest', 'webRequestAuthProvider'],
+  origins: ['<all_urls>'],
+};
+
+async function requestAuthPermission(): Promise<boolean> {
+  const has = await chrome.permissions.contains(AUTH_PERMS).catch(() => false);
+  if (has) return true;
+  const granted = await chrome.permissions.request(AUTH_PERMS).catch(() => false);
+  toast(granted ? 'Authentication enabled' : 'Permission needed for proxy auth');
+  return granted;
+}
+
 function proxyEditor(profile: ProxyProfile): HTMLElement {
+  const schemeSel = el('select', { class: 'input' }) as HTMLSelectElement;
+  for (const [value, label] of Object.entries(SCHEME_LABELS)) {
+    schemeSel.append(el('option', { value }, label));
+  }
+  schemeSel.value = profile.scheme;
+  schemeSel.onchange = () => {
+    profile.scheme = schemeSel.value as ProxyScheme;
+    if (!schemeSupportsAuth(profile.scheme)) {
+      profile.username = undefined;
+      profile.password = undefined;
+    }
+    scheduleSave();
+    render();
+  };
+
   const host = el('input', {
     class: 'input mono',
     value: profile.host,
@@ -356,6 +387,11 @@ function proxyEditor(profile: ProxyProfile): HTMLElement {
     },
   }) as HTMLTextAreaElement;
 
+  const authPanel = schemeSupportsAuth(profile.scheme)
+    ? authSection(profile)
+    : el('div', { class: 'field' }, el('span', { class: 'note' },
+        'Chromium cannot authenticate SOCKS proxies — secure the proxy by IP allow-list or a local tunnel (e.g. ssh -D).'));
+
   return el(
     'div',
     { class: 'pane' },
@@ -363,19 +399,15 @@ function proxyEditor(profile: ProxyProfile): HTMLElement {
     el(
       'div',
       { class: 'card panel' },
-      el('h3', {}, 'SOCKS5 server'),
+      el('h3', {}, 'Proxy server'),
       el(
         'div',
-        { class: 'field-grid' },
+        { class: 'field-grid trio' },
+        el('div', { class: 'field' }, el('label', {}, 'Protocol'), schemeSel),
         el('div', { class: 'field' }, el('label', {}, 'Host'), host),
         el('div', { class: 'field' }, el('label', {}, 'Port'), port)
       ),
-      el(
-        'div',
-        { class: 'field' },
-        el('span', { class: 'note' },
-          'Chromium does not support SOCKS5 authentication — secure the proxy by IP allow-list or a local tunnel (e.g. ssh -D).')
-      )
+      authPanel
     ),
     el(
       'div',
@@ -390,6 +422,60 @@ function proxyEditor(profile: ProxyProfile): HTMLElement {
       )
     ),
     dangerZone(profile)
+  );
+}
+
+function authSection(profile: ProxyProfile): HTMLElement {
+  const username = el('input', {
+    class: 'input',
+    value: profile.username ?? '',
+    placeholder: 'username (optional)',
+    autocomplete: 'off',
+    spellcheck: false,
+    onchange: () => {
+      profile.username = username.value.trim() || undefined;
+      scheduleSave();
+      if (profile.username) void requestAuthPermission();
+    },
+  }) as HTMLInputElement;
+
+  const password = el('input', {
+    class: 'input',
+    type: 'password',
+    value: profile.password ?? '',
+    placeholder: 'password',
+    autocomplete: 'off',
+    onchange: () => {
+      profile.password = password.value || undefined;
+      scheduleSave();
+      if (profile.username) void requestAuthPermission();
+    },
+  }) as HTMLInputElement;
+
+  return el(
+    'div',
+    { class: 'field' },
+    el('label', {}, 'Authentication'),
+    el(
+      'div',
+      { class: 'field-grid' },
+      el('div', { class: 'field' }, username),
+      el('div', { class: 'field' }, password)
+    ),
+    el(
+      'span',
+      { class: 'note' },
+      'Credentials are used only for HTTP/HTTPS proxies. Answering proxy auth needs an optional permission (webRequest + all sites); Sockitt asks for it when you set a username.'
+    ),
+    el(
+      'button',
+      {
+        class: 'btn',
+        style: { alignSelf: 'flex-start' },
+        onclick: () => void requestAuthPermission(),
+      },
+      'Enable authentication'
+    )
   );
 }
 

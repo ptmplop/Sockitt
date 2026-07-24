@@ -37,12 +37,12 @@ function runPac(pac, url, host) {
 }
 
 const P1 = {
-  kind: 'proxy', id: 'p1', name: 'Tokyo', color: '#46c9e5',
+  kind: 'proxy', id: 'p1', name: 'Tokyo', color: '#46c9e5', scheme: 'socks5',
   host: '203.0.113.7', port: 1080,
   bypass: ['<local>', '*.intra.net', '192.168.0.0/16'],
 };
 const P2 = {
-  kind: 'proxy', id: 'p2', name: 'Berlin', color: '#6d5dfc',
+  kind: 'proxy', id: 'p2', name: 'Berlin', color: '#6d5dfc', scheme: 'socks5',
   host: '198.51.100.3', port: 9050, bypass: [],
 };
 const SOCKS_P1 = 'SOCKS5 203.0.113.7:1080';
@@ -405,4 +405,33 @@ test('pacRequestUrl mirrors Chrome path-stripping (https origin-only, http full)
   assert.equal(runPac(pac, stripped, 'x.io'), 'DIRECT'); // Chrome sees no path on https
   assert.equal(lib.resolveRoute(config, p, stripped, 'x.io').targetId, 'direct'); // preview agrees
   assert.equal(lib.resolveRoute(config, p, raw, 'x.io').targetId, 'p1'); // raw url would mislead
+});
+
+/* ---------------- multiple proxy protocols (1.5) ---------------- */
+
+test('each proxy scheme emits the correct PAC directive', () => {
+  const cases = [
+    ['socks5', 'SOCKS5 h.example:1080'],
+    ['socks4', 'SOCKS h.example:1080'],
+    ['http', 'PROXY h.example:1080'],
+    ['https', 'HTTPS h.example:1080'],
+  ];
+  for (const [scheme, expected] of cases) {
+    assert.equal(lib.pacDirective(scheme, 'h.example', 1080), expected, scheme);
+    const proxy = { kind: 'proxy', id: 'x', name: 'X', color: '#111111', scheme, host: 'h.example', port: 1080, bypass: [] };
+    const sw = { kind: 'switch', id: 's', name: 'S', color: '#111111', defaultTargetId: 'x',
+      rules: [rule('r', 'hostWildcard', '*.site.io', 'x')] };
+    const config = makeConfig([proxy, sw], 's');
+    const pac = lib.compilePac(config, sw);
+    assert.equal(runPac(pac, 'https://a.site.io/', 'a.site.io'), expected, `PAC route ${scheme}`);
+  }
+});
+
+test('fixedServersValue maps scheme through for the fast path', () => {
+  const v = lib.fixedServersValue('https', '1.2.3.4', 8080, ['<local>']);
+  assert.equal(v.rules.singleProxy.scheme, 'https');
+  assert.equal(v.rules.singleProxy.host, '1.2.3.4');
+  assert.equal(v.rules.singleProxy.port, 8080);
+  assert.deepEqual(v.rules.bypassList, ['<local>']);
+  assert.equal(lib.fixedServersValue('socks4', 'h', 1, []).rules.singleProxy.scheme, 'socks4');
 });

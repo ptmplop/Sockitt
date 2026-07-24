@@ -3,16 +3,17 @@
 </p>
 
 <p align="center">
-  <b>A fast, minimal SOCKS5 proxy switcher for Chromium browsers.</b><br>
+  <b>A fast, minimal proxy switcher for Chromium browsers.</b><br>
   One-click switching, rule-based auto routing, zero frameworks — Manifest V3.
 </p>
 
 ---
 
-Sockitt manages your SOCKS5 proxies and decides, per request, whether traffic
-goes direct or through a proxy. It is a ground-up, modern take on the classic
-proxy-switcher extension: ~25 KB of JavaScript in total, three narrow
-permissions, and a rule engine that compiles to an optimised PAC script.
+Sockitt manages your proxies (SOCKS5, SOCKS4, HTTP, HTTPS) and decides, per
+request, whether traffic goes direct or through one. It is a ground-up, modern
+take on the classic proxy-switcher extension: no frameworks, a lean bundle, a
+minimal default permission set, and a rule engine that compiles to an optimised
+PAC script.
 
 <p align="center">
   <img src="img/screenshots/popup.png" width="300" alt="Sockitt popup" hspace="8">
@@ -21,10 +22,10 @@ permissions, and a rule engine that compiles to an optimised PAC script.
 
 ## Features
 
-- **Proxy profiles** — SOCKS5 servers with host, port, per-profile bypass list,
-  and an identity of their own: an initials avatar (DiceBear-initials style,
-  generated locally) in your chosen colour. Initials derive from the name or
-  can be set explicitly.
+- **Proxy profiles** — SOCKS5 / SOCKS4 / HTTP / HTTPS servers with host, port,
+  per-profile bypass list, and optional username/password auth for HTTP(S).
+  Each has an identity: an initials avatar (DiceBear-initials style, generated
+  locally) in your chosen colour, derived from the name or set explicitly.
 - **Living toolbar icon** — the toolbar shows the active profile's avatar, so
   you always know where your traffic is going at a glance.
 - **Built-in modes** — *Direct* (no proxy) and *System* (OS proxy settings).
@@ -74,8 +75,9 @@ Works on Chrome, Edge, Brave, Opera, Vivaldi and other Chromium browsers
 
 ## Quick start
 
-1. Click the Sockitt icon → **Manage** → **+ New proxy** — enter your SOCKS5
-   host and port (e.g. an `ssh -D 1080 myserver` tunnel on `127.0.0.1:1080`).
+1. Click the Sockitt icon → **Manage** → **New proxy** — pick the protocol and
+   enter your host and port (e.g. a SOCKS5 `ssh -D 1080 myserver` tunnel on
+   `127.0.0.1:1080`, or an HTTP proxy with a username/password).
 2. Pick the profile in the popup — everything now routes through it.
 3. Want per-site routing? Create an **Auto Switch** profile, activate it, then
    browse: the popup shows where each tab routes and offers **+ Rule** to send
@@ -86,19 +88,21 @@ See [docs/rules.md](docs/rules.md) for the full pattern syntax, and
 
 ## Permissions & privacy
 
-Sockitt requests four permissions — `proxy`, `storage`, `activeTab`, and
-`alarms` — and **no host permissions**. It cannot read your browsing history,
-does not touch page content, and contains no analytics of any kind. The only
-network requests it ever makes are fetches of rule-list URLs *you* configure.
-Two features are strictly opt-in: the per-tab route badge asks for the
-optional `tabs` permission when you enable it, and sync stores your config in
-your own browser account (`chrome.storage.sync`).
+Sockitt requests four permissions by default — `proxy`, `storage`, `activeTab`,
+and `alarms` — and **no host permissions**. It cannot read your browsing
+history, does not touch page content, and contains no analytics of any kind.
+The only network requests it makes are fetches of rule-list URLs *you*
+configure. Extra capabilities are strictly opt-in and requested only when used:
+the per-tab route badge asks for `tabs`; HTTP/HTTPS proxy authentication asks
+for `webRequest` + `webRequestAuthProvider` + all-sites access (needed to answer
+proxy auth challenges); and sync stores your config in your own browser account
+(`chrome.storage.sync`).
 
 ## Limitations
 
-- **No SOCKS5 authentication** — a Chromium platform limitation, not a Sockitt
-  choice. Secure your proxy with an IP allow-list or a local tunnel
-  (`ssh -D`, `wireguard`, etc.).
+- **No SOCKS authentication** — a Chromium platform limitation. Secure SOCKS
+  proxies with an IP allow-list or a local tunnel (`ssh -D`, `wireguard`, etc.).
+  HTTP/HTTPS proxies support username/password auth.
 - CIDR rules match literal IPv4 hosts; Sockitt never resolves DNS in the
   request path, and IPv6 CIDR is not supported.
 - Chromium-family browsers only.
