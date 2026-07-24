@@ -261,6 +261,18 @@ textarea.input { resize: vertical; min-height: 88px; line-height: 1.6; }
 .hero .cta { display: flex; gap: 8px; margin-top: 8px; }
 
 /* ---- docs page ---- */
+.doc-head { display: flex; align-items: baseline; gap: 12px; padding: 0 4px 4px; }
+.doc-title { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -0.01em; }
+.doc-version {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
 .docs .doc-card { gap: 12px; }
 .doc-p { margin: 0; line-height: 1.6; color: var(--text); }
 .doc-note {

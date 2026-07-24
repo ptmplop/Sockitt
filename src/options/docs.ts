@@ -23,10 +23,7 @@ function terms(rows: Array<[string, (Node | string)[]]>): HTMLElement {
   return el(
     'dl',
     { class: 'doc-dl' },
-    ...rows.flatMap(([term, desc]) => [
-      el('dt', {}, term),
-      el('dd', {}, ...desc),
-    ])
+    ...rows.flatMap(([term, desc]) => [el('dt', {}, term), el('dd', {}, ...desc)])
   );
 }
 
@@ -43,17 +40,32 @@ function table(headers: string[], rows: (Node | string)[][]): HTMLElement {
   );
 }
 
+function version(): string {
+  try {
+    return 'v' + chrome.runtime.getManifest().version;
+  } catch {
+    return '';
+  }
+}
+
 export function docsPanel(): HTMLElement {
   return el(
     'div',
     { class: 'pane docs' },
+
+    el(
+      'div',
+      { class: 'doc-head' },
+      el('h2', { class: 'doc-title' }, 'Documentation'),
+      version() ? el('span', { class: 'doc-version' }, version()) : null
+    ),
 
     card(
       'What Sockitt does',
       p(
         'Sockitt routes your browser traffic through proxies. You create ',
         el('em', {}, 'profiles'),
-        ', pick which one is active from the toolbar popup, and — with an Auto Switch profile — let rules decide per site whether a request goes direct or through a proxy.'
+        ', pick which one is active from the toolbar popup, and (with an Auto Switch profile) let rules decide per site whether a request goes direct or through a proxy.'
       ),
       p(
         'Everything is stored locally in the browser. The only network requests Sockitt makes on its own are fetches of rule-list URLs that you configure.'
@@ -65,8 +77,8 @@ export function docsPanel(): HTMLElement {
       el(
         'ol',
         { class: 'doc-list' },
-        el('li', {}, 'Click ', code('New proxy'), ' and enter your SOCKS5 host and port (for example an ', code('ssh -D 1080 myserver'), ' tunnel on ', code('127.0.0.1:1080'), ').'),
-        el('li', {}, 'Open the toolbar popup and select the profile — all traffic now goes through it.'),
+        el('li', {}, 'Click ', code('New proxy'), ', choose the protocol, and enter the host and port (for example a SOCKS5 ', code('ssh -D 1080 myserver'), ' tunnel on ', code('127.0.0.1:1080'), ', or an HTTP proxy with a username and password).'),
+        el('li', {}, 'Open the toolbar popup and select the profile; all traffic now goes through it.'),
         el('li', {}, 'For per-site routing, create an ', code('Auto Switch'), ' profile, activate it, and add rules (or add them straight from the popup while browsing).')
       )
     ),
@@ -74,9 +86,9 @@ export function docsPanel(): HTMLElement {
     card(
       'Profile types',
       terms([
-        ['Direct (built-in)', ['No proxy — traffic goes straight to the network.']],
+        ['Direct (built-in)', ['No proxy; traffic goes straight to the network.']],
         ['System (built-in)', ['Follows the proxy settings configured in your operating system.']],
-        ['Proxy', ['A single proxy server — SOCKS5, SOCKS4, HTTP, or HTTPS — with a host, port, and bypass list. Activate it to send everything through that server.']],
+        ['Proxy', ['A single proxy server (SOCKS5, SOCKS4, HTTP, or HTTPS) with a host, port, and bypass list. Activate it to send everything through that server.']],
         ['Auto Switch', ['An ordered list of rules that route each request to a target based on its URL, host, IP, or the time of day. This is the profile the popup lets you manage per site.']],
         ['Rule list', ['Subscribes to an AutoProxy/GFWList or Switchy-format list (by URL or pasted in) and routes matching sites to a chosen target.']],
         ['Alias', ['A pointer to another profile. Aim several rules at one alias, then change the alias target once to retarget them all together.']],
@@ -90,21 +102,19 @@ export function docsPanel(): HTMLElement {
         el('strong', {}, 'first match wins'),
         '. If nothing matches, the profile’s ',
         code('Everything else'),
-        ' target applies. Drag the ',
-        code('⋮⋮'),
-        ' handle to reorder; toggle a rule off to disable it without deleting it. A rule can route to a proxy, Direct, another Auto Switch profile, a rule list, or an alias.'
+        ' target applies. Drag the grip handle to reorder; toggle a rule off to disable it without deleting it. A rule can route to a proxy, Direct, another Auto Switch profile, a rule list, or an alias.'
       ),
       table(
-        ['Condition', 'Example', 'Matches when…'],
+        ['Condition', 'Example', 'Matches when'],
         [
           [code('Host wildcard'), code('*.example.com'), 'the hostname is example.com or any subdomain. * matches any run of characters, ? matches one.'],
-          [code('Host regex'), code('(^|\\.)example\\.(com|net)$'), 'a JavaScript regular expression matches the hostname (unanchored — anchor it yourself).'],
+          [code('Host regex'), code('(^|\\.)example\\.(com|net)$'), 'a JavaScript regular expression matches the hostname (unanchored; anchor it yourself).'],
           [code('URL wildcard'), code('https://example.com/api/*'), 'a wildcard matches the full URL (a trailing * is implied).'],
           [code('URL regex'), code('^https?://example\\.com/'), 'a JavaScript regular expression matches the full URL.'],
           [code('IP / CIDR'), code('10.0.0.0/8'), 'the hostname is a literal IPv4 address inside the block (no DNS lookup; IPv6 not supported).'],
           [code('URL keyword'), code('tracker'), 'the substring appears anywhere in the URL.'],
           [code('Host levels'), code('2-4'), 'the hostname has that many dot-separated labels (example.com = 2, a.b.example.com = 4).'],
-          [code('Weekday'), code('mon-fri'), 'today is in the set. Ranges may wrap the week (fri-mon); digits 0–6 (0 = Sunday) also work.'],
+          [code('Weekday'), code('mon-fri'), 'today is in the set. Ranges may wrap the week (fri-mon); digits 0 to 6 (0 = Sunday) also work.'],
           [code('Time of day'), code('22:00-06:00'), 'the current time is in the range. Ranges may wrap midnight.'],
         ]
       ),
@@ -113,7 +123,7 @@ export function docsPanel(): HTMLElement {
     ),
 
     card(
-      'Proxy protocols & authentication',
+      'Proxy protocols and authentication',
       p('A proxy profile can use any protocol Chromium supports:'),
       table(
         ['Protocol', 'Notes'],
@@ -126,13 +136,13 @@ export function docsPanel(): HTMLElement {
       ),
       p(
         'For HTTP/HTTPS proxies you can set a username and password. Answering proxy authentication challenges needs an optional permission (', code('webRequest'),
-        ' plus access to all sites) — Sockitt asks for it the first time you set a username, and only then. SOCKS proxies cannot be authenticated by Chromium; secure them with an IP allow-list or a local tunnel instead.'
+        ' plus access to all sites); Sockitt asks for it the first time you set a username, and only then. SOCKS proxies cannot be authenticated by Chromium; secure them with an IP allow-list or a local tunnel instead.'
       )
     ),
 
     card(
       'Bypass lists',
-      p('Each proxy profile has a bypass list — hosts that always connect directly even when that profile is active (whether chosen directly or reached by a rule). One entry per line:'),
+      p('Each proxy profile has a bypass list of hosts that always connect directly even when that profile is active (whether chosen directly or reached by a rule). One entry per line:'),
       table(
         ['Entry', 'Meaning'],
         [
@@ -157,7 +167,7 @@ export function docsPanel(): HTMLElement {
       ]),
       p(
         'Set an ', code('Auto-update'), ' interval (hours; 0 disables) to refresh from the URL automatically, or press ',
-        code('Update now'), '. The URL’s host must allow cross-origin requests — ', code('raw.githubusercontent.com'), ' does. Domain entries compile to a single dictionary lookup, so even very large lists stay fast.'
+        code('Update now'), '. The URL’s host must allow cross-origin requests (', code('raw.githubusercontent.com'), ' does). Domain entries compile to a single dictionary lookup, so even very large lists stay fast.'
       )
     ),
 
@@ -166,7 +176,7 @@ export function docsPanel(): HTMLElement {
       p('Clicking the Sockitt icon opens the popup, where you switch the active profile in one click. When an Auto Switch profile is active, the top section manages the current site:'),
       terms([
         ['Rule', ['Shows the rule that currently matches this site and lets you change its target inline, or add a ', code('*.host'), ' rule if none exists.']],
-        ['Override', ['A single, always-temporary rule for the current site. It takes priority over permanent rules and is cleared when the browser restarts (or when you remove it). While an override is set, the permanent rule is greyed out.']],
+        ['Override', ['A single, always-temporary rule for the current site. It takes priority over permanent rules and is cleared when the browser restarts (or when you remove it). While an override is set, the matching rule is greyed out.']],
       ]),
       p('The footer’s ', code('Manage profiles & rules'), ' opens this options page.')
     ),
@@ -188,22 +198,22 @@ export function docsPanel(): HTMLElement {
       ]),
       el('h4', { class: 'doc-sub' }, 'Sync'),
       terms([
-        ['Sync configuration', ['Mirrors profiles and rules to your browser account so other machines pick them up; the newest change wins. Large rule-list bodies are not synced — set a URL so each machine refreshes its own copy. Enabling sync on a machine that already has a synced setup adopts the existing one rather than overwriting it.']],
+        ['Sync configuration', ['Mirrors profiles and rules to your browser account so other machines pick them up; the newest change wins. Large rule-list bodies are not synced, so set a URL and each machine refreshes its own copy. Enabling sync on a machine that already has a synced setup adopts the existing one rather than overwriting it.']],
       ])
     ),
 
     card(
-      'Identity & appearance',
+      'Identity and appearance',
       terms([
         ['Name', ['A label for the profile, shown in the popup and this page.']],
-        ['Initials', ['1–3 characters drawn on the toolbar icon while the profile is active. Left blank, they’re derived from the name.']],
+        ['Initials', ['1 to 3 characters drawn on the toolbar icon while the profile is active. Left blank, they’re derived from the name.']],
         ['Colour', ['Tints the profile’s avatar and its toolbar icon, so you can tell at a glance which profile is live.']],
       ]),
       p('The toolbar icon always reflects the active profile; a red ', code('!'), ' badge appears if the proxy reports an error or another extension is controlling proxy settings.')
     ),
 
     card(
-      'Backup, import & reset',
+      'Backup, import, and reset',
       terms([
         ['Export', ['Downloads your entire configuration as a JSON file.']],
         ['Import', ['Loads a configuration from a JSON file, replacing the current one. Imported data is validated, so a malformed file can’t break the extension.']],
@@ -215,15 +225,15 @@ export function docsPanel(): HTMLElement {
       'Keyboard shortcuts',
       p('Set or change these at ', code('chrome://extensions/shortcuts'), '.'),
       ul([
-        el('span', {}, code('Alt+Shift+S'), ' — open the Sockitt popup (default).'),
-        el('span', {}, 'Cycle to the next quick-switch profile — unbound by default; assign a key if you use Quick switch.'),
+        el('span', {}, code('Alt+Shift+S'), ' opens the Sockitt popup (default).'),
+        el('span', {}, 'Cycle to the next quick-switch profile: unbound by default; assign a key if you use Quick switch.'),
       ])
     ),
 
     card(
       'Limitations',
       ul([
-        'SOCKS proxies cannot be authenticated (a Chromium limitation) — use an IP allow-list or a local tunnel. HTTP/HTTPS proxies support username/password auth.',
+        'SOCKS proxies cannot be authenticated (a Chromium limitation); use an IP allow-list or a local tunnel. HTTP/HTTPS proxies support username/password auth.',
         'IP / CIDR rules match literal IPv4 hosts only; Sockitt never resolves DNS while routing, and IPv6 CIDR is not supported.',
         'Chromium-family browsers only (Chrome, Edge, Brave, Opera, Vivaldi).',
       ])
