@@ -229,7 +229,7 @@ function identityPanel(profile: Profile): HTMLElement {
           { class: 'field' },
           el('label', {}, 'Initials'),
           initials,
-          el('span', { class: 'note' }, 'Shown on the toolbar icon')
+          el('span', { class: 'note' }, 'Toolbar icon text')
         ),
         el(
           'div',
