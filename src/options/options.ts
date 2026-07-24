@@ -108,8 +108,12 @@ function sidebar(): HTMLElement {
       'div',
       { class: 'brand' },
       el('img', { class: 'mark', src: 'img/icon-48.png', alt: '' }),
-      'Sockitt',
-      el('small', {}, 'SOCKS5 switcher')
+      el(
+        'span',
+        { class: 'brand-text' },
+        el('span', { class: 'brand-name' }, 'Sockitt'),
+        el('span', { class: 'brand-sub' }, 'SOCKS5 switcher')
+      )
     ),
     el(
       'nav',
@@ -132,10 +136,10 @@ function sidebar(): HTMLElement {
     el(
       'div',
       { class: 'actions' },
-      el('button', { class: 'btn primary', onclick: () => addProfile(newProxyProfile) }, '+ New proxy'),
-      el('button', { class: 'btn', onclick: () => addProfile(newSwitchProfile) }, '+ New auto switch'),
-      el('button', { class: 'btn', onclick: () => addProfile(newRuleListProfile) }, '+ New rule list'),
-      el('button', { class: 'btn', onclick: () => addProfile(newVirtualProfile) }, '+ New alias'),
+      el('button', { class: 'btn primary', onclick: () => addProfile(newProxyProfile) }, 'New proxy'),
+      el('button', { class: 'btn', onclick: () => addProfile(newSwitchProfile) }, 'New auto switch'),
+      el('button', { class: 'btn', onclick: () => addProfile(newRuleListProfile) }, 'New rule list'),
+      el('button', { class: 'btn', onclick: () => addProfile(newVirtualProfile) }, 'New alias'),
       el(
         'div',
         { class: 'tools' },
@@ -985,13 +989,9 @@ function editorFor(profile: Profile): HTMLElement {
 function render(): void {
   const profile = selected();
   sideNode = sidebar();
+  const content = selectedId === SETTINGS_ID ? settingsPanel() : profile ? editorFor(profile) : emptyPane();
   app.replaceChildren(
-    el(
-      'div',
-      { class: 'layout' },
-      sideNode,
-      selectedId === SETTINGS_ID ? settingsPanel() : profile ? editorFor(profile) : emptyPane()
-    )
+    el('div', { class: 'layout' }, sideNode, el('div', { class: 'content' }, content))
   );
 }
 

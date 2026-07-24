@@ -1,18 +1,26 @@
+/* Rounded popup: keep the outer frame transparent so the browser window's
+   square corners don't show behind the rounded body. */
+html { background: transparent; }
+
 body {
-  width: 330px;
+  width: 332px;
+  border-radius: 16px;
+  overflow: hidden;
   background:
-    radial-gradient(130% 70% at 50% -14%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 70%),
+    radial-gradient(135% 72% at 50% -16%, color-mix(in srgb, var(--accent) 15%, transparent), transparent 68%),
     var(--bg);
 }
 
-.pop { padding: 12px; display: flex; flex-direction: column; gap: 9px; }
+.pop { padding: 13px; display: flex; flex-direction: column; gap: 9px; }
 
 .pop-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 2px 2px 0;
+  padding: 2px 2px 4px;
 }
+.pop-head .brand { font-size: 16px; font-weight: 800; letter-spacing: -0.01em; }
+.pop-head .mark { width: 22px; height: 22px; }
 
 /* ---- entrance motion ---- */
 @keyframes rise {
@@ -113,62 +121,89 @@ body {
   flex: none;
 }
 
-/* ---- current-tab card ---- */
-.tab-card { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
-.tab-route { display: flex; align-items: center; gap: 8px; font-size: 12px; min-width: 0; }
-.tab-route .host {
+/* ---- current-site auto-switch manager (top section) ---- */
+.section-label.with-hint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.temp-badge {
+  color: var(--amber, #ffb020);
+  background: color-mix(in srgb, #ffb020 16%, transparent);
+  border: 1px solid color-mix(in srgb, #ffb020 45%, transparent);
+  padding: 1px 6px;
+  border-radius: 999px;
+  letter-spacing: 0.06em;
+}
+
+.site-mgr {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
+}
+.site-route { display: flex; align-items: center; gap: 8px; font-size: 12px; min-width: 0; }
+.site-route .host {
   font-family: var(--mono);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
 }
-.tab-route .arrow { color: var(--text-dim); flex: none; }
-.tab-route .via { display: flex; align-items: center; gap: 6px; font-weight: 700; flex: none; }
+.site-route .arrow { color: var(--text-dim); flex: none; }
+.site-route .via { display: flex; align-items: center; gap: 6px; font-weight: 700; flex: none; max-width: 55%; overflow: hidden; }
 
-.quick-add { display: flex; gap: 6px; }
-.quick-add select { flex: 1; min-width: 0; }
-
-.temp-row {
+.site-rows { display: flex; flex-direction: column; gap: 7px; }
+.site-line {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 11px;
-  color: var(--text-dim);
-  cursor: pointer;
-  user-select: none;
+  gap: 7px;
+  transition: opacity 0.15s;
 }
-.toggle.mini { width: 28px; height: 16px; }
-.toggle.mini::after { width: 10px; height: 10px; }
-.toggle.mini:checked::after { transform: translateX(12px); }
+.site-line select { flex: 1; min-width: 0; }
+.site-line.greyed { opacity: 0.4; }
 
-.temp-list { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
-.temp-title {
-  font-size: 10px;
+.site-tag {
+  font-size: 9.5px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   color: var(--text-dim);
-  width: 100%;
+  width: 52px;
+  flex: none;
 }
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 2px 4px 2px 8px;
-  border-radius: 999px;
-  border: 1px dashed var(--border-strong);
-  font-size: 10.5px;
-}
-.chip-x {
-  border: none;
-  background: transparent;
-  color: var(--text-dim);
-  cursor: pointer;
-  font-size: 9px;
-  padding: 2px 5px;
-  border-radius: 50%;
-}
-.chip-x:hover { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
+.site-tag.temp { color: #ffb020; }
 
-.foot { display: flex; justify-content: space-between; align-items: center; padding: 0 2px; }
-.foot .hint { font-size: 10.5px; color: var(--text-dim); }
+.site-pattern {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+}
+
+.site-line.override.active {
+  padding: 5px 7px;
+  border-radius: var(--radius-sm);
+  border: 1px dashed color-mix(in srgb, #ffb020 45%, transparent);
+  background: color-mix(in srgb, #ffb020 8%, transparent);
+}
+.ov-info { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; font-weight: 600; }
+.ov-info .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.btn.sm { padding: 5px 10px; font-size: 12px; flex: none; }
+.input.sm { padding: 5px 8px; }
+
+.foot { display: flex; padding: 2px 0 0; }
+.foot-manage {
+  width: 100%;
+  justify-content: center;
+  gap: 8px;
+  color: var(--text-dim);
+  font-weight: 600;
+}
+.foot-manage:hover { color: var(--text); }

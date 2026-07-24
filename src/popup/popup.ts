@@ -1,5 +1,5 @@
-import { avatarEl, builtinTile, initialsFor } from '../shared/avatar';
-import { pacRequestUrl, resolveRoute } from '../shared/match';
+import { avatarEl, builtinTile } from '../shared/avatar';
+import { compileRule, pacRequestUrl, resolveRoute, testCondition } from '../shared/match';
 import { parseRuleList } from '../shared/rulelist';
 import { loadConfig, loadTempRules, saveConfig, saveTempRules } from '../shared/state';
 import {
@@ -31,7 +31,7 @@ async function init(): Promise<void> {
   config = await loadConfig();
   const session = await chrome.storage.session.get('sockitt-error').catch(() => ({}));
   proxyError = (session as Record<string, { message: string }>)['sockitt-error'] ?? null;
-  tempRules = await loadTempRules(config.activeId);
+  await loadOverride(config.activeId);
   try {
     const [active] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
     if (active?.url && /^https?:/i.test(active.url)) {
@@ -45,12 +45,28 @@ async function init(): Promise<void> {
 
 async function setActive(id: string): Promise<void> {
   config.activeId = id;
-  // Load the new profile's temp rules before the single render so the tab card
-  // never flashes the previous profile's rules. The background applies the
+  // Load the new profile's override before the single render so the section
+  // never flashes the previous profile's state. The background applies the
   // proxy (and reloads the tab if refreshOnSwitch is on) off the storage write.
-  tempRules = await loadTempRules(id);
+  await loadOverride(id);
   await saveConfig(config);
   render();
+}
+
+/**
+ * The override is a single, always-temporary rule (session storage). Older
+ * versions could store several temp rules; collapse to one so the UI only
+ * ever manages a single override slot.
+ */
+async function loadOverride(profileId: string): Promise<void> {
+  const rules = await loadTempRules(profileId);
+  tempRules = rules.slice(0, 1);
+  if (rules.length > 1) await saveTempRules(profileId, tempRules);
+}
+
+async function setOverride(profileId: string, rule: SwitchRule | null): Promise<void> {
+  tempRules = rule ? [rule] : [];
+  await saveTempRules(profileId, tempRules);
 }
 
 function statusFor(profile: Profile): string {
@@ -156,96 +172,164 @@ function profileRow(
   return row;
 }
 
-/* ---- current-tab routing card (active switch profile only) ---- */
+/* ---- current-site auto-switch management (active switch profile only) ---- */
 
-function tabCard(active: SwitchProfile): HTMLElement {
-  if (!tab) {
-    return el('div', { class: 'card tab-card muted' }, 'Open a website to preview its route.');
-  }
-  const route = resolveRoute(config, active, pacRequestUrl(tab.url), tab.host, tempRules);
-  const target = config.profiles.find((p) => p.id === route.targetId);
-  const viaName = route.bypassed ? 'Direct (bypass)' : target?.name ?? 'Direct';
-  const viaTile = target && !route.bypassed ? avatarEl(target, 18) : builtinTile('D', 18);
+/** First enabled permanent rule whose condition matches the current site. */
+function matchedRuleFor(profile: SwitchProfile, url: string, host: string): SwitchRule | undefined {
+  return profile.rules.find((r) => r.enabled && testCondition(compileRule(r), url, host));
+}
 
-  const select = el('select', { class: 'input' }) as HTMLSelectElement;
+/** A target picker: Direct + proxies, plus the current value if it's some other profile. */
+function siteTargetSelect(current: string, onChange: (v: string) => void): HTMLSelectElement {
+  const select = el('select', { class: 'input sm' }) as HTMLSelectElement;
   select.append(el('option', { value: DIRECT }, 'Direct'));
-  for (const p of proxyProfiles(config)) select.append(el('option', { value: p.id }, p.name));
-  const firstProxy = proxyProfiles(config)[0];
-  if (firstProxy && route.targetId !== firstProxy.id) select.value = firstProxy.id;
+  const proxies = proxyProfiles(config);
+  for (const p of proxies) select.append(el('option', { value: p.id }, p.name));
+  if (current !== DIRECT && !proxies.some((p) => p.id === current)) {
+    const cp = config.profiles.find((p) => p.id === current);
+    if (cp) select.append(el('option', { value: current }, cp.name));
+  }
+  select.value = [...select.options].some((o) => o.value === current) ? current : DIRECT;
+  select.onchange = () => onChange(select.value);
+  return select;
+}
 
-  const untilRestart = el('input', {
-    class: 'toggle mini',
-    type: 'checkbox',
-    id: 'temp-toggle',
-  }) as HTMLInputElement;
+function targetChip(targetId: string, size: number): { tile: HTMLElement; name: string } {
+  if (targetId === DIRECT) return { tile: builtinTile('D', size), name: 'Direct' };
+  const p = config.profiles.find((x) => x.id === targetId);
+  return p ? { tile: avatarEl(p, size), name: p.name } : { tile: builtinTile('D', size), name: 'Direct' };
+}
 
-  const addRule = (): void => {
-    const rule: SwitchRule = {
-      id: uid(),
-      enabled: true,
-      type: 'hostWildcard',
-      pattern: `*.${tab!.host}`,
-      targetId: select.value,
-    };
-    if (untilRestart.checked) {
-      tempRules.push(rule);
-      void saveTempRules(active.id, tempRules);
-      toast('Temporary rule added');
-    } else {
-      if (config.settings.addToBottom) active.rules.push(rule);
-      else active.rules.unshift(rule);
+function siteManager(active: SwitchProfile): HTMLElement {
+  if (!tab) {
+    return el('div', { class: 'card site-mgr muted' }, 'Open a website to manage its route here.');
+  }
+  const matchUrl = pacRequestUrl(tab.url);
+  const override = tempRules[0];
+  const hasOverride = !!override;
+
+  const route = resolveRoute(config, active, matchUrl, tab.host, tempRules);
+  const via = route.bypassed
+    ? { tile: builtinTile('D', 18), name: 'Direct (bypass)' }
+    : targetChip(route.targetId, 18);
+
+  /* rule row: edit the matching rule, or add one; greyed while an override is set */
+  const matched = matchedRuleFor(active, matchUrl, tab.host);
+  let ruleRow: HTMLElement;
+  if (matched) {
+    const sel = siteTargetSelect(matched.targetId, (v) => {
+      matched.targetId = v;
       void saveConfig(config);
-      toast('Rule added');
-    }
-    render();
-  };
+      render();
+    });
+    sel.disabled = hasOverride;
+    ruleRow = el(
+      'div',
+      { class: `site-line${hasOverride ? ' greyed' : ''}` },
+      el('span', { class: 'site-tag' }, 'Rule'),
+      el('span', { class: 'mono site-pattern', title: matched.pattern }, matched.pattern),
+      sel
+    );
+  } else {
+    const sel = siteTargetSelect(proxyProfiles(config)[0]?.id ?? DIRECT, () => undefined);
+    sel.disabled = hasOverride;
+    const add = el(
+      'button',
+      {
+        class: 'btn primary sm',
+        disabled: hasOverride,
+        title: `Add a rule routing *.${tab.host}`,
+        onclick: () => {
+          const rule: SwitchRule = {
+            id: uid(),
+            enabled: true,
+            type: 'hostWildcard',
+            pattern: `*.${tab!.host}`,
+            targetId: sel.value,
+          };
+          if (config.settings.addToBottom) active.rules.push(rule);
+          else active.rules.unshift(rule);
+          void saveConfig(config);
+          toast('Rule added');
+          render();
+        },
+      },
+      '+ Add'
+    );
+    ruleRow = el(
+      'div',
+      { class: `site-line${hasOverride ? ' greyed' : ''}` },
+      el('span', { class: 'site-tag' }, 'No rule'),
+      sel,
+      add
+    );
+  }
+
+  /* override row: always temporary, single slot, deletable */
+  let overrideRow: HTMLElement;
+  if (override) {
+    const chip = targetChip(override.targetId, 16);
+    overrideRow = el(
+      'div',
+      { class: 'site-line override active' },
+      el('span', { class: 'site-tag temp' }, 'Override'),
+      el(
+        'span',
+        { class: 'ov-info' },
+        chip.tile,
+        el('span', { class: 'mono', title: override.pattern }, override.pattern)
+      ),
+      el('button', {
+        class: 'btn ghost icon',
+        title: 'Remove override',
+        innerHTML: '&#10005;',
+        onclick: () => {
+          void setOverride(active.id, null);
+          toast('Override removed');
+          render();
+        },
+      })
+    );
+  } else {
+    const sel = siteTargetSelect(proxyProfiles(config)[0]?.id ?? DIRECT, () => undefined);
+    overrideRow = el(
+      'div',
+      { class: 'site-line override' },
+      el('span', { class: 'site-tag temp' }, 'Override'),
+      sel,
+      el(
+        'button',
+        {
+          class: 'btn sm',
+          title: `Temporarily route *.${tab.host} until the browser restarts`,
+          onclick: () => {
+            void setOverride(active.id, {
+              id: uid(),
+              enabled: true,
+              type: 'hostWildcard',
+              pattern: `*.${tab!.host}`,
+              targetId: sel.value,
+            });
+            toast('Override set');
+            render();
+          },
+        },
+        'Set'
+      )
+    );
+  }
 
   return el(
     'div',
-    { class: 'card tab-card' },
+    { class: 'card site-mgr' },
     el(
       'div',
-      { class: 'tab-route' },
+      { class: 'site-route' },
       el('span', { class: 'host', title: tab.host }, tab.host),
       el('span', { class: 'arrow', innerHTML: '&#8594;' }),
-      el('span', { class: 'via' }, viaTile, viaName)
+      el('span', { class: 'via' }, via.tile, via.name)
     ),
-    el(
-      'div',
-      { class: 'quick-add' },
-      select,
-      el('button', { class: 'btn primary', title: `Route *.${tab.host} via the selected target`, onclick: addRule }, '+ Rule')
-    ),
-    el(
-      'label',
-      { class: 'temp-row', htmlFor: 'temp-toggle' },
-      untilRestart,
-      el('span', {}, 'Only until browser restart')
-    ),
-    tempRules.length
-      ? el(
-          'div',
-          { class: 'temp-list' },
-          el('span', { class: 'temp-title' }, 'Temporary rules'),
-          ...tempRules.map((rule) =>
-            el(
-              'span',
-              { class: 'chip' },
-              el('span', { class: 'mono' }, rule.pattern),
-              el('button', {
-                class: 'chip-x',
-                title: 'Remove',
-                innerHTML: '&#10005;',
-                onclick: () => {
-                  tempRules = tempRules.filter((r) => r.id !== rule.id);
-                  void saveTempRules(active.id, tempRules);
-                  render();
-                },
-              })
-            )
-          )
-        )
-      : null
+    el('div', { class: 'site-rows' }, ruleRow, overrideRow)
   );
 }
 
@@ -287,6 +371,21 @@ function render(): void {
         })
       ),
       proxyError ? el('div', { class: 'banner' }, `Proxy error: ${proxyError.message}`) : null,
+      activeProfile?.kind === 'switch'
+        ? enter(
+            el(
+              'div',
+              { class: 'site-section' },
+              el(
+                'div',
+                { class: 'section-label with-hint' },
+                el('span', {}, `Auto switch${tab ? ' · ' + tab.host : ''}`),
+                tempRules[0] ? el('span', { class: 'temp-badge' }, 'OVERRIDE ACTIVE') : null
+              ),
+              siteManager(activeProfile)
+            )
+          )
+        : null,
       enter(hero()),
       enter(
         el(
@@ -306,16 +405,15 @@ function render(): void {
             ]
           : []
       ),
-      activeProfile?.kind === 'switch' ? enter(tabCard(activeProfile)) : null,
       el(
         'div',
         { class: 'foot' },
         el(
-          'span',
-          { class: 'hint' },
-          activeProfile ? `${initialsFor(activeProfile)} shown in toolbar` : ''
-        ),
-        el('button', { class: 'btn ghost', onclick: () => chrome.runtime.openOptionsPage() }, 'Manage')
+          'button',
+          { class: 'btn ghost foot-manage', onclick: () => chrome.runtime.openOptionsPage() },
+          el('span', { innerHTML: '&#9881;' }),
+          'Manage profiles & rules'
+        )
       )
     )
   );

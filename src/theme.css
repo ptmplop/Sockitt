@@ -1,39 +1,28 @@
-/* Sockitt design tokens + shared components. Dark-first, light via prefers-color-scheme. */
+/* Sockitt design tokens + shared components. Light theme. */
 
 :root {
-  --bg: #0c0f16;
-  --bg-elev: #12161f;
-  --surface: rgba(255, 255, 255, 0.045);
-  --surface-hover: rgba(255, 255, 255, 0.085);
-  --border: rgba(255, 255, 255, 0.09);
-  --border-strong: rgba(255, 255, 255, 0.16);
-  --text: #e8ebf3;
-  --text-dim: #8b93a7;
+  --bg: #eef1f8;
+  --bg-elev: #ffffff;
+  --surface: rgba(20, 26, 44, 0.035);
+  --surface-hover: rgba(20, 26, 44, 0.07);
+  --border: rgba(20, 26, 44, 0.10);
+  --border-strong: rgba(20, 26, 44, 0.18);
+  --text: #1a2033;
+  --text-dim: #6b7385;
   --accent: #6d5dfc;
   --accent-2: #46c9e5;
-  --danger: #f5576c;
-  --ok: #2dd4a7;
-  --radius: 12px;
-  --radius-sm: 8px;
-  --shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  --accent-soft: rgba(109, 93, 252, 0.10);
+  --danger: #ef4d64;
+  --ok: #17b98a;
+  --amber: #e6920a;
+  --radius: 16px;
+  --radius-sm: 10px;
+  --shadow: 0 6px 20px rgba(28, 39, 84, 0.08);
+  --shadow-lg: 0 18px 44px rgba(28, 39, 84, 0.14);
+  --ring: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
   --grad: linear-gradient(135deg, var(--accent), var(--accent-2));
   --mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
-  color-scheme: dark;
-}
-
-@media (prefers-color-scheme: light) {
-  :root {
-    --bg: #f2f4fa;
-    --bg-elev: #ffffff;
-    --surface: rgba(18, 24, 40, 0.045);
-    --surface-hover: rgba(18, 24, 40, 0.08);
-    --border: rgba(18, 24, 40, 0.11);
-    --border-strong: rgba(18, 24, 40, 0.22);
-    --text: #171b26;
-    --text-dim: #5d6577;
-    --shadow: 0 8px 24px rgba(30, 40, 70, 0.12);
-    color-scheme: light;
-  }
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; }
@@ -84,8 +73,14 @@ button, input, select { font: inherit; color: inherit; }
 }
 .btn:hover { background: var(--surface-hover); border-color: var(--border-strong); }
 .btn:active { transform: scale(0.97); }
-.btn.primary { background: var(--grad); border-color: transparent; color: #fff; }
-.btn.primary:hover { filter: brightness(1.1); }
+.btn:focus-visible { outline: none; box-shadow: var(--ring); }
+.btn.primary {
+  background: var(--grad);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--accent) 32%, transparent);
+}
+.btn.primary:hover { filter: brightness(1.06); box-shadow: 0 5px 14px color-mix(in srgb, var(--accent) 38%, transparent); }
 .btn.danger { color: var(--danger); }
 .btn.danger:hover { background: color-mix(in srgb, var(--danger) 14%, transparent); border-color: var(--danger); }
 .btn.ghost { background: transparent; border-color: transparent; color: var(--text-dim); }
@@ -103,7 +98,7 @@ button, input, select { font: inherit; color: inherit; }
 }
 .input:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+  box-shadow: var(--ring);
 }
 .input.invalid { border-color: var(--danger); }
 .input.mono { font-family: var(--mono); font-size: 12px; }

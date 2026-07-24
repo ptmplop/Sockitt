@@ -116,11 +116,17 @@ export interface RouteResult {
 
 export const PALETTE = [
   '#46c9e5', // cyan
+  '#3b82f6', // blue
   '#6d5dfc', // violet
-  '#2dd4a7', // green
-  '#ffb020', // amber
-  '#f5576c', // red
+  '#7c3aed', // indigo
   '#f472b6', // pink
+  '#f5576c', // red
+  '#fb923c', // orange
+  '#ffb020', // amber
+  '#84cc16', // lime
+  '#2dd4a7', // green
+  '#14b8a6', // teal
+  '#64748b', // slate
 ] as const;
 
 export function defaultSettings(): Settings {
