@@ -402,7 +402,7 @@ function proxyEditor(profile: ProxyProfile): HTMLElement {
   const authPanel = schemeSupportsAuth(profile.scheme)
     ? authSection(profile)
     : el('div', { class: 'field' }, el('span', { class: 'note' },
-        'Chromium cannot authenticate SOCKS proxies — secure the proxy by IP allow-list or a local tunnel (e.g. ssh -D).'));
+        'Chromium cannot authenticate SOCKS proxies - secure the proxy by IP allow-list or a local tunnel (e.g. ssh -D).'));
 
   return el(
     'div',
@@ -428,7 +428,7 @@ function proxyEditor(profile: ProxyProfile): HTMLElement {
       el(
         'div',
         { class: 'field' },
-        el('label', {}, 'One entry per line — these hosts connect directly'),
+        el('label', {}, 'One entry per line - these hosts connect directly'),
         bypass,
         el('span', { class: 'note' }, '<local> matches plain hostnames and localhost. Also accepts *.suffix wildcards and IPv4 CIDR blocks.')
       )
@@ -584,7 +584,7 @@ function switchEditor(profile: SwitchProfile): HTMLElement {
     el(
       'div',
       { class: 'card panel' },
-      el('h3', {}, 'Rules — first match wins'),
+      el('h3', {}, 'Rules - first match wins'),
       rulesBox,
       el(
         'button',
@@ -955,7 +955,7 @@ function settingsPanel(): HTMLElement {
       syncError ? el('div', { class: 'banner' }, `Sync error: ${syncError}`) : null,
       toggleRow(
         'Sync configuration',
-        'Mirror profiles and rules to your browser account (chrome.storage.sync) so other machines pick them up. Newest change wins. Large rule-list bodies are not synced — set a URL so each machine can refresh its own copy.',
+        'Mirror profiles and rules to your browser account (chrome.storage.sync) so other machines pick them up. Newest change wins. Large rule-list bodies are not synced - set a URL so each machine can refresh its own copy.',
         s.syncEnabled,
         async (v) => {
           if (!v) {
@@ -1072,7 +1072,7 @@ function emptyPane(): HTMLElement {
     { class: 'card hero' },
     el('img', { class: 'mark hero-mark', src: 'img/logo-mark.png', alt: '' }),
     el('h2', {}, 'Route traffic your way'),
-    el('p', {}, 'Create a SOCKS5 proxy profile, then add an Auto Switch profile to route sites by rule — host wildcards, regex, CIDR blocks, keywords, or time windows.'),
+    el('p', {}, 'Create a SOCKS5 proxy profile, then add an Auto Switch profile to route sites by rule - host wildcards, regex, CIDR blocks, keywords, or time windows.'),
     el(
       'div',
       { class: 'cta' },

@@ -6,6 +6,7 @@ import {
   Config,
   DIRECT,
   Profile,
+  SCHEME_LABELS,
   SYSTEM,
   SwitchProfile,
   SwitchRule,
@@ -72,7 +73,7 @@ async function setOverride(profileId: string, rule: SwitchRule | null): Promise<
 function statusFor(profile: Profile): string {
   switch (profile.kind) {
     case 'proxy':
-      return `SOCKS5 · ${profile.host}:${profile.port}`;
+      return `${SCHEME_LABELS[profile.scheme]} · ${profile.host}:${profile.port}`;
     case 'switch': {
       const n = profile.rules.filter((r) => r.enabled).length + tempRulesFor(profile.id).length;
       return `Auto switch · ${n} active rule${n === 1 ? '' : 's'}`;
@@ -119,7 +120,7 @@ function hero(): HTMLElement {
   if (activeId === DIRECT) {
     tile = builtinTile('D', 44);
     name = 'Direct';
-    status = 'No proxy — straight to the network';
+    status = 'No proxy - straight to the network';
   } else if (activeId === SYSTEM || !profile) {
     tile = builtinTile('S', 44);
     name = 'System';
