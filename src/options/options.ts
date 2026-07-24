@@ -1,3 +1,4 @@
+import { avatarEl, initialsFor } from '../shared/avatar';
 import { patternError } from '../shared/match';
 import {
   loadConfig,
@@ -61,7 +62,7 @@ function sidebar(): HTMLElement {
           render();
         },
       },
-      el('span', { class: 'dot', style: { background: p.color, color: p.color } }),
+      avatarEl(p, 22),
       el('span', { class: 'name' }, p.name),
       config.activeId === p.id ? el('span', { class: 'badge' }, 'ACTIVE') : null
     );
@@ -69,7 +70,7 @@ function sidebar(): HTMLElement {
   return el(
     'aside',
     { class: 'side' },
-    el('div', { class: 'brand' }, el('span', { class: 'mark' }), 'Sockitt', el('small', {}, 'SOCKS5 switcher')),
+    el('div', { class: 'brand' }, el('img', { class: 'mark', src: 'img/icon-48.png', alt: '' }), 'Sockitt', el('small', {}, 'SOCKS5 switcher')),
     el(
       'nav',
       { class: 'nav' },
@@ -104,36 +105,84 @@ function addProfile(kind: 'proxy' | 'switch'): void {
 
 /* ---------- shared editor chrome ---------- */
 
-function paneHead(profile: Profile): HTMLElement {
+/**
+ * Identity panel: avatar preview, name, custom initials, colour. The avatar
+ * (DiceBear-initials style) is also what the toolbar icon shows while this
+ * profile is active.
+ */
+function identityPanel(profile: Profile): HTMLElement {
+  const preview = el('div', { class: 'id-preview' });
+  const renderPreview = () => preview.replaceChildren(avatarEl(profile, 56));
+  renderPreview();
+
   const name = el('input', {
-    class: 'name-input',
+    class: 'input',
     value: profile.name,
     spellcheck: false,
     oninput: () => {
       profile.name = name.value.trim() || 'Unnamed';
+      initials.placeholder = initialsFor({ name: profile.name });
       scheduleSave();
+      renderPreview();
+      refreshSidebar();
+    },
+  }) as HTMLInputElement;
+
+  const initials = el('input', {
+    class: 'input',
+    value: profile.initials ?? '',
+    maxLength: 3,
+    placeholder: initialsFor({ name: profile.name }),
+    spellcheck: false,
+    oninput: () => {
+      const v = initials.value.trim();
+      profile.initials = v ? v.slice(0, 3) : undefined;
+      scheduleSave();
+      renderPreview();
       refreshSidebar();
     },
   }) as HTMLInputElement;
 
   return el(
     'div',
-    { class: 'pane-head' },
-    name,
+    { class: 'card panel' },
+    el('h3', {}, 'Identity'),
     el(
       'div',
-      { class: 'swatches' },
-      ...PALETTE.map((color) =>
-        el('button', {
-          class: `swatch${profile.color === color ? ' selected' : ''}`,
-          style: { background: color },
-          title: color,
-          onclick: () => {
-            profile.color = color;
-            scheduleSave();
-            render();
-          },
-        })
+      { class: 'id-row' },
+      preview,
+      el(
+        'div',
+        { class: 'id-fields' },
+        el('div', { class: 'field' }, el('label', {}, 'Name'), name),
+        el(
+          'div',
+          { class: 'field' },
+          el('label', {}, 'Initials'),
+          initials,
+          el('span', { class: 'note' }, 'Shown on the toolbar icon')
+        ),
+        el(
+          'div',
+          { class: 'field id-colors' },
+          el('label', {}, 'Colour'),
+          el(
+            'div',
+            { class: 'swatches' },
+            ...PALETTE.map((color) =>
+              el('button', {
+                class: `swatch${profile.color === color ? ' selected' : ''}`,
+                style: { background: color },
+                title: color,
+                onclick: () => {
+                  profile.color = color;
+                  scheduleSave();
+                  render();
+                },
+              })
+            )
+          )
+        )
       )
     )
   );
@@ -210,7 +259,7 @@ function proxyEditor(profile: ProxyProfile): HTMLElement {
   return el(
     'div',
     { class: 'pane' },
-    paneHead(profile),
+    identityPanel(profile),
     el(
       'div',
       { class: 'card panel' },
@@ -342,7 +391,7 @@ function switchEditor(profile: SwitchProfile): HTMLElement {
   return el(
     'div',
     { class: 'pane' },
-    paneHead(profile),
+    identityPanel(profile),
     el(
       'div',
       { class: 'card panel' },
@@ -462,7 +511,7 @@ function emptyPane(): HTMLElement {
   return el(
     'div',
     { class: 'card hero' },
-    el('span', { class: 'mark' }),
+    el('img', { class: 'mark hero-mark', src: 'img/icon-128.png', alt: '' }),
     el('h2', {}, 'Route traffic your way'),
     el('p', {}, 'Create a SOCKS5 proxy profile, then add an Auto Switch profile to route sites by rule — host wildcards, regex, or CIDR blocks.'),
     el(

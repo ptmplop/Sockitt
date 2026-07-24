@@ -24,6 +24,8 @@ export interface ProxyProfile {
   kind: 'proxy';
   id: string;
   name: string;
+  /** Custom avatar initials (1–3 chars); derived from name when unset. */
+  initials?: string;
   color: string;
   host: string;
   port: number;
@@ -38,6 +40,8 @@ export interface SwitchProfile {
   kind: 'switch';
   id: string;
   name: string;
+  /** Custom avatar initials (1–3 chars); derived from name when unset. */
+  initials?: string;
   color: string;
   rules: SwitchRule[];
   defaultTargetId: TargetId;

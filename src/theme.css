@@ -48,17 +48,15 @@ body {
 
 button, input, select { font: inherit; color: inherit; }
 
-/* ---- brand mark: ring + dot, mirrors the toolbar icon ---- */
+/* ---- brand mark: the Sockitt sock ---- */
 .mark {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  border: 2.5px solid transparent;
-  background:
-    radial-gradient(circle at center, var(--accent-2) 0 3px, transparent 3.5px) padding-box,
-    var(--grad) border-box;
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
   flex: none;
+  filter: drop-shadow(0 1px 4px color-mix(in srgb, var(--accent) 40%, transparent));
 }
+.mark.hero-mark { width: 56px; height: 56px; }
 
 .brand {
   display: flex;
@@ -124,6 +122,32 @@ select.input { cursor: pointer; appearance: auto; }
   border-radius: 50%;
   flex: none;
   box-shadow: 0 0 8px color-mix(in srgb, currentColor 60%, transparent);
+}
+
+/* ---- initials avatar (DiceBear-initials style, generated locally) ---- */
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  border-radius: 26%;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  user-select: none;
+  position: relative;
+  overflow: hidden;
+  line-height: 1;
+}
+.avatar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.22), transparent 60%);
+  pointer-events: none;
+}
+.avatar.builtin {
+  background: linear-gradient(135deg, #6b7386, #4a5164);
+  color: #e8ebf3;
 }
 
 .muted { color: var(--text-dim); }

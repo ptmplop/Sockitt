@@ -16,7 +16,7 @@ npm test            # node --test: executes generated PAC in a node:vm sandbox
 npm run build       # minified production build → dist/
 npm run watch       # rebuild on change, inline sourcemaps (html/css copied once)
 npm run zip         # builds then packs dist/ → sockitt.zip
-npm run icons       # img/icon.svg → png set (16/32/48/128)
+npm run icons       # regen img/ assets from img/logo-source.png (needs ImageMagick)
 ```
 
 Load `dist/` via `chrome://extensions` → Developer mode → Load unpacked.

@@ -63,21 +63,22 @@ body {
 /* ---- editor pane ---- */
 .pane { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 
-.pane-head { display: flex; align-items: center; gap: 12px; }
-.pane-head .name-input {
-  font-size: 20px;
-  font-weight: 700;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  padding: 4px 8px;
-  margin-left: -8px;
-  flex: 1;
-  min-width: 0;
-  outline: none;
+/* ---- identity panel ---- */
+.id-row { display: flex; gap: 18px; align-items: flex-start; }
+.id-preview { padding-top: 4px; }
+.id-preview .avatar {
+  box-shadow:
+    0 6px 18px color-mix(in srgb, currentColor 20%, transparent),
+    var(--shadow);
 }
-.pane-head .name-input:hover { border-color: var(--border); }
-.pane-head .name-input:focus { border-color: var(--accent); background: var(--surface); }
+.id-fields {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 130px;
+  gap: 12px;
+  min-width: 0;
+}
+.id-fields .id-colors { grid-column: 1 / -1; }
 
 .swatches { display: flex; gap: 6px; }
 .swatch {
@@ -161,7 +162,6 @@ textarea.input { resize: vertical; min-height: 88px; line-height: 1.6; }
   gap: 12px;
   text-align: center;
 }
-.hero .mark { width: 44px; height: 44px; border-width: 5px; }
 .hero h2 { margin: 6px 0 0; }
 .hero p { margin: 0; color: var(--text-dim); max-width: 380px; }
 .hero .cta { display: flex; gap: 8px; margin-top: 8px; }

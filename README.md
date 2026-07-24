@@ -1,8 +1,6 @@
 <p align="center">
-  <img src="img/icon.svg" width="96" alt="Sockitt logo">
+  <img src="img/logo.png" width="340" alt="Sockitt — Proxify your browser.">
 </p>
-
-<h1 align="center">Sockitt</h1>
 
 <p align="center">
   <b>A fast, minimal SOCKS5 proxy switcher for Chromium browsers.</b><br>
@@ -16,10 +14,19 @@ goes direct or through a proxy. It is a ground-up, modern take on the classic
 proxy-switcher extension: ~25 KB of JavaScript in total, three narrow
 permissions, and a rule engine that compiles to an optimised PAC script.
 
+<p align="center">
+  <img src="img/screenshots/popup.png" width="300" alt="Sockitt popup" hspace="8">
+  <img src="img/screenshots/options.png" width="460" alt="Sockitt options" hspace="8">
+</p>
+
 ## Features
 
 - **Proxy profiles** — SOCKS5 servers with host, port, per-profile bypass list,
-  and an accent colour that tints the toolbar icon while active.
+  and an identity of their own: an initials avatar (DiceBear-initials style,
+  generated locally) in your chosen colour. Initials derive from the name or
+  can be set explicitly.
+- **Living toolbar icon** — the toolbar shows the active profile's avatar, so
+  you always know where your traffic is going at a glance.
 - **Built-in modes** — *Direct* (no proxy) and *System* (OS proxy settings).
 - **Auto Switch profiles** — an ordered, first-match-wins rule table. Route by:
   - host wildcard — `*.example.com` (matches the bare domain and every subdomain)

@@ -67,6 +67,8 @@ function sanitizeProfile(raw: unknown): Profile | null {
   const name = typeof o.name === 'string' && o.name.trim() ? o.name.trim() : 'Unnamed';
   const color =
     typeof o.color === 'string' && /^#[0-9a-f]{6}$/i.test(o.color) ? o.color : PALETTE[0];
+  const initials =
+    typeof o.initials === 'string' && o.initials.trim() ? o.initials.trim().slice(0, 3) : undefined;
 
   if (o.kind === 'proxy') {
     const port = Number(o.port);
@@ -74,6 +76,7 @@ function sanitizeProfile(raw: unknown): Profile | null {
       kind: 'proxy',
       id,
       name,
+      initials,
       color,
       host: typeof o.host === 'string' ? o.host.trim() : '',
       port: Number.isInteger(port) && port >= 1 && port <= 65535 ? port : 1080,
@@ -104,6 +107,7 @@ function sanitizeProfile(raw: unknown): Profile | null {
       kind: 'switch',
       id,
       name,
+      initials,
       color,
       rules,
       defaultTargetId: typeof o.defaultTargetId === 'string' ? o.defaultTargetId : DIRECT,

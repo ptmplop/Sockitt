@@ -23,6 +23,7 @@ options ┘        (config)                     └─> action icon / badge / ti
 | `src/shared/match.ts` | Compiles conditions to matcher primitives; TS-side evaluator |
 | `src/shared/pac.ts` | Generates the PAC script from a switch profile |
 | `src/shared/state.ts` | Storage load/save + `sanitizeConfig` (also validates JSON imports) |
+| `src/shared/avatar.ts` | Initials avatars (DiceBear-initials style, local): derivation, contrast, DOM tile |
 | `src/background.ts` | The applier: settings, icon painting, proxy-error badge |
 | `src/popup/` | Switcher UI + live route preview |
 | `src/options/` | Profile/rule management UI |
