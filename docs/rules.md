@@ -1,0 +1,97 @@
+# Rule & pattern reference
+
+An **Auto Switch** profile is an ordered list of rules. For every request the
+browser evaluates rules top to bottom; the **first match wins** and decides the
+route (a proxy profile, or Direct). If nothing matches, the profile's
+*"Everything else"* target applies.
+
+Disabled rules (toggle off) and rules with invalid patterns are skipped
+entirely — an invalid pattern is outlined red in the editor and never breaks
+the other rules.
+
+## Condition types
+
+### Host wildcard
+
+Matches against the request's hostname (case-insensitive).
+
+| Pattern | Matches | Doesn't match |
+|---|---|---|
+| `*.example.com` | `example.com`, `www.example.com`, `a.b.example.com` | `notexample.com` |
+| `example.com` | `example.com` only | `www.example.com` |
+| `internal-*` | `internal-git`, `internal-db` | `git.internal` |
+
+- `*` matches any run of characters, `?` matches exactly one.
+- A leading `*.` is special-cased: it also matches the bare domain, and is
+  compiled to a fast suffix comparison rather than a regex.
+
+### Host regex
+
+A JavaScript regular expression tested against the hostname. Unanchored by
+default — anchor it yourself:
+
+```
+(^|\.)example\.(com|net)$
+^api\.
+```
+
+### URL wildcard
+
+Wildcard tested against the full URL. A trailing `*` is implied, so a prefix
+is enough:
+
+```
+https://example.com/api/
+http://*/admin/*
+```
+
+> Note: for HTTPS sites the browser only exposes scheme and host to the proxy
+> resolver — path-based URL rules are effectively host-level for HTTPS.
+
+### URL regex
+
+A JavaScript regular expression tested against the full URL:
+
+```
+^https?://(www\.)?example\.com/
+```
+
+### IP / CIDR
+
+Matches when the hostname is a **literal IPv4 address** inside the block:
+
+```
+10.0.0.0/8
+192.168.1.0/24
+203.0.113.7        (a single address — /32 implied)
+```
+
+Sockitt deliberately performs no DNS resolution while routing (it would slow
+every request), so CIDR rules do not apply to domain names. IPv6 CIDR is not
+supported.
+
+## Bypass lists
+
+Each proxy profile has a bypass list — hosts that connect **directly** even
+when that profile is chosen (whether activated directly or via a switch rule).
+One entry per line:
+
+| Entry | Meaning |
+|---|---|
+| `<local>` | `localhost`, `127.0.0.1`, `[::1]`, and any dotless hostname (`nas`, `router`) |
+| `*.internal.example` | host wildcard, same semantics as above |
+| `10.0.0.0/8` | IPv4 CIDR block |
+| `printer.lan` | exact host |
+
+## Order matters — worked example
+
+| # | Condition | Pattern | Route via |
+|---|---|---|---|
+| 1 | Host wildcard | `*.corp.example` | Direct |
+| 2 | Host wildcard | `*.example.com` | Tokyo |
+| 3 | IP / CIDR | `10.0.0.0/8` | Office |
+| — | Everything else | | Direct |
+
+`wiki.corp.example` hits rule 1 and goes direct even though rule 2 would also
+have sent `*.example` traffic to Tokyo — rule 1 sits above it. Drag rules by
+the `⋮⋮` grip to change priority.

@@ -1,0 +1,62 @@
+body {
+  width: 320px;
+  background:
+    radial-gradient(120% 60% at 50% -10%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 70%),
+    var(--bg);
+}
+
+.pop { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+
+.pop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 2px 0;
+}
+
+.list { display: flex; flex-direction: column; gap: 4px; }
+
+.section-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+  margin: 6px 4px 2px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: background 0.12s, border-color 0.12s;
+}
+.row:hover { background: var(--surface-hover); }
+.row.active {
+  background: var(--surface);
+  border-color: color-mix(in srgb, var(--row-color, var(--accent)) 55%, transparent);
+  box-shadow: inset 2px 0 0 var(--row-color, var(--accent));
+}
+
+.row .title { font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .sub { font-size: 11px; color: var(--text-dim); font-family: var(--mono); }
+.row .check { color: var(--row-color, var(--accent)); font-weight: 800; }
+
+.tab-card { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.tab-route { display: flex; align-items: center; gap: 8px; font-size: 12px; min-width: 0; }
+.tab-route .host { font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab-route .arrow { color: var(--text-dim); flex: none; }
+.tab-route .via { display: flex; align-items: center; gap: 6px; font-weight: 700; flex: none; }
+
+.quick-add { display: flex; gap: 6px; }
+.quick-add select { flex: 1; min-width: 0; }
+
+.foot { display: flex; justify-content: space-between; align-items: center; padding: 0 2px; }
+.foot .hint { font-size: 11px; color: var(--text-dim); }
