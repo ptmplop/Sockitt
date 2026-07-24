@@ -35,14 +35,19 @@ body {
   --accent-soft: rgba(109, 93, 252, 0.24);
   color-scheme: dark;
 
+  /* Pinned: exactly one viewport tall so the page scroll never moves it —
+     stretch would make it content-height, and sticky can't hold an element
+     that already spans the whole scroll range. Internal scroll only if the
+     nav itself outgrows the viewport. */
   position: sticky;
   top: 0;
-  align-self: stretch;
+  align-self: start;
+  height: 100vh;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 16px;
   padding: 26px 18px;
-  min-height: 100vh;
   background: linear-gradient(180deg, #161b26, #0f131b);
   border-right: 1px solid rgba(0, 0, 0, 0.18);
   box-shadow: 1px 0 0 rgba(255, 255, 255, 0.04) inset;
@@ -366,6 +371,6 @@ textarea.input { resize: vertical; min-height: 88px; line-height: 1.6; }
 
 @media (max-width: 820px) {
   .layout { grid-template-columns: 1fr; }
-  .side { position: static; min-height: auto; border-right: none; border-bottom: 1px solid var(--border); }
+  .side { position: static; height: auto; overflow-y: visible; border-right: none; border-bottom: 1px solid var(--border); }
   .content { padding: 24px 20px 60px; }
 }
