@@ -196,7 +196,7 @@ function buildDocsPanel(): HTMLElement {
       terms([
         ['Route inspector', ['The sidebar’s ', code('Route inspector'), ' page traces any URL through your configuration with the same resolver real routing uses: which rule fired (including the popup override), the chain it walked through aliases and rule lists, and the proxy it landed on.']],
         ['Connection test', ['Every proxy editor has a ', code('Test connection'), ' button. It briefly routes your browsing through that proxy, fetches ', code('ipconfig.is'), ' to capture the exit IP, country, and latency, then restores your configuration — auth included, so wrong credentials show up here too.']],
-        ['Health dots', ['After a test, the proxy shows a dot in the sidebar: green (reachable, fast), amber (reachable, slow), red (failed). Dots reset when the browser restarts.']],
+        ['Health dots', ['After a test, the proxy shows a dot in the sidebar: green if it connected, red if it failed. Hover for the exit IP, country, and latency. Dots reset when the browser restarts.']],
       ])
     ),
 

@@ -104,11 +104,12 @@ function sidebar(): HTMLElement {
     const h =
       p.kind === 'proxy' && Object.hasOwn(healthMap, p.id) ? healthMap[p.id] : undefined;
     if (!h) return null;
-    const grade = h.ok ? (h.ms !== null && h.ms < 800 ? 'ok' : 'slow') : 'bad';
+    // Reachable is reachable — green if it connected, red if it didn't. Latency
+    // lives in the tooltip, not the colour.
     const detail = h.ok
       ? `Last test: ${h.ip}${h.country ? ` (${h.country})` : ''} · ${h.ms} ms`
       : 'Last test: unreachable';
-    return el('span', { class: `health-dot ${grade}`, title: detail });
+    return el('span', { class: `health-dot ${h.ok ? 'ok' : 'bad'}`, title: detail });
   };
 
   const item = (p: Profile) =>
@@ -123,8 +124,10 @@ function sidebar(): HTMLElement {
       },
       avatarEl(p, 22),
       el('span', { class: 'name' }, p.name),
-      healthDot(p),
-      config.activeId === p.id ? el('span', { class: 'badge' }, 'ACTIVE') : null
+      config.activeId === p.id ? el('span', { class: 'badge' }, 'ACTIVE') : null,
+      // Dot last so it's always flush-right and lines up across rows whether or
+      // not a row carries the ACTIVE badge.
+      healthDot(p)
     );
 
   const groups = (['proxy', 'switch', 'rulelist', 'virtual'] as const).flatMap((kind) => {

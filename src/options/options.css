@@ -399,9 +399,10 @@ textarea.input { resize: vertical; min-height: 88px; line-height: 1.6; }
 .chain-final.bypassed { color: var(--amber); }
 
 /* ---- proxy health dots (sidebar) + connection test ---- */
-.health-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+/* Trailing margin keeps the dot off the button's right padding edge so it
+   lines up cleanly under every row. */
+.health-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; margin-right: 2px; }
 .health-dot.ok { background: #35c46f; }
-.health-dot.slow { background: var(--amber); }
 .health-dot.bad { background: var(--danger); }
 .test-row { display: flex; align-items: center; gap: 12px; }
 .test-row .test-result { margin: 0; }
