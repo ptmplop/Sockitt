@@ -249,7 +249,7 @@ function siteManager(active: SwitchProfile): HTMLElement {
     const add = el(
       'button',
       {
-        class: 'btn primary sm',
+        class: 'btn sm',
         disabled: hasOverride,
         title: `Add a rule routing *.${tab.host}`,
         onclick: () => {
