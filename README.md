@@ -144,6 +144,12 @@ studied as a reference while designing this extension. Sockitt shares no code
 with those projects and is released under the MIT license. Thanks to their
 authors and maintainers for the prior art.
 
+## Privacy
+
+Sockitt collects nothing: no analytics, no tracking, no developer server. Your
+configuration stays on your device (or your own browser account if you enable
+Sync). See the full [Privacy Policy](PRIVACY.md).
+
 ## License
 
 [MIT](LICENSE)
