@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Sockitt — SOCKS5 Proxy Switcher",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Fast, minimal SOCKS5 proxy switching with rule-based auto routing.",
   "minimum_chrome_version": "110",
   "icons": {
@@ -26,11 +26,15 @@
     "page": "options.html",
     "open_in_tab": true
   },
-  "permissions": ["proxy", "storage", "activeTab"],
+  "permissions": ["proxy", "storage", "activeTab", "alarms"],
+  "optional_permissions": ["tabs"],
   "commands": {
     "_execute_action": {
       "suggested_key": { "default": "Alt+Shift+S" },
       "description": "Open the Sockitt switcher"
+    },
+    "cycle-profile": {
+      "description": "Cycle to the next quick-switch profile"
     }
   }
 }

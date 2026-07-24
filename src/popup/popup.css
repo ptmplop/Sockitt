@@ -128,5 +128,47 @@ body {
 .quick-add { display: flex; gap: 6px; }
 .quick-add select { flex: 1; min-width: 0; }
 
+.temp-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+}
+.toggle.mini { width: 28px; height: 16px; }
+.toggle.mini::after { width: 10px; height: 10px; }
+.toggle.mini:checked::after { transform: translateX(12px); }
+
+.temp-list { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+.temp-title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  width: 100%;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 4px 2px 8px;
+  border-radius: 999px;
+  border: 1px dashed var(--border-strong);
+  font-size: 10.5px;
+}
+.chip-x {
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 9px;
+  padding: 2px 5px;
+  border-radius: 50%;
+}
+.chip-x:hover { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
+
 .foot { display: flex; justify-content: space-between; align-items: center; padding: 0 2px; }
 .foot .hint { font-size: 10.5px; color: var(--text-dim); }

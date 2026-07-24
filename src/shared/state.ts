@@ -1,21 +1,41 @@
-import { Config, DIRECT, PALETTE, Profile, SwitchRule, uid } from './types';
+import {
+  Config,
+  DIRECT,
+  PALETTE,
+  Profile,
+  RuleType,
+  Settings,
+  SwitchRule,
+  SYSTEM,
+  defaultSettings,
+  uid,
+} from './types';
 
 const KEY = 'sockitt';
+const TEMP_KEY = 'sockitt-temp';
+
+const RULE_TYPES: RuleType[] = [
+  'hostWildcard', 'hostRegex', 'urlWildcard', 'urlRegex', 'ipCidr',
+  'keyword', 'hostLevels', 'weekday', 'time',
+];
 
 export function defaultConfig(): Config {
-  return { version: 1, activeId: SYSTEM_DEFAULT, profiles: [] };
+  return { version: 2, rev: 0, activeId: SYSTEM, profiles: [], settings: defaultSettings() };
 }
-
-const SYSTEM_DEFAULT = 'system';
 
 export async function loadConfig(): Promise<Config> {
   const stored = await chrome.storage.local.get(KEY);
-  const raw = stored[KEY];
-  const config = sanitizeConfig(raw);
-  return config ?? defaultConfig();
+  return sanitizeConfig(stored[KEY]) ?? defaultConfig();
 }
 
+/** Save from a UI surface: bumps the sync revision. */
 export async function saveConfig(config: Config): Promise<void> {
+  config.rev = Math.max(Date.now(), config.rev + 1);
+  await chrome.storage.local.set({ [KEY]: config });
+}
+
+/** Save without bumping rev — used when applying a config pulled from sync. */
+export async function saveConfigRaw(config: Config): Promise<void> {
   await chrome.storage.local.set({ [KEY]: config });
 }
 
@@ -27,10 +47,41 @@ export function onConfigChanged(fn: (config: Config) => void): void {
   });
 }
 
+/* ---------- temp rules (session-scoped: gone on browser restart) ---------- */
+
+type TempRuleMap = Record<string, SwitchRule[]>;
+
+export async function loadTempRules(profileId: string): Promise<SwitchRule[]> {
+  try {
+    const stored = await chrome.storage.session.get(TEMP_KEY);
+    const map = stored[TEMP_KEY] as TempRuleMap | undefined;
+    return map?.[profileId]?.filter(isValidRule) ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function saveTempRules(profileId: string, rules: SwitchRule[]): Promise<void> {
+  const stored = await chrome.storage.session.get(TEMP_KEY);
+  const map = (stored[TEMP_KEY] as TempRuleMap | undefined) ?? {};
+  if (rules.length) map[profileId] = rules;
+  else delete map[profileId];
+  await chrome.storage.session.set({ [TEMP_KEY]: map });
+}
+
+export function onTempRulesChanged(fn: () => void): void {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'session' && changes[TEMP_KEY]) fn();
+  });
+}
+
+/* ---------- sanitising ---------- */
+
 /**
- * Validate untrusted config data (storage or an imported JSON file) into a
- * well-formed Config, or null if it is beyond repair. Unknown fields drop,
- * broken references fall back to direct.
+ * Validate untrusted config data (storage, sync, or an imported JSON file)
+ * into a well-formed Config, or null if it is beyond repair. Handles v1
+ * configs (no settings/rev/new kinds). Unknown fields drop, broken
+ * references fall back to direct.
  */
 export function sanitizeConfig(raw: unknown): Config | null {
   if (typeof raw !== 'object' || raw === null) return null;
@@ -48,16 +99,74 @@ export function sanitizeConfig(raw: unknown): Config | null {
     typeof t === 'string' && (t === DIRECT || ids.has(t)) ? t : DIRECT;
 
   for (const p of profiles) {
-    if (p.kind !== 'switch') continue;
-    p.defaultTargetId = validTarget(p.defaultTargetId);
-    for (const r of p.rules) r.targetId = validTarget(r.targetId);
+    switch (p.kind) {
+      case 'switch':
+        p.defaultTargetId = validTarget(p.defaultTargetId);
+        for (const r of p.rules) r.targetId = validTarget(r.targetId);
+        break;
+      case 'virtual':
+        p.targetId = validTarget(p.targetId);
+        break;
+      case 'rulelist':
+        p.matchTargetId = validTarget(p.matchTargetId);
+        p.defaultTargetId = validTarget(p.defaultTargetId);
+        break;
+      case 'proxy':
+        break;
+    }
   }
 
-  let activeId = typeof o.activeId === 'string' ? o.activeId : SYSTEM_DEFAULT;
-  if (activeId !== DIRECT && activeId !== SYSTEM_DEFAULT && !ids.has(activeId)) {
-    activeId = SYSTEM_DEFAULT;
+  let activeId = typeof o.activeId === 'string' ? o.activeId : SYSTEM;
+  if (activeId !== DIRECT && activeId !== SYSTEM && !ids.has(activeId)) {
+    activeId = SYSTEM;
   }
-  return { version: 1, activeId, profiles };
+
+  return {
+    version: 2,
+    rev: typeof o.rev === 'number' && Number.isFinite(o.rev) ? o.rev : 0,
+    activeId,
+    profiles,
+    settings: sanitizeSettings(o.settings, ids),
+  };
+}
+
+function sanitizeSettings(raw: unknown, ids: Set<string>): Settings {
+  const d = defaultSettings();
+  if (typeof raw !== 'object' || raw === null) return d;
+  const o = raw as Record<string, unknown>;
+  const bool = (v: unknown, fallback: boolean): boolean =>
+    typeof v === 'boolean' ? v : fallback;
+  const startup = typeof o.startupProfileId === 'string' ? o.startupProfileId : '';
+  return {
+    quickSwitch: bool(o.quickSwitch, d.quickSwitch),
+    quickSwitchIds: Array.isArray(o.quickSwitchIds)
+      ? o.quickSwitchIds.filter(
+          (v): v is string =>
+            typeof v === 'string' && (v === DIRECT || v === SYSTEM || ids.has(v))
+        )
+      : [],
+    syncEnabled: bool(o.syncEnabled, d.syncEnabled),
+    startupProfileId:
+      startup === '' || startup === DIRECT || startup === SYSTEM || ids.has(startup)
+        ? startup
+        : '',
+    revertExternal: bool(o.revertExternal, d.revertExternal),
+    confirmDeletion: bool(o.confirmDeletion, d.confirmDeletion),
+    addToBottom: bool(o.addToBottom, d.addToBottom),
+    refreshOnSwitch: bool(o.refreshOnSwitch, d.refreshOnSwitch),
+    badgeResult: bool(o.badgeResult, d.badgeResult),
+  };
+}
+
+function isValidRule(r: unknown): r is SwitchRule {
+  if (typeof r !== 'object' || r === null) return false;
+  const o = r as Record<string, unknown>;
+  return (
+    typeof o.id === 'string' &&
+    typeof o.pattern === 'string' &&
+    typeof o.targetId === 'string' &&
+    RULE_TYPES.includes(o.type as RuleType)
+  );
 }
 
 function sanitizeProfile(raw: unknown): Profile | null {
@@ -69,51 +178,82 @@ function sanitizeProfile(raw: unknown): Profile | null {
     typeof o.color === 'string' && /^#[0-9a-f]{6}$/i.test(o.color) ? o.color : PALETTE[0];
   const initials =
     typeof o.initials === 'string' && o.initials.trim() ? o.initials.trim().slice(0, 3) : undefined;
+  const base = { id, name, initials, color };
 
-  if (o.kind === 'proxy') {
-    const port = Number(o.port);
-    return {
-      kind: 'proxy',
-      id,
-      name,
-      initials,
-      color,
-      host: typeof o.host === 'string' ? o.host.trim() : '',
-      port: Number.isInteger(port) && port >= 1 && port <= 65535 ? port : 1080,
-      bypass: Array.isArray(o.bypass) ? o.bypass.filter((b): b is string => typeof b === 'string') : [],
-    };
-  }
-  if (o.kind === 'switch') {
-    const rules: SwitchRule[] = [];
-    if (Array.isArray(o.rules)) {
-      for (const r of o.rules) {
-        if (typeof r !== 'object' || r === null) continue;
-        const rr = r as Record<string, unknown>;
-        const type = rr.type;
-        if (
-          type !== 'hostWildcard' && type !== 'hostRegex' &&
-          type !== 'urlWildcard' && type !== 'urlRegex' && type !== 'ipCidr'
-        ) continue;
-        rules.push({
-          id: typeof rr.id === 'string' && rr.id ? rr.id : uid(),
-          enabled: rr.enabled !== false,
-          type,
-          pattern: typeof rr.pattern === 'string' ? rr.pattern : '',
-          targetId: typeof rr.targetId === 'string' ? rr.targetId : DIRECT,
-        });
-      }
+  switch (o.kind) {
+    case 'proxy': {
+      const port = Number(o.port);
+      return {
+        kind: 'proxy',
+        ...base,
+        host: typeof o.host === 'string' ? o.host.trim() : '',
+        port: Number.isInteger(port) && port >= 1 && port <= 65535 ? port : 1080,
+        bypass: Array.isArray(o.bypass)
+          ? o.bypass.filter((b): b is string => typeof b === 'string')
+          : [],
+      };
     }
-    return {
-      kind: 'switch',
-      id,
-      name,
-      initials,
-      color,
-      rules,
-      defaultTargetId: typeof o.defaultTargetId === 'string' ? o.defaultTargetId : DIRECT,
-    };
+    case 'switch': {
+      const rules: SwitchRule[] = [];
+      if (Array.isArray(o.rules)) {
+        for (const r of o.rules) {
+          if (typeof r !== 'object' || r === null) continue;
+          const rr = r as Record<string, unknown>;
+          if (!RULE_TYPES.includes(rr.type as RuleType)) continue;
+          rules.push({
+            id: typeof rr.id === 'string' && rr.id ? rr.id : uid(),
+            enabled: rr.enabled !== false,
+            type: rr.type as RuleType,
+            pattern: typeof rr.pattern === 'string' ? rr.pattern : '',
+            targetId: typeof rr.targetId === 'string' ? rr.targetId : DIRECT,
+          });
+        }
+      }
+      return {
+        kind: 'switch',
+        ...base,
+        rules,
+        defaultTargetId: typeof o.defaultTargetId === 'string' ? o.defaultTargetId : DIRECT,
+      };
+    }
+    case 'virtual':
+      return {
+        kind: 'virtual',
+        ...base,
+        targetId: typeof o.targetId === 'string' ? o.targetId : DIRECT,
+      };
+    case 'rulelist': {
+      const interval = Number(o.updateIntervalH);
+      return {
+        kind: 'rulelist',
+        ...base,
+        format: o.format === 'switchy' ? 'switchy' : 'autoproxy',
+        url: typeof o.url === 'string' ? o.url.trim() : '',
+        updateIntervalH:
+          Number.isFinite(interval) && interval >= 0 && interval <= 720 ? interval : 24,
+        matchTargetId: typeof o.matchTargetId === 'string' ? o.matchTargetId : DIRECT,
+        defaultTargetId: typeof o.defaultTargetId === 'string' ? o.defaultTargetId : DIRECT,
+        text: typeof o.text === 'string' ? o.text : '',
+        lastUpdated: typeof o.lastUpdated === 'number' ? o.lastUpdated : undefined,
+      };
+    }
+    default:
+      return null;
   }
-  return null;
+}
+
+/* ---------- factories ---------- */
+
+function nextName(existing: Profile[], base: string): string {
+  const names = new Set(existing.map((p) => p.name));
+  if (!names.has(base)) return base;
+  for (let i = 2; ; i++) {
+    if (!names.has(`${base} ${i}`)) return `${base} ${i}`;
+  }
+}
+
+function nextColor(existing: Profile[]): string {
+  return PALETTE[existing.length % PALETTE.length]!;
 }
 
 export function newProxyProfile(existing: Profile[]): Profile {
@@ -121,7 +261,7 @@ export function newProxyProfile(existing: Profile[]): Profile {
     kind: 'proxy',
     id: uid(),
     name: nextName(existing, 'Proxy'),
-    color: PALETTE[existing.length % PALETTE.length]!,
+    color: nextColor(existing),
     host: '127.0.0.1',
     port: 1080,
     bypass: ['<local>'],
@@ -133,16 +273,33 @@ export function newSwitchProfile(existing: Profile[]): Profile {
     kind: 'switch',
     id: uid(),
     name: nextName(existing, 'Auto Switch'),
-    color: PALETTE[(existing.length + 1) % PALETTE.length]!,
+    color: nextColor(existing),
     rules: [],
     defaultTargetId: DIRECT,
   };
 }
 
-function nextName(existing: Profile[], base: string): string {
-  const names = new Set(existing.map((p) => p.name));
-  if (!names.has(base)) return base;
-  for (let i = 2; ; i++) {
-    if (!names.has(`${base} ${i}`)) return `${base} ${i}`;
-  }
+export function newVirtualProfile(existing: Profile[]): Profile {
+  return {
+    kind: 'virtual',
+    id: uid(),
+    name: nextName(existing, 'Alias'),
+    color: nextColor(existing),
+    targetId: DIRECT,
+  };
+}
+
+export function newRuleListProfile(existing: Profile[]): Profile {
+  return {
+    kind: 'rulelist',
+    id: uid(),
+    name: nextName(existing, 'Rule List'),
+    color: nextColor(existing),
+    format: 'autoproxy',
+    url: '',
+    updateIntervalH: 24,
+    matchTargetId: existing.find((p) => p.kind === 'proxy')?.id ?? DIRECT,
+    defaultTargetId: DIRECT,
+    text: '',
+  };
 }

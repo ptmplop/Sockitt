@@ -30,13 +30,22 @@ permissions, and a rule engine that compiles to an optimised PAC script.
 - **Built-in modes** — *Direct* (no proxy) and *System* (OS proxy settings).
 - **Auto Switch profiles** — an ordered, first-match-wins rule table. Route by:
   - host wildcard — `*.example.com` (matches the bare domain and every subdomain)
-  - host regex, URL wildcard, URL regex
-  - IPv4 CIDR block — `10.0.0.0/8`
+  - host regex, URL wildcard, URL regex, URL keyword
+  - IPv4 CIDR block — `10.0.0.0/8`, host levels, weekday and time-of-day windows
+  - rules can target proxies, Direct, other switch profiles, rule lists, or aliases
+- **Rule lists** — subscribe to AutoProxy/GFWList or Switchy-format lists by
+  URL with auto-update, or paste one in. Domain entries compile to a single
+  dictionary lookup, so huge lists stay fast.
+- **Aliases** — pointer profiles: aim many rules at one alias, retarget once.
 - **Popup switcher** — change profile in one click, see a live *"this tab
-  routes via …"* preview, and add a rule for the current site without opening
-  settings.
+  routes via …"* preview, and add a rule for the current site — permanently or
+  just until the browser restarts (temp rules).
+- **Quick switch** — cycle chosen profiles from the toolbar button or a
+  keyboard shortcut without opening the popup.
 - **Options app** — manage profiles, drag rules to reorder, edit bypass lists,
-  export/import your whole setup as JSON.
+  export/import JSON, optional sync across machines via your browser account,
+  startup profile, and a guard that re-takes proxy control if another
+  extension grabs it.
 - **Honest failure states** — a red `!` badge when the proxy errors or when
   another extension takes control of proxy settings. If a proxy is down,
   requests fail closed instead of silently leaking direct.
@@ -77,11 +86,13 @@ See [docs/rules.md](docs/rules.md) for the full pattern syntax, and
 
 ## Permissions & privacy
 
-Sockitt requests exactly three permissions — `proxy`, `storage`, and
-`activeTab` — and **no host permissions**. It cannot read your browsing
-history, does not touch page content, makes no network requests of its own,
-and contains no analytics of any kind. Your configuration lives in local
-extension storage and leaves the browser only when you export it.
+Sockitt requests four permissions — `proxy`, `storage`, `activeTab`, and
+`alarms` — and **no host permissions**. It cannot read your browsing history,
+does not touch page content, and contains no analytics of any kind. The only
+network requests it ever makes are fetches of rule-list URLs *you* configure.
+Two features are strictly opt-in: the per-tab route badge asks for the
+optional `tabs` permission when you enable it, and sync stores your config in
+your own browser account (`chrome.storage.sync`).
 
 ## Limitations
 

@@ -70,6 +70,58 @@ Sockitt deliberately performs no DNS resolution while routing (it would slow
 every request), so CIDR rules do not apply to domain names. IPv6 CIDR is not
 supported.
 
+### URL keyword
+
+A plain substring searched anywhere in the full URL — `tracker` matches
+`https://cdn.example/tracker.js`. The cheapest condition of all.
+
+### Host levels
+
+Matches on how many dot-separated labels the hostname has: `example.com` has
+2, `a.b.example.com` has 4. Pattern is a count or range: `2` or `2-4`.
+
+### Weekday / Time of day
+
+Route differently by schedule. Weekday patterns: `mon-fri`, `sat,sun`,
+`fri-mon` (ranges may wrap the week; digits 0–6 with 0 = Sunday also work).
+Time patterns: `09:00-17:30`, and `22:00-06:00` wraps midnight.
+
+> The browser caches proxy decisions per URL for a short while, so a schedule
+> boundary can take effect with a small delay on already-visited sites.
+
+## Rule targets can be other profiles
+
+A rule (or the "everything else" default) can route to another Auto Switch
+profile, a rule list, or an **alias** — not just proxies and Direct. Aliases
+are simple pointers: aim several rules at an alias, then retarget the alias
+once to move them all. The options UI hides choices that would create a
+cycle, and the compiler independently resolves any cycle to Direct.
+
+## Temporary rules
+
+The popup's **"Only until browser restart"** toggle adds the quick rule to
+session storage instead of your config. Temp rules sit *above* permanent
+rules, show as removable chips in the popup, and vanish when the browser
+fully exits.
+
+## Rule lists
+
+A Rule List profile routes URLs matching an online (or pasted) list through a
+chosen target. Two formats:
+
+- **AutoProxy / GFWList** — `||domain`, `|https://prefix`, `/regex/`, plain
+  keywords, `@@` whitelist entries, `!` comments. Base64-encoded payloads
+  (GFWList's distribution format) are decoded automatically.
+- **Switchy** — one wildcard per line: bare patterns are host wildcards,
+  entries containing `://` are URL wildcards, `@@` prefixes whitelist
+  entries, `#`/`;`/`!` start comments.
+
+Whitelist entries always win, sending the URL to the profile's default
+target. Lists auto-refresh on the interval you set (the URL's host must allow
+cross-origin requests — `raw.githubusercontent.com` does). Performance note:
+`||domain` entries compile into a single dictionary lookup, so even a
+6,000-entry GFWList costs roughly constant time per request.
+
 ## Bypass lists
 
 Each proxy profile has a bypass list — hosts that connect **directly** even

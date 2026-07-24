@@ -22,7 +22,9 @@ options ┘        (config)                     └─> action icon / badge / ti
 | `src/shared/types.ts` | Data model: `Config`, `ProxyProfile`, `SwitchProfile`, `SwitchRule` |
 | `src/shared/match.ts` | Compiles conditions to matcher primitives; TS-side evaluator |
 | `src/shared/pac.ts` | Generates the PAC script from a switch profile |
-| `src/shared/state.ts` | Storage load/save + `sanitizeConfig` (also validates JSON imports) |
+| `src/shared/state.ts` | Storage load/save + `sanitizeConfig` (also validates imports/sync), temp rules |
+| `src/shared/rulelist.ts` | AutoProxy/GFWList + Switchy list parsing (with base64 decode + memo) |
+| `src/shared/sync.ts` | Chunked config mirroring over `chrome.storage.sync`, last-write-wins by revision |
 | `src/shared/avatar.ts` | Initials avatars (DiceBear-initials style, local): derivation, contrast, DOM tile |
 | `src/background.ts` | The applier: settings, icon painting, proxy-error badge |
 | `src/popup/` | Switcher UI + live route preview |
@@ -38,8 +40,14 @@ framework's runtime would be.
 |---|---|
 | Direct | `direct` |
 | System | `system` |
-| SOCKS5 profile | `fixed_servers` (scheme `socks5` + native bypass list) |
-| Auto Switch | `pac_script` with generated code, `mandatory: true` |
+| SOCKS5 profile (or an alias chain ending at one) | `fixed_servers` (scheme `socks5` + native bypass list) |
+| Auto Switch / rule list (anything conditional) | `pac_script` with generated code, `mandatory: true` |
+
+Profiles form a graph: switch rules and rule lists can target other profiles.
+The compiler emits one function per reachable profile and resolves cycles to
+DIRECT; `staticTerminal()` collapses unconditional alias chains so they still
+take the `fixed_servers` fast path. Session-scoped temp rules are injected
+above the active switch profile's permanent rules at compile time.
 
 `mandatory: true` means a failing proxy fails the request rather than falling
 back to a direct connection — deliberate, so a dead proxy can never silently

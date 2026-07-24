@@ -1,27 +1,35 @@
-import { avatarEl, initialsFor } from '../shared/avatar';
+import { avatarEl, builtinTile, initialsFor } from '../shared/avatar';
 import { patternError } from '../shared/match';
+import { parseRuleList } from '../shared/rulelist';
 import {
   loadConfig,
   newProxyProfile,
+  newRuleListProfile,
   newSwitchProfile,
+  newVirtualProfile,
   sanitizeConfig,
   saveConfig,
 } from '../shared/state';
+import { clearSync } from '../shared/sync';
 import {
   Config,
   DIRECT,
   PALETTE,
   Profile,
   ProxyProfile,
+  RuleListProfile,
   RuleType,
   SwitchProfile,
+  SYSTEM,
+  VirtualProfile,
   proxyProfiles,
-  switchProfiles,
+  reachableFrom,
   uid,
 } from '../shared/types';
 import { el, toast } from '../shared/ui';
 
 const app = document.getElementById('app')!;
+const SETTINGS_ID = '@settings';
 
 let config: Config;
 let selectedId: string | null = null;
@@ -33,6 +41,17 @@ const RULE_TYPES: Record<RuleType, string> = {
   urlWildcard: 'URL wildcard',
   urlRegex: 'URL regex',
   ipCidr: 'IP / CIDR',
+  keyword: 'URL keyword',
+  hostLevels: 'Host levels',
+  weekday: 'Weekday',
+  time: 'Time of day',
+};
+
+const KIND_LABEL: Record<Profile['kind'], string> = {
+  proxy: 'Proxies',
+  switch: 'Auto switch',
+  rulelist: 'Rule lists',
+  virtual: 'Aliases',
 };
 
 function scheduleSave(): void {
@@ -46,12 +65,13 @@ function selected(): Profile | null {
   return config.profiles.find((p) => p.id === selectedId) ?? null;
 }
 
+function confirmMaybe(message: string): boolean {
+  return !config.settings.confirmDeletion || confirm(message);
+}
+
 /* ---------- sidebar ---------- */
 
 function sidebar(): HTMLElement {
-  const proxies = proxyProfiles(config);
-  const switches = switchProfiles(config);
-
   const item = (p: Profile) =>
     el(
       'button',
@@ -67,23 +87,48 @@ function sidebar(): HTMLElement {
       config.activeId === p.id ? el('span', { class: 'badge' }, 'ACTIVE') : null
     );
 
+  const groups = (['proxy', 'switch', 'rulelist', 'virtual'] as const).flatMap((kind) => {
+    const items = config.profiles.filter((p) => p.kind === kind);
+    return items.length
+      ? [el('div', { class: 'section-label' }, KIND_LABEL[kind]), ...items.map(item)]
+      : [];
+  });
+
   return el(
     'aside',
     { class: 'side' },
-    el('div', { class: 'brand' }, el('img', { class: 'mark', src: 'img/icon-48.png', alt: '' }), 'Sockitt', el('small', {}, 'SOCKS5 switcher')),
+    el(
+      'div',
+      { class: 'brand' },
+      el('img', { class: 'mark', src: 'img/icon-48.png', alt: '' }),
+      'Sockitt',
+      el('small', {}, 'SOCKS5 switcher')
+    ),
     el(
       'nav',
       { class: 'nav' },
-      proxies.length ? el('div', { class: 'section-label' }, 'Proxies') : null,
-      ...proxies.map(item),
-      switches.length ? el('div', { class: 'section-label' }, 'Auto switch') : null,
-      ...switches.map(item)
+      ...groups,
+      el('div', { class: 'section-label' }, 'Extension'),
+      el(
+        'button',
+        {
+          class: `nav-item${selectedId === SETTINGS_ID ? ' selected' : ''}`,
+          onclick: () => {
+            selectedId = SETTINGS_ID;
+            render();
+          },
+        },
+        builtinTile('⚙', 22),
+        el('span', { class: 'name' }, 'Settings')
+      )
     ),
     el(
       'div',
       { class: 'actions' },
-      el('button', { class: 'btn primary', onclick: () => addProfile('proxy') }, '+ New proxy'),
-      el('button', { class: 'btn', onclick: () => addProfile('switch') }, '+ New auto switch'),
+      el('button', { class: 'btn primary', onclick: () => addProfile(newProxyProfile) }, '+ New proxy'),
+      el('button', { class: 'btn', onclick: () => addProfile(newSwitchProfile) }, '+ New auto switch'),
+      el('button', { class: 'btn', onclick: () => addProfile(newRuleListProfile) }, '+ New rule list'),
+      el('button', { class: 'btn', onclick: () => addProfile(newVirtualProfile) }, '+ New alias'),
       el(
         'div',
         { class: 'tools' },
@@ -95,8 +140,8 @@ function sidebar(): HTMLElement {
   );
 }
 
-function addProfile(kind: 'proxy' | 'switch'): void {
-  const profile = kind === 'proxy' ? newProxyProfile(config.profiles) : newSwitchProfile(config.profiles);
+function addProfile(factory: (existing: Profile[]) => Profile): void {
+  const profile = factory(config.profiles);
   config.profiles.push(profile);
   selectedId = profile.id;
   scheduleSave();
@@ -105,11 +150,6 @@ function addProfile(kind: 'proxy' | 'switch'): void {
 
 /* ---------- shared editor chrome ---------- */
 
-/**
- * Identity panel: avatar preview, name, custom initials, colour. The avatar
- * (DiceBear-initials style) is also what the toolbar icon shows while this
- * profile is active.
- */
 function identityPanel(profile: Profile): HTMLElement {
   const preview = el('div', { class: 'id-preview' });
   const renderPreview = () => preview.replaceChildren(avatarEl(profile, 56));
@@ -198,13 +238,30 @@ function dangerZone(profile: Profile): HTMLElement {
       {
         class: 'btn danger',
         onclick: () => {
-          if (!confirm(`Delete “${profile.name}”?`)) return;
+          if (!confirmMaybe(`Delete “${profile.name}”?`)) return;
           config.profiles = config.profiles.filter((p) => p.id !== profile.id);
-          for (const s of switchProfiles(config)) {
-            if (s.defaultTargetId === profile.id) s.defaultTargetId = DIRECT;
-            for (const r of s.rules) if (r.targetId === profile.id) r.targetId = DIRECT;
+          for (const p of config.profiles) {
+            switch (p.kind) {
+              case 'switch':
+                if (p.defaultTargetId === profile.id) p.defaultTargetId = DIRECT;
+                for (const r of p.rules) if (r.targetId === profile.id) r.targetId = DIRECT;
+                break;
+              case 'virtual':
+                if (p.targetId === profile.id) p.targetId = DIRECT;
+                break;
+              case 'rulelist':
+                if (p.matchTargetId === profile.id) p.matchTargetId = DIRECT;
+                if (p.defaultTargetId === profile.id) p.defaultTargetId = DIRECT;
+                break;
+              case 'proxy':
+                break;
+            }
           }
-          if (config.activeId === profile.id) config.activeId = 'system';
+          config.settings.quickSwitchIds = config.settings.quickSwitchIds.filter(
+            (id) => id !== profile.id
+          );
+          if (config.settings.startupProfileId === profile.id) config.settings.startupProfileId = '';
+          if (config.activeId === profile.id) config.activeId = SYSTEM;
           selectedId = config.profiles[0]?.id ?? null;
           scheduleSave();
           render();
@@ -213,6 +270,23 @@ function dangerZone(profile: Profile): HTMLElement {
       'Delete profile'
     )
   );
+}
+
+/**
+ * Routing-target selector. Offers Direct plus every profile that would not
+ * create a cycle back to the profile being edited.
+ */
+function targetSelect(ownerId: string, value: string, onChange: (v: string) => void): HTMLSelectElement {
+  const select = el('select', { class: 'input' }) as HTMLSelectElement;
+  select.append(el('option', { value: DIRECT }, 'Direct'));
+  for (const p of config.profiles) {
+    if (p.id === ownerId) continue;
+    if (reachableFrom(config, p.id).has(ownerId)) continue; // would cycle
+    select.append(el('option', { value: p.id }, p.name));
+  }
+  select.value = [...select.options].some((o) => o.value === value) ? value : DIRECT;
+  select.onchange = () => onChange(select.value);
+  return select;
 }
 
 /* ---------- proxy editor ---------- */
@@ -295,15 +369,6 @@ function proxyEditor(profile: ProxyProfile): HTMLElement {
 
 /* ---------- switch editor ---------- */
 
-function targetSelect(value: string, onChange: (v: string) => void): HTMLSelectElement {
-  const select = el('select', { class: 'input' }) as HTMLSelectElement;
-  select.append(el('option', { value: DIRECT }, 'Direct'));
-  for (const p of proxyProfiles(config)) select.append(el('option', { value: p.id }, p.name));
-  select.value = value === DIRECT || proxyProfiles(config).some((p) => p.id === value) ? value : DIRECT;
-  select.onchange = () => onChange(select.value);
-  return select;
-}
-
 function switchEditor(profile: SwitchProfile): HTMLElement {
   const rulesBox = el('div', { class: 'rules' });
 
@@ -357,7 +422,7 @@ function switchEditor(profile: SwitchProfile): HTMLElement {
       el('span', { class: 'grip', title: 'Drag to reorder', draggable: true }, '⋮⋮'),
       typeSel,
       pattern,
-      targetSelect(rule.targetId, (v) => {
+      targetSelect(profile.id, rule.targetId, (v) => {
         rule.targetId = v;
         scheduleSave();
       }),
@@ -420,7 +485,7 @@ function switchEditor(profile: SwitchProfile): HTMLElement {
         'div',
         { class: 'default-row' },
         el('label', {}, 'Everything else'),
-        targetSelect(profile.defaultTargetId, (v) => {
+        targetSelect(profile.id, profile.defaultTargetId, (v) => {
           profile.defaultTargetId = v;
           scheduleSave();
         })
@@ -437,7 +502,343 @@ function placeholderFor(type: RuleType): string {
     case 'urlWildcard': return 'https://example.com/api/*';
     case 'urlRegex': return '^https?://example\\.com/';
     case 'ipCidr': return '10.0.0.0/8';
+    case 'keyword': return 'tracker';
+    case 'hostLevels': return '2-4';
+    case 'weekday': return 'mon-fri';
+    case 'time': return '09:00-17:30';
   }
+}
+
+/* ---------- rule list editor ---------- */
+
+function ruleListEditor(profile: RuleListProfile): HTMLElement {
+  const parsed = parseRuleList(profile.format, profile.text);
+
+  const url = el('input', {
+    class: 'input mono',
+    value: profile.url,
+    placeholder: 'https://example.com/gfwlist.txt',
+    spellcheck: false,
+    oninput: () => {
+      profile.url = url.value.trim();
+      scheduleSave();
+    },
+  }) as HTMLInputElement;
+
+  const format = el('select', { class: 'input' }) as HTMLSelectElement;
+  format.append(
+    el('option', { value: 'autoproxy' }, 'AutoProxy / GFWList'),
+    el('option', { value: 'switchy' }, 'Switchy (one pattern per line)')
+  );
+  format.value = profile.format;
+  format.onchange = () => {
+    profile.format = format.value as RuleListProfile['format'];
+    scheduleSave();
+    render();
+  };
+
+  const interval = el('input', {
+    class: 'input mono',
+    type: 'number',
+    min: '0',
+    max: '720',
+    value: String(profile.updateIntervalH),
+    oninput: () => {
+      const n = Number(interval.value);
+      if (Number.isFinite(n) && n >= 0 && n <= 720) {
+        profile.updateIntervalH = n;
+        scheduleSave();
+      }
+    },
+  }) as HTMLInputElement;
+
+  const source = el('textarea', {
+    class: 'input mono rl-source',
+    value: profile.text,
+    placeholder: '! Paste list content here, or set a URL and press Update now.\n||example.com\n@@||allowed.example.com',
+    spellcheck: false,
+    oninput: () => {
+      profile.text = source.value;
+      scheduleSave();
+    },
+  }) as HTMLTextAreaElement;
+
+  const status = el(
+    'span',
+    { class: 'note' },
+    `${parsed.count} entr${parsed.count === 1 ? 'y' : 'ies'} parsed` +
+      (profile.lastUpdated ? ` · updated ${new Date(profile.lastUpdated).toLocaleString()}` : '')
+  );
+
+  const updateNow = el(
+    'button',
+    {
+      class: 'btn',
+      onclick: async () => {
+        if (!profile.url) {
+          toast('Set a URL first');
+          return;
+    }
+        updateNow.textContent = 'Updating…';
+        (updateNow as HTMLButtonElement).disabled = true;
+        try {
+          const response = await fetch(profile.url, { cache: 'no-cache' });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const text = await response.text();
+          if (!text.trim()) throw new Error('Empty response');
+          profile.text = text;
+          profile.lastUpdated = Date.now();
+          await saveConfig(config);
+          toast('List updated');
+          render();
+        } catch (e) {
+          toast(`Update failed: ${e instanceof Error ? e.message : e}`);
+          updateNow.textContent = 'Update now';
+          (updateNow as HTMLButtonElement).disabled = false;
+        }
+      },
+    },
+    'Update now'
+  );
+
+  return el(
+    'div',
+    { class: 'pane' },
+    identityPanel(profile),
+    el(
+      'div',
+      { class: 'card panel' },
+      el('h3', {}, 'Source'),
+      el(
+        'div',
+        { class: 'field-grid' },
+        el('div', { class: 'field' }, el('label', {}, 'URL'), url),
+        el('div', { class: 'field' }, el('label', {}, 'Auto-update (hours, 0 = off)'), interval)
+      ),
+      el(
+        'div',
+        { class: 'rl-actions' },
+        el('div', { class: 'field', style: { flex: '1' } }, el('label', {}, 'Format'), format),
+        updateNow
+      ),
+      el('div', { class: 'field' }, el('label', {}, 'List content'), source, status),
+      el('span', { class: 'note' },
+        'The URL host must allow cross-origin requests (raw.githubusercontent.com does). GFWList base64 payloads are decoded automatically.')
+    ),
+    el(
+      'div',
+      { class: 'card panel' },
+      el('h3', {}, 'Routing'),
+      el(
+        'div',
+        { class: 'field-grid wide' },
+        el('div', { class: 'field' }, el('label', {}, 'Matching entries route via'),
+          targetSelect(profile.id, profile.matchTargetId, (v) => {
+            profile.matchTargetId = v;
+            scheduleSave();
+          })),
+        el('div', { class: 'field' }, el('label', {}, 'Everything else (and whitelist)'),
+          targetSelect(profile.id, profile.defaultTargetId, (v) => {
+            profile.defaultTargetId = v;
+            scheduleSave();
+          }))
+      )
+    ),
+    dangerZone(profile)
+  );
+}
+
+/* ---------- virtual (alias) editor ---------- */
+
+function virtualEditor(profile: VirtualProfile): HTMLElement {
+  return el(
+    'div',
+    { class: 'pane' },
+    identityPanel(profile),
+    el(
+      'div',
+      { class: 'card panel' },
+      el('h3', {}, 'Alias target'),
+      el(
+        'div',
+        { class: 'field' },
+        el('label', {}, 'Activating or targeting this alias routes via'),
+        targetSelect(profile.id, profile.targetId, (v) => {
+          profile.targetId = v;
+          scheduleSave();
+        }),
+        el('span', { class: 'note' },
+          'Point switch rules and rule lists at an alias, then swap the alias target to retarget them all at once.')
+      )
+    ),
+    dangerZone(profile)
+  );
+}
+
+/* ---------- settings panel ---------- */
+
+function toggleRow(
+  label: string,
+  description: string,
+  checked: boolean,
+  onChange: (v: boolean) => void | Promise<boolean | void>
+): HTMLElement {
+  const input = el('input', {
+    class: 'toggle',
+    type: 'checkbox',
+    checked,
+    onchange: async () => {
+      const result = await onChange(input.checked);
+      if (result === false) input.checked = !input.checked; // rejected (e.g. permission denied)
+      scheduleSave();
+      refreshSidebar();
+    },
+  }) as HTMLInputElement;
+  return el(
+    'label',
+    { class: 'setting-row' },
+    el(
+      'span',
+      { class: 'setting-text' },
+      el('span', { class: 'setting-label' }, label),
+      el('span', { class: 'note' }, description)
+    ),
+    input
+  );
+}
+
+function settingsPanel(): HTMLElement {
+  const s = config.settings;
+
+  const quickList = el(
+    'div',
+    { class: 'quick-list' },
+    ...[
+      { id: DIRECT, name: 'Direct' },
+      { id: SYSTEM, name: 'System' },
+      ...config.profiles.map((p) => ({ id: p.id, name: p.name })),
+    ].map((entry) => {
+      const check = el('input', {
+        type: 'checkbox',
+        checked: s.quickSwitchIds.includes(entry.id),
+        onchange: () => {
+          s.quickSwitchIds = check.checked
+            ? [...s.quickSwitchIds, entry.id]
+            : s.quickSwitchIds.filter((id) => id !== entry.id);
+          scheduleSave();
+        },
+      }) as HTMLInputElement;
+      return el('label', { class: 'quick-item' }, check, entry.name);
+    })
+  );
+
+  const startup = el('select', { class: 'input' }) as HTMLSelectElement;
+  startup.append(
+    el('option', { value: '' }, 'Last used (default)'),
+    el('option', { value: DIRECT }, 'Direct'),
+    el('option', { value: SYSTEM }, 'System')
+  );
+  for (const p of config.profiles) startup.append(el('option', { value: p.id }, p.name));
+  startup.value = s.startupProfileId;
+  startup.onchange = () => {
+    s.startupProfileId = startup.value;
+    scheduleSave();
+  };
+
+  return el(
+    'div',
+    { class: 'pane' },
+    el(
+      'div',
+      { class: 'card panel' },
+      el('h3', {}, 'Switching'),
+      toggleRow(
+        'Quick switch',
+        'Toolbar click cycles the profiles below instead of opening the popup. The cycle keyboard shortcut always works (set it at chrome://extensions/shortcuts).',
+        s.quickSwitch,
+        (v) => {
+          s.quickSwitch = v;
+        }
+      ),
+      quickList,
+      el(
+        'div',
+        { class: 'field', style: { maxWidth: '280px' } },
+        el('label', {}, 'On browser startup, activate'),
+        startup
+      ),
+      toggleRow(
+        'Reload tab after switching',
+        'Refresh the active tab whenever you pick a profile in the popup.',
+        s.refreshOnSwitch,
+        (v) => {
+          s.refreshOnSwitch = v;
+        }
+      )
+    ),
+    el(
+      'div',
+      { class: 'card panel' },
+      el('h3', {}, 'Behaviour'),
+      toggleRow(
+        'Guard proxy control',
+        'If another extension takes over proxy settings, take them back automatically (at most every 30 s).',
+        s.revertExternal,
+        (v) => {
+          s.revertExternal = v;
+        }
+      ),
+      toggleRow(
+        'Per-tab route badge',
+        'Show which profile the current tab routes through as a toolbar badge. Requires the optional "tabs" permission.',
+        s.badgeResult,
+        async (v) => {
+          if (!v) {
+            s.badgeResult = false;
+            return;
+          }
+          const granted = await chrome.permissions
+            .request({ permissions: ['tabs'] })
+            .catch(() => false);
+          if (!granted) {
+            toast('Permission declined');
+            return false;
+          }
+          s.badgeResult = true;
+        }
+      ),
+      toggleRow(
+        'Quick-added rules go to the bottom',
+        'Rules added from the popup append below existing rules (off = they take top priority).',
+        s.addToBottom,
+        (v) => {
+          s.addToBottom = v;
+        }
+      ),
+      toggleRow(
+        'Confirm before deleting',
+        'Ask before profiles are deleted or everything is reset.',
+        s.confirmDeletion,
+        (v) => {
+          s.confirmDeletion = v;
+        }
+      )
+    ),
+    el(
+      'div',
+      { class: 'card panel' },
+      el('h3', {}, 'Sync'),
+      toggleRow(
+        'Sync configuration',
+        'Mirror profiles and rules to your browser account (chrome.storage.sync) so other machines pick them up. Newest change wins.',
+        s.syncEnabled,
+        (v) => {
+          s.syncEnabled = v;
+          if (!v) void clearSync();
+        }
+      )
+    )
+  );
 }
 
 /* ---------- drag reorder ---------- */
@@ -498,8 +899,14 @@ function importConfig(): void {
 }
 
 function resetConfig(): void {
-  if (!confirm('Delete all profiles and rules?')) return;
-  config = { version: 1, activeId: 'system', profiles: [] };
+  if (!confirmMaybe('Delete all profiles and rules?')) return;
+  config = {
+    version: 2,
+    rev: config.rev,
+    activeId: SYSTEM,
+    profiles: [],
+    settings: { ...config.settings, quickSwitchIds: [], startupProfileId: '' },
+  };
   selectedId = null;
   void saveConfig(config);
   render();
@@ -513,12 +920,12 @@ function emptyPane(): HTMLElement {
     { class: 'card hero' },
     el('img', { class: 'mark hero-mark', src: 'img/icon-128.png', alt: '' }),
     el('h2', {}, 'Route traffic your way'),
-    el('p', {}, 'Create a SOCKS5 proxy profile, then add an Auto Switch profile to route sites by rule — host wildcards, regex, or CIDR blocks.'),
+    el('p', {}, 'Create a SOCKS5 proxy profile, then add an Auto Switch profile to route sites by rule — host wildcards, regex, CIDR blocks, keywords, or time windows.'),
     el(
       'div',
       { class: 'cta' },
-      el('button', { class: 'btn primary', onclick: () => addProfile('proxy') }, 'Create a proxy'),
-      el('button', { class: 'btn', onclick: () => addProfile('switch') }, 'Create auto switch')
+      el('button', { class: 'btn primary', onclick: () => addProfile(newProxyProfile) }, 'Create a proxy'),
+      el('button', { class: 'btn', onclick: () => addProfile(newSwitchProfile) }, 'Create auto switch')
     )
   );
 }
@@ -531,6 +938,15 @@ function refreshSidebar(): void {
   sideNode = fresh;
 }
 
+function editorFor(profile: Profile): HTMLElement {
+  switch (profile.kind) {
+    case 'proxy': return proxyEditor(profile);
+    case 'switch': return switchEditor(profile);
+    case 'rulelist': return ruleListEditor(profile);
+    case 'virtual': return virtualEditor(profile);
+  }
+}
+
 function render(): void {
   const profile = selected();
   sideNode = sidebar();
@@ -539,11 +955,7 @@ function render(): void {
       'div',
       { class: 'layout' },
       sideNode,
-      profile
-        ? profile.kind === 'proxy'
-          ? proxyEditor(profile)
-          : switchEditor(profile)
-        : emptyPane()
+      selectedId === SETTINGS_ID ? settingsPanel() : profile ? editorFor(profile) : emptyPane()
     )
   );
 }
