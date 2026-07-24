@@ -308,8 +308,6 @@ button.exit-enable:hover { text-decoration: underline; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  direction: rtl;
-  text-align: left;
 }
 
 .btn.sm { padding: 7px 12px; font-size: 12px; flex: none; }
@@ -330,7 +328,7 @@ button.exit-enable:hover { text-decoration: underline; }
   font-weight: 600;
   font-size: 12px;
 }
-.ov-chip .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: none; max-width: 45%; direction: rtl; text-align: left; }
+.ov-chip .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: none; max-width: 45%; }
 .ov-chip .ov-arrow { color: var(--text-dim); flex: none; }
 .ov-chip .ov-target { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ov-remove { flex: none; }

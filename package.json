@@ -1,6 +1,6 @@
 {
   "name": "sockitt",
-  "version": "1.8.1",
+  "version": "1.8.2",
   "private": true,
   "description": "Sockitt — a fast, modern proxy switcher for Chromium browsers (SOCKS5, SOCKS4, HTTP, HTTPS)",
   "type": "module",

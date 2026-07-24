@@ -697,7 +697,7 @@ function thisTab(profile: Profile | undefined): (Node | null)[] {
     return [
       thisTabHead(host),
       siteRuleCard(profile),
-      el('p', { class: 'sm-hint' }, 'Rules run top-down; the first match wins. Set an override to force this site somewhere just for this session.'),
+      el('p', { class: 'sm-hint' }, 'A rule persists; an override takes priority for this site and clears when the browser restarts.'),
     ];
   }
 
