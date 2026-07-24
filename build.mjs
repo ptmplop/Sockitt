@@ -1,12 +1,27 @@
 import * as esbuild from 'esbuild';
-import { cp, mkdir, rm } from 'node:fs/promises';
+import { cp, mkdir, readdir, rm } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 
 const watch = process.argv.includes('--watch');
 const zip = process.argv.includes('--zip');
 
-await rm('dist', { recursive: true, force: true });
-await mkdir('dist/img', { recursive: true });
+// Clean the CONTENTS of dist/ without removing the directory itself. Removing
+// and recreating dist/ changes its inode and breaks Chrome's handle to an
+// unpacked extension loaded from it ("Your file couldn't be accessed"); this
+// keeps the same directory so a loaded extension survives a rebuild.
+async function cleanDist() {
+  await mkdir('dist', { recursive: true });
+  for (const entry of await readdir('dist')) {
+    await rm(`dist/${entry}`, { recursive: true, force: true });
+  }
+  await mkdir('dist/img', { recursive: true });
+}
+
+await cleanDist();
+
+// Only the runtime icon sizes ship in the extension — not the source artwork,
+// the SVG, or the README screenshots that also live under img/.
+const ICONS = ['icon-16.png', 'icon-32.png', 'icon-48.png', 'icon-128.png'];
 
 const options = {
   entryPoints: [
@@ -30,7 +45,7 @@ async function copyStatic() {
   await cp('src/popup/popup.css', 'dist/popup.css');
   await cp('src/options/options.html', 'dist/options.html');
   await cp('src/options/options.css', 'dist/options.css');
-  await cp('img', 'dist/img', { recursive: true });
+  for (const icon of ICONS) await cp(`img/${icon}`, `dist/img/${icon}`);
 }
 
 if (watch) {
@@ -42,6 +57,7 @@ if (watch) {
   await esbuild.build(options);
   await copyStatic();
   if (zip) {
+    await rm('sockitt.zip', { force: true }); // zip -r appends; start fresh
     execFileSync('zip', ['-r', '-X', '../sockitt.zip', '.'], { cwd: 'dist', stdio: 'inherit' });
     console.log('packaged → sockitt.zip');
   }
