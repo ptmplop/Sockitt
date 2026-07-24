@@ -22,8 +22,19 @@ body {
   padding: 34px 44px 72px;
 }
 
-/* ---- sidebar ---- */
+/* ---- sidebar (always dark, regardless of the light page theme) ---- */
 .side {
+  /* Dark theme tokens scoped to the sidebar so every child adapts. */
+  --bg-elev: #12161f;
+  --surface: rgba(255, 255, 255, 0.05);
+  --surface-hover: rgba(255, 255, 255, 0.10);
+  --border: rgba(255, 255, 255, 0.10);
+  --border-strong: rgba(255, 255, 255, 0.20);
+  --text: #e8ebf3;
+  --text-dim: #8b93a7;
+  --accent-soft: rgba(109, 93, 252, 0.24);
+  color-scheme: dark;
+
   position: sticky;
   top: 0;
   align-self: stretch;
@@ -32,9 +43,10 @@ body {
   gap: 16px;
   padding: 26px 18px;
   min-height: 100vh;
-  background: color-mix(in srgb, var(--bg-elev) 70%, transparent);
-  border-right: 1px solid var(--border);
-  backdrop-filter: blur(8px);
+  background: linear-gradient(180deg, #161b26, #0f131b);
+  border-right: 1px solid rgba(0, 0, 0, 0.18);
+  box-shadow: 1px 0 0 rgba(255, 255, 255, 0.04) inset;
+  color: var(--text);
 }
 .side .brand {
   display: flex;
