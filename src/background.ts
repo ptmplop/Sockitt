@@ -649,7 +649,10 @@ chrome.proxy.settings.onChange.addListener((details) => {
 
 chrome.tabs.onActivated.addListener((info) => void updateTabBadge(info.tabId));
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-  if (changeInfo.url) void updateTabBadge(tabId);
+  // Repaint on cross-page navigation (changeInfo.url) AND on load status — a
+  // same-URL hard refresh reports no url change, but Chrome clears the per-tab
+  // badge on the navigation commit, so we must redraw it as the page reloads.
+  if (changeInfo.url || changeInfo.status) void updateTabBadge(tabId);
 });
 
 // activeTab is granted only after the user interacts with the action; the
