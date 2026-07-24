@@ -95,6 +95,9 @@ body {
 }
 .nav-item:hover { background: var(--surface-hover); }
 .nav-item:focus-visible { outline: none; box-shadow: var(--ring); }
+/* Fill the icon tile like the coloured profile tiles so every sidebar tile
+   reads at the same visual size (the tile box is already 22px for all). */
+.nav-item .avatar svg { width: 16px; height: 16px; }
 .nav-item.selected {
   background: var(--accent-soft);
   border-color: color-mix(in srgb, var(--accent) 35%, transparent);
@@ -109,12 +112,13 @@ body {
   background: var(--grad);
   color: #fff;
 }
-.side .tools { display: flex; gap: 4px; justify-content: center; margin-top: 8px; }
+/* Push the tools + footer group to the bottom so Export/Import/Reset don't
+   float in the empty space below CREATE. */
+.side .tools { display: flex; gap: 4px; justify-content: center; margin-top: auto; padding-top: 10px; }
 .side .tools .btn { flex: none; padding: 7px 12px; }
 
 /* pinned to the very bottom of the sidebar */
 .side-footer {
-  margin-top: auto;
   display: flex;
   flex-direction: column;
   gap: 2px;
