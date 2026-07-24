@@ -34,6 +34,10 @@ export interface HealthEntry {
   /** Lookup round-trip in ms; null when the test failed. */
   ms: number | null;
   at: number;
+  /** Exit details from the last successful test (absent on failure). */
+  ip?: string;
+  iso?: string;
+  country?: string;
 }
 
 // Compiler-enforced: adding a RuleType without listing it here fails to build,

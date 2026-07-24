@@ -87,14 +87,6 @@ function scheduleSave(): void {
   }, 300);
 }
 
-/** Persist a pending debounced edit right now (e.g. before a proxy test). */
-async function flushPendingSave(): Promise<void> {
-  if (!savePending) return;
-  clearTimeout(saveTimer);
-  savePending = false;
-  await saveConfig(config);
-}
-
 function selected(): Profile | null {
   return config.profiles.find((p) => p.id === selectedId) ?? null;
 }
@@ -113,10 +105,10 @@ function sidebar(): HTMLElement {
       p.kind === 'proxy' && Object.hasOwn(healthMap, p.id) ? healthMap[p.id] : undefined;
     if (!h) return null;
     const grade = h.ok ? (h.ms !== null && h.ms < 800 ? 'ok' : 'slow') : 'bad';
-    return el('span', {
-      class: `health-dot ${grade}`,
-      title: h.ok ? `Last test: ${h.ms} ms` : 'Last test: unreachable',
-    });
+    const detail = h.ok
+      ? `Last test: ${h.ip}${h.country ? ` (${h.country})` : ''} · ${h.ms} ms`
+      : 'Last test: unreachable';
+    return el('span', { class: `health-dot ${grade}`, title: detail });
   };
 
   const item = (p: Profile) =>
@@ -562,6 +554,7 @@ function proxyEditor(profile: ProxyProfile): HTMLElement {
   const testResult = el('span', {
     class: 'note test-result',
     dataset: { profile: profile.id },
+    title: healthTitle(profile.id),
   });
   testResult.textContent = healthText(profile.id);
   const testBtn = el(
@@ -584,14 +577,20 @@ function proxyEditor(profile: ProxyProfile): HTMLElement {
             'Credentials are set but the auth permission is missing — click Enable authentication first.';
           return;
         }
-        // Make sure the test runs against what the form shows, not a
-        // 300ms-stale snapshot still waiting in the save debounce.
-        await flushPendingSave();
         (testBtn as HTMLButtonElement).disabled = true;
         testResult.textContent = 'Testing — briefly routing through this proxy…';
-        // The worker owns chrome.proxy; hand it the request over session storage.
+        testResult.removeAttribute('title');
+        // The worker owns chrome.proxy; hand it the request — with the editor's
+        // current (possibly unsaved) values — over session storage, so the
+        // test needs no save and triggers no racing re-apply.
         await chrome.storage.session.set({
-          [TEST_KEY]: { profileId: profile.id, nonce: Date.now() },
+          [TEST_KEY]: {
+            profileId: profile.id,
+            nonce: Date.now(),
+            scheme: profile.scheme,
+            host: profile.host,
+            port: profile.port,
+          },
         });
       },
     },
@@ -1588,11 +1587,25 @@ function watchSyncError(): void {
   });
 }
 
+/** "Exit 1.2.3.4 🇺🇸 · 45 ms" — shared by the live result and the reopen paint. */
+function exitLabel(x: { ip?: string; iso?: string; ms?: number | null }): string {
+  const flag = flagEmoji(x.iso);
+  return `Exit ${x.ip ?? '?'}${flag ? ` ${flag}` : ''} · ${x.ms} ms`;
+}
+
 /** Text for a proxy's connection-test line from its stored health entry. */
 function healthText(id: string): string {
   const h = Object.hasOwn(healthMap, id) ? healthMap[id] : undefined;
   if (!h) return '';
-  return h.ok ? `Exit reachable · ${h.ms} ms` : 'Last test failed';
+  return h.ok ? exitLabel(h) : 'Last test failed';
+}
+
+/** Tooltip detail for the same entry (country name spelled out). */
+function healthTitle(id: string): string {
+  const h = Object.hasOwn(healthMap, id) ? healthMap[id] : undefined;
+  if (!h) return '';
+  if (!h.ok) return 'Last test: unreachable';
+  return h.country ? `${h.ip} · ${h.country}` : `${h.ip}`;
 }
 
 /** Paint the connection-test line for whichever proxy editor is open. */
@@ -1601,7 +1614,10 @@ function paintOpenTestResult(): void {
   const span = document.querySelector<HTMLElement>(
     `.test-result[data-profile="${CSS.escape(selectedId)}"]`
   );
-  if (span && !span.textContent) span.textContent = healthText(selectedId);
+  if (span && !span.textContent) {
+    span.textContent = healthText(selectedId);
+    span.title = healthTitle(selectedId);
+  }
 }
 
 /** Proxy-test plumbing: dots for the sidebar, in-place result for the editor. */
@@ -1624,7 +1640,15 @@ function watchProxyTests(): void {
     }
     if (changes[TEST_RESULT_KEY]) {
       const r = changes[TEST_RESULT_KEY].newValue as
-        | { profileId?: string; ok?: boolean; ip?: string; iso?: string; ms?: number; error?: string }
+        | {
+            profileId?: string;
+            ok?: boolean;
+            ip?: string;
+            iso?: string;
+            country?: string;
+            ms?: number;
+            error?: string;
+          }
         | undefined;
       if (!r?.profileId) return;
       // Update the open editor in place — a full render would eat unsaved input.
@@ -1636,10 +1660,8 @@ function watchProxyTests(): void {
       if (btn) btn.disabled = false;
       const span = document.querySelector<HTMLElement>(`.test-result${sel}`);
       if (span) {
-        const flag = flagEmoji(r.iso);
-        span.textContent = r.ok
-          ? `Exit ${r.ip}${flag ? ` ${flag}` : ''} · ${r.ms} ms`
-          : `Failed: ${r.error ?? 'unknown error'}`;
+        span.textContent = r.ok ? exitLabel(r) : `Failed: ${r.error ?? 'unknown error'}`;
+        span.title = r.ok && r.country ? `${r.ip} · ${r.country}` : '';
       }
     }
   });

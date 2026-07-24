@@ -21,6 +21,7 @@ import {
   Config,
   DIRECT,
   Profile,
+  ProxyScheme,
   SYSTEM,
   SwitchRule,
   profileById,
@@ -76,6 +77,19 @@ function settingsValueFor(
     label: profile.name,
     profile,
   };
+}
+
+/**
+ * Apply, unless a connection test is running — its proxy must not be stomped
+ * mid-probe. The test's finally re-applies fresh config afterward, so any
+ * change that arrives during the test is still reflected.
+ */
+function applyActiveGuarded(): void {
+  if (testInFlight) {
+    reapplyAfterTest = true; // the test's finally re-applies fresh config
+    return;
+  }
+  void applyActive();
 }
 
 async function applyActive(): Promise<void> {
@@ -266,6 +280,8 @@ async function applyIncognito(config: Config): Promise<void> {
 /* ---------------- on-demand proxy test (options page "Test connection") ---------------- */
 
 let testInFlight = false;
+/** A config/temp-rule change arrived while a test held the proxy; re-apply after. */
+let reapplyAfterTest = false;
 /** Epoch ms until which proxy-error events are ignored (see runProxyTest). */
 let suppressProxyErrorsUntil = 0;
 /**
@@ -281,7 +297,13 @@ const TESTING_KEY = 'sockitt-testing';
  * real configuration via applyActive. Session-storage in/out because UI pages
  * never touch chrome.proxy directly.
  */
-async function runProxyTest(req: { profileId: string; nonce: number }): Promise<void> {
+async function runProxyTest(req: {
+  profileId: string;
+  nonce: number;
+  scheme?: ProxyScheme;
+  host?: string;
+  port?: number;
+}): Promise<void> {
   if (testInFlight) {
     // Answer rather than silently drop — the options page disabled its button
     // and is waiting for a result.
@@ -307,45 +329,53 @@ async function runProxyTest(req: { profileId: string; nonce: number }): Promise<
     const config = await loadConfig();
     const profile = profileById(config, req.profileId);
     if (!profile || profile.kind !== 'proxy') throw new Error('profile not found');
-    const testValue = fixedServersValue(profile.scheme, profile.host, profile.port, []);
-    const expected = JSON.stringify(testValue);
+    // The request carries the editor's current (possibly unsaved) values so a
+    // test needs no config save — which is what previously kicked off a racing
+    // applyActive. While testInFlight is set, every applyActive is deferred
+    // (see applyActiveGuarded), so nothing else touches the regular scope
+    // during the probe; the finally restores the real route afterward.
+    const scheme = req.scheme ?? profile.scheme;
+    const host = req.host ?? profile.host;
+    const port = req.port ?? profile.port;
     await chrome.storage.session.set({ [TESTING_KEY]: true });
-    await chrome.proxy.settings.set({ value: testValue, scope: 'regular' });
-    // Compare against the value we INTENDED to set, both now and after the
-    // probe — a before/after snapshot pair would miss an applyActive that
-    // stomped the test proxy before the first read (both reads would then
-    // agree on the wrong route). Racing applyActive can fire because the
-    // options page saves the edited profile just before requesting the test.
+    await chrome.proxy.settings.set({
+      value: fixedServersValue(scheme, host, port, []),
+      scope: 'regular',
+    });
     const applied = await chrome.proxy.settings.get({});
     if (applied.levelOfControl === 'controlled_by_other_extensions') {
       throw new Error('another extension controls the proxy settings');
     }
-    if (JSON.stringify(applied.value) !== expected) {
-      throw new Error('interrupted by a configuration change — try again');
-    }
     const info = await checkExitIp(8000);
-    const after = await chrome.proxy.settings.get({});
-    if (JSON.stringify(after.value) !== expected) {
-      throw new Error('interrupted by a configuration change — try again');
-    }
     Object.assign(result, { ok: true, ...info });
   } catch (e) {
     result.error = e instanceof Error ? e.message : String(e);
   } finally {
+    // testInFlight stays true across the restore so a second test can't race
+    // it; applyActive loads fresh config, so a change deferred during the test
+    // is captured here. reapplyAfterTest covers a change that lands during the
+    // restore itself. Keep suppressing errors briefly for in-flight requests.
+    suppressProxyErrorsUntil = Date.now() + 3000;
+    reapplyAfterTest = false;
     await applyActive().catch(() => undefined);
     await chrome.storage.session.remove(TESTING_KEY).catch(() => undefined);
-    // Keep suppressing briefly after restore for errors still in flight.
-    suppressProxyErrorsUntil = Date.now() + 3000;
     testInFlight = false;
+    if (reapplyAfterTest) void applyActive();
   }
   try {
     const store = await chrome.storage.session.get(HEALTH_KEY);
     const health = (store[HEALTH_KEY] as Record<string, HealthEntry> | undefined) ?? {};
-    health[req.profileId] = {
-      ok: result.ok === true,
-      ms: result.ok === true ? (result.ms as number) : null,
-      at: Date.now(),
-    };
+    health[req.profileId] =
+      result.ok === true
+        ? {
+            ok: true,
+            ms: result.ms as number,
+            at: Date.now(),
+            ip: result.ip as string,
+            iso: result.iso as string | undefined,
+            country: result.country as string | undefined,
+          }
+        : { ok: false, ms: null, at: Date.now() };
     await chrome.storage.session.set({ [TEST_RESULT_KEY]: result, [HEALTH_KEY]: health });
   } catch {
     // session storage unavailable — the options page just never hears back
@@ -562,15 +592,23 @@ chrome.runtime.onStartup.addListener(() => {
 
 onConfigChanged((config) => {
   cachedConfig = config;
-  void applyActive();
+  applyActiveGuarded();
 });
-onTempRulesChanged(() => void applyActive());
+onTempRulesChanged(() => applyActiveGuarded());
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'session' || !changes[TEST_KEY]) return;
-  const req = changes[TEST_KEY].newValue as { profileId?: unknown; nonce?: unknown } | undefined;
+  const req = changes[TEST_KEY].newValue as
+    | { profileId?: unknown; nonce?: unknown; scheme?: unknown; host?: unknown; port?: unknown }
+    | undefined;
   if (req && typeof req.profileId === 'string' && typeof req.nonce === 'number') {
-    void runProxyTest({ profileId: req.profileId, nonce: req.nonce });
+    void runProxyTest({
+      profileId: req.profileId,
+      nonce: req.nonce,
+      scheme: typeof req.scheme === 'string' ? (req.scheme as ProxyScheme) : undefined,
+      host: typeof req.host === 'string' ? req.host : undefined,
+      port: typeof req.port === 'number' ? req.port : undefined,
+    });
   }
 });
 
