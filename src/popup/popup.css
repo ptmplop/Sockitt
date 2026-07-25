@@ -180,7 +180,9 @@ body {
 .detail-head {
   flex: none;
   display: flex;
-  align-items: center;
+  /* Top-align so the avatar tile lines up with the title row rather than being
+     centred against the taller meta column (name + status + two-line exit). */
+  align-items: flex-start;
   gap: 12px;
   padding: 14px 18px;
   border-bottom: 1px solid var(--border);
