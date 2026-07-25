@@ -17,7 +17,7 @@ import {
   sanitizeConfig,
   saveConfig,
 } from '../shared/state';
-import { SYNC_ERROR_KEY, applyFromSync, clearSync, pullFromSync, remoteSyncState } from '../shared/sync';
+import { INLINE_TEXT_MAX, SYNC_ERROR_KEY, applyFromSync, clearSync, pullFromSync, remoteSyncState } from '../shared/sync';
 import {
   AUTH_PERMS,
   CONFIG_VERSION,
@@ -70,6 +70,29 @@ function iconTile(svg: string, size: number): HTMLElement {
   const node = el('span', { class: 'avatar builtin', innerHTML: svg });
   node.style.width = node.style.height = `${size}px`;
   return node;
+}
+
+let fieldSeq = 0;
+
+/**
+ * A labelled form field: gives the control an id and points the <label> at it
+ * (for/id), so screen readers announce the control and clicking the label
+ * focuses it. Attribute-only — the rendered layout is unchanged. Trailing nodes
+ * (a hint note, a validation-error slot) follow the control.
+ */
+function field(
+  label: string,
+  control: HTMLElement,
+  opts: { cls?: string; style?: Partial<CSSStyleDeclaration>; extra?: (Node | string | false | null)[] } = {}
+): HTMLElement {
+  if (!control.id) control.id = `fld-${++fieldSeq}`;
+  return el(
+    'div',
+    { class: opts.cls ? `field ${opts.cls}` : 'field', style: opts.style },
+    el('label', { htmlFor: control.id }, label),
+    control,
+    ...(opts.extra ?? [])
+  );
 }
 
 let config: Config;
@@ -349,14 +372,8 @@ function identityPanel(profile: Profile): HTMLElement {
       el(
         'div',
         { class: 'id-fields' },
-        el('div', { class: 'field' }, el('label', {}, 'Name'), name),
-        el(
-          'div',
-          { class: 'field' },
-          el('label', {}, 'Initials'),
-          initials,
-          el('span', { class: 'note' }, 'Toolbar icon text')
-        ),
+        field('Name', name),
+        field('Initials', initials, { extra: [el('span', { class: 'note' }, 'Toolbar icon text')] }),
         el(
           'div',
           { class: 'field id-colors' },
@@ -537,6 +554,10 @@ function proxyEditor(profile: ProxyProfile): HTMLElement {
     render();
   };
 
+  // role="alert" makes each error node a live region, so a screen reader
+  // announces the validation message when it appears — the invalid state is no
+  // longer signalled by border colour + hover title alone.
+  const hostErr = el('span', { class: 'note error', role: 'alert' });
   const host = el('input', {
     class: 'input mono',
     value: profile.host,
@@ -545,7 +566,9 @@ function proxyEditor(profile: ProxyProfile): HTMLElement {
     oninput: () => {
       const err = proxyHostError(host.value);
       host.classList.toggle('invalid', err !== null);
+      host.ariaInvalid = err !== null ? 'true' : 'false';
       host.title = err ?? '';
+      hostErr.textContent = err ?? '';
       // Only commit a valid host — a blank or directive-breaking value must not
       // be saved and applied, where it would fail silently to DIRECT.
       if (!err) {
@@ -555,6 +578,7 @@ function proxyEditor(profile: ProxyProfile): HTMLElement {
     },
   }) as HTMLInputElement;
 
+  const portErr = el('span', { class: 'note error', role: 'alert' });
   const port = el('input', {
     class: 'input mono',
     value: String(profile.port),
@@ -563,8 +587,11 @@ function proxyEditor(profile: ProxyProfile): HTMLElement {
     max: '65535',
     oninput: () => {
       const n = Number(port.value);
-      port.classList.toggle('invalid', !(Number.isInteger(n) && n >= 1 && n <= 65535));
-      if (Number.isInteger(n) && n >= 1 && n <= 65535) {
+      const ok = Number.isInteger(n) && n >= 1 && n <= 65535;
+      port.classList.toggle('invalid', !ok);
+      port.ariaInvalid = ok ? 'false' : 'true';
+      portErr.textContent = ok ? '' : 'Use a port between 1 and 65535';
+      if (ok) {
         profile.port = n;
         scheduleSave();
       }
@@ -662,9 +689,9 @@ function proxyEditor(profile: ProxyProfile): HTMLElement {
       el(
         'div',
         { class: 'field-grid trio' },
-        el('div', { class: 'field' }, el('label', {}, 'Protocol'), schemeSel),
-        el('div', { class: 'field' }, el('label', {}, 'Host'), host),
-        el('div', { class: 'field' }, el('label', {}, 'Port'), port)
+        field('Protocol', schemeSel),
+        field('Host', host, { extra: [hostErr] }),
+        field('Port', port, { extra: [portErr] })
       ),
       authPanel,
       testRow
@@ -673,13 +700,11 @@ function proxyEditor(profile: ProxyProfile): HTMLElement {
       'div',
       { class: 'card panel' },
       el('h3', {}, 'Bypass list'),
-      el(
-        'div',
-        { class: 'field' },
-        el('label', {}, 'One entry per line — these hosts connect directly'),
-        bypass,
-        el('span', { class: 'note' }, '<local> matches plain hostnames and localhost. Also accepts *.suffix wildcards and IPv4 CIDR blocks.')
-      )
+      field('One entry per line — these hosts connect directly', bypass, {
+        extra: [
+          el('span', { class: 'note' }, '<local> matches plain hostnames and localhost. Also accepts *.suffix wildcards and IPv4 CIDR blocks.'),
+        ],
+      })
     ),
     dangerZone(profile)
   );
@@ -758,11 +783,15 @@ function switchEditor(profile: SwitchProfile): HTMLElement {
       value: rule.pattern,
       placeholder: placeholderFor(rule.type),
       spellcheck: false,
+      // The rule table is a grid with column headers rather than per-input
+      // labels, so name the field for screen readers directly.
+      ariaLabel: 'Rule pattern',
     }) as HTMLInputElement;
 
     const markValidity = () => {
       const err = patternError(rule);
       pattern.classList.toggle('invalid', !!err);
+      pattern.ariaInvalid = err ? 'true' : 'false';
       pattern.title = err ?? '';
     };
     markValidity();
@@ -855,15 +884,14 @@ function switchEditor(profile: SwitchProfile): HTMLElement {
         },
         '+ Add rule'
       ),
-      el(
-        'div',
-        { class: 'default-row' },
-        el('label', {}, 'Everything else'),
-        targetSelect(profile.id, profile.defaultTargetId, (v) => {
+      (() => {
+        const sel = targetSelect(profile.id, profile.defaultTargetId, (v) => {
           profile.defaultTargetId = v;
           scheduleSave();
-        })
-      )
+        });
+        if (!sel.id) sel.id = `fld-${++fieldSeq}`;
+        return el('div', { class: 'default-row' }, el('label', { htmlFor: sel.id }, 'Everything else'), sel);
+      })()
     ),
     dangerZone(profile)
   );
@@ -895,6 +923,7 @@ function ruleListEditor(profile: RuleListProfile): HTMLElement {
     spellcheck: false,
     oninput: () => {
       profile.url = url.value.trim();
+      refreshSizeWarn();
       scheduleSave();
     },
   }) as HTMLInputElement;
@@ -933,6 +962,7 @@ function ruleListEditor(profile: RuleListProfile): HTMLElement {
     spellcheck: false,
     oninput: () => {
       profile.text = source.value;
+      refreshSizeWarn();
       scheduleSave();
     },
   }) as HTMLTextAreaElement;
@@ -943,6 +973,19 @@ function ruleListEditor(profile: RuleListProfile): HTMLElement {
     `${parsed.count} entr${parsed.count === 1 ? 'y' : 'ies'} parsed` +
       (profile.lastUpdated ? ` · updated ${new Date(profile.lastUpdated).toLocaleString()}` : '')
   );
+
+  // A pasted list with no URL and a body over the sync inline cap is dropped
+  // from sync (slimConfig) and can't be refetched, so devices that never held
+  // the text end up with an empty list. Warn where the paste happens.
+  const sizeWarn = el('span', { class: 'note error', role: 'alert' });
+  const refreshSizeWarn = (): void => {
+    const tooBig = !profile.url && profile.text.length > INLINE_TEXT_MAX;
+    sizeWarn.hidden = !tooBig;
+    sizeWarn.textContent = tooBig
+      ? 'This pasted list is too large to sync (over ~8 KB). Other devices won’t receive it — add a URL so they can fetch it, or paste it on each device.'
+      : '';
+  };
+  refreshSizeWarn();
 
   const updateNow = el(
     'button',
@@ -986,16 +1029,16 @@ function ruleListEditor(profile: RuleListProfile): HTMLElement {
       el(
         'div',
         { class: 'field-grid' },
-        el('div', { class: 'field' }, el('label', {}, 'URL'), url),
-        el('div', { class: 'field' }, el('label', {}, 'Auto-update (hours, 0 = off)'), interval)
+        field('URL', url),
+        field('Auto-update (hours, 0 = off)', interval)
       ),
       el(
         'div',
         { class: 'rl-actions' },
-        el('div', { class: 'field', style: { flex: '1' } }, el('label', {}, 'Format'), format),
+        field('Format', format, { style: { flex: '1' } }),
         updateNow
       ),
-      el('div', { class: 'field' }, el('label', {}, 'List content'), source, status),
+      field('List content', source, { extra: [status, sizeWarn] }),
       el('span', { class: 'note' },
         'The URL host must allow cross-origin requests (raw.githubusercontent.com does). GFWList base64 payloads are decoded automatically.')
     ),
@@ -1006,12 +1049,12 @@ function ruleListEditor(profile: RuleListProfile): HTMLElement {
       el(
         'div',
         { class: 'field-grid wide' },
-        el('div', { class: 'field' }, el('label', {}, 'Matching entries route via'),
+        field('Matching entries route via',
           targetSelect(profile.id, profile.matchTargetId, (v) => {
             profile.matchTargetId = v;
             scheduleSave();
           })),
-        el('div', { class: 'field' }, el('label', {}, 'Everything else (and whitelist)'),
+        field('Everything else (and whitelist)',
           targetSelect(profile.id, profile.defaultTargetId, (v) => {
             profile.defaultTargetId = v;
             scheduleSave();
@@ -1033,16 +1076,18 @@ function virtualEditor(profile: VirtualProfile): HTMLElement {
       'div',
       { class: 'card panel' },
       el('h3', {}, 'Alias target'),
-      el(
-        'div',
-        { class: 'field' },
-        el('label', {}, 'Activating or targeting this alias routes via'),
+      field(
+        'Activating or targeting this alias routes via',
         targetSelect(profile.id, profile.targetId, (v) => {
           profile.targetId = v;
           scheduleSave();
         }),
-        el('span', { class: 'note' },
-          'Point switch rules and rule lists at an alias, then swap the alias target to retarget them all at once.')
+        {
+          extra: [
+            el('span', { class: 'note' },
+              'Point switch rules and rule lists at an alias, then swap the alias target to retarget them all at once.'),
+          ],
+        }
       )
     ),
     dangerZone(profile)
@@ -1162,19 +1207,11 @@ function settingsPanel(): HTMLElement {
         }
       ),
       quickList,
-      el(
-        'div',
-        { class: 'field', style: { maxWidth: '280px' } },
-        el('label', {}, 'On browser startup, activate'),
-        startup
-      ),
-      el(
-        'div',
-        { class: 'field', style: { maxWidth: '280px' } },
-        el('label', {}, 'Incognito windows use'),
-        incognito,
-        incognitoNote
-      ),
+      field('On browser startup, activate', startup, { style: { maxWidth: '280px' } }),
+      field('Incognito windows use', incognito, {
+        style: { maxWidth: '280px' },
+        extra: [incognitoNote],
+      }),
       toggleRow(
         'Reload tab after switching',
         'Refresh the active tab whenever you pick a profile in the popup.',
@@ -1279,7 +1316,10 @@ function settingsPanel(): HTMLElement {
           const remote = await pullFromSync(-1);
           if (remote) {
             remote.settings.syncEnabled = true;
-            await applyFromSync(remote, config);
+            // force: this is an explicit join — adopt the remote even if this
+            // machine's rev is higher (the newest-rev-wins guard is for the
+            // automatic background pull, not this deliberate adoption).
+            await applyFromSync(remote, config, { force: true });
             config = remote;
             selectedId = SETTINGS_ID;
             toast('Adopted synced configuration');

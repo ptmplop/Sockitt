@@ -91,7 +91,11 @@ export function compilePac(
           ? `(mins>=${c.from}&&mins<=${c.to})`
           : `(mins>=${c.from}||mins<=${c.to})`;
       case 'local':
-        return `(h==="localhost"||h==="127.0.0.1"||h==="[::1]"||h.indexOf(".")<0)`;
+        // A single-label host (no dot) is "local" — but an IPv6 literal is also
+        // dotless (colons only), so guard on colons too or a public IPv6
+        // destination would be bypassed straight to DIRECT, leaking the real IP
+        // past the proxy. Loopback stays local via its explicit forms.
+        return `(h==="localhost"||h==="127.0.0.1"||h==="[::1]"||h==="::1"||(h.indexOf(".")<0&&h.indexOf(":")<0))`;
       case 'never':
         return 'false';
     }

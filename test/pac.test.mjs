@@ -9,7 +9,7 @@ before(async () => {
   const result = await build({
     stdin: {
       contents:
-        "export * from './src/shared/pac'; export * from './src/shared/match'; export * from './src/shared/rulelist'; export { sanitizeConfig, sanitizeHost, proxyHostError } from './src/shared/state'; export { slimConfig, decidePush, decidePull, remoteCompatibility, reassembleChunks } from './src/shared/sync';",
+        "export * from './src/shared/pac'; export * from './src/shared/match'; export * from './src/shared/rulelist'; export { sanitizeConfig, sanitizeHost, proxyHostError } from './src/shared/state'; export { slimConfig, decidePush, decidePull, remoteCompatibility, reassembleChunks, chunkByBytes } from './src/shared/sync';",
       resolveDir: new URL('..', import.meta.url).pathname,
       loader: 'ts',
     },
@@ -702,4 +702,69 @@ test('reassembleChunks joins in order and flags a partial write', () => {
   );
   assert.equal(lib.reassembleChunks(['sockitt#0', 'sockitt#1'], { 'sockitt#0': 'x' }), null); // missing chunk
   assert.equal(lib.reassembleChunks(['sockitt#0'], { 'sockitt#0': 42 }), null); // non-string chunk
+});
+
+/* ---------------- regression: code-review fixes (1.8.23) ---------------- */
+
+test('IPv6-literal hosts are not <local>-bypassed (real-IP leak guard)', () => {
+  // P1 ships bypass ['<local>', ...], so it compiles down the PAC path where our
+  // own <local> clause governs (not Chrome's native fixed_servers bypass).
+  const config = makeConfig([P1], 'p1');
+  const pac = lib.compilePac(config, P1);
+  const via = (host) => runPac(pac, `http://${host}/`, host);
+
+  // Public IPv6 literals (dotless, colon-bearing) must traverse the proxy,
+  // bracketed or not — before the fix `h.indexOf('.')<0` sent them DIRECT,
+  // leaking the real IP for an anonymity tool in its default configuration.
+  for (const host of ['2606:4700:4700::1111', '[2606:4700:4700::1111]', '2001:db8::1']) {
+    assert.equal(via(host), SOCKS_P1, `IPv6 literal ${host} must route through the proxy`);
+  }
+  // Loopback stays local (direct), in both explicit forms.
+  for (const host of ['::1', '[::1]', '127.0.0.1', 'localhost']) {
+    assert.equal(via(host), 'DIRECT', `${host} must stay local`);
+  }
+  // A single-label (dotless AND colonless) intranet host is still local.
+  assert.equal(via('intranet'), 'DIRECT');
+  // A normal public host routes through the proxy.
+  assert.equal(via('example.org'), SOCKS_P1);
+
+  // resolveRoute twin (popup preview / badge) agrees, so the UI can't hide it.
+  const rr = (host) => {
+    const r = lib.resolveRoute(config, P1, `http://${host}/`, host);
+    return r.bypassed || r.targetId === 'direct' ? 'DIRECT' : r.targetId === 'p1' ? SOCKS_P1 : '?';
+  };
+  assert.equal(rr('2606:4700:4700::1111'), SOCKS_P1);
+  assert.equal(rr('[2606:4700:4700::1111]'), SOCKS_P1);
+  assert.equal(rr('::1'), 'DIRECT');
+  assert.equal(rr('intranet'), 'DIRECT');
+});
+
+test('sync chunks stay under the 8192-byte per-item quota (serialized size, not raw)', () => {
+  // chrome.storage.sync measures an item as key.length + JSON.stringify(value)
+  // bytes. The chunk value is re-escaped when stored, so a quote-dense slice can
+  // nearly double; chunkByBytes must budget by that serialized cost. 'sockitt#0'
+  // ..'sockitt#NN' keys are <= 12 bytes for any realistic config.
+  const itemBytes = (chunk) => Buffer.byteLength(JSON.stringify(chunk), 'utf8') + 'sockitt#000'.length;
+  const inputs = [
+    '"'.repeat(20000), // all quotes — each doubles to \" when stored
+    '\\'.repeat(20000), // all backslashes
+    '{"kind":"proxy","id":"x"},'.repeat(2000), // realistic quote-dense config JSON
+    '日本語のプロキシ設定'.repeat(2000), // multibyte non-ASCII
+    '😀'.repeat(5000), // astral (surrogate pairs) — never split mid-codepoint
+    JSON.stringify({
+      profiles: Array.from({ length: 300 }, (_, i) => ({
+        kind: 'proxy', id: 'p' + i, name: 'Proxy ' + i, host: '10.0.0.' + (i % 255), port: 1080 + i,
+      })),
+    }),
+  ];
+  for (const input of inputs) {
+    const chunks = lib.chunkByBytes(input);
+    for (const c of chunks) {
+      assert.ok(itemBytes(c) <= 8192, `stored chunk is ${itemBytes(c)} bytes, over the 8192 quota`);
+    }
+    assert.equal(chunks.join(''), input, 'chunks must reassemble losslessly');
+    const keys = chunks.map((_, i) => `sockitt#${i}`);
+    const store = Object.fromEntries(chunks.map((c, i) => [`sockitt#${i}`, c]));
+    assert.equal(lib.reassembleChunks(keys, store), input, 'read path round-trips');
+  }
 });

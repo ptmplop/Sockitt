@@ -1,4 +1,4 @@
-import { sanitizeConfig, saveConfigRaw } from './state';
+import { loadConfig, sanitizeConfig, saveConfigRaw } from './state';
 import { CONFIG_VERSION, Config, Profile, schemeSupportsAuth } from './types';
 
 /**
@@ -17,8 +17,17 @@ import { CONFIG_VERSION, Config, Profile, schemeSupportsAuth } from './types';
  */
 const META = 'sockitt#meta';
 const CHUNK = 'sockitt#';
-const MAX_ITEM_BYTES = 7000; // headroom under the 8192-byte per-item quota
-const INLINE_TEXT_MAX = 8000; // pasted lists this small still sync
+// chrome.storage.sync caps each item at 8192 bytes, measured as
+// key.length + JSON.stringify(value).length (UTF-8). Our chunk value is a slice
+// of already-serialized config JSON; storing it re-escapes the slice — every "
+// and \ DOUBLES and non-ASCII becomes \uXXXX — so a quote-dense structural
+// chunk can nearly double. Budget by that SERIALIZED cost (jsonByteCost), not
+// the raw byte size, or a large config overflows the quota and the whole push
+// fails. Slack below the 8192 cap covers the "sockitt#NN" key and the value's
+// two enclosing quotes.
+const MAX_ITEM_BYTES = 8192;
+const CHUNK_BUDGET = MAX_ITEM_BYTES - 200;
+export const INLINE_TEXT_MAX = 8000; // pasted lists this small still sync
 export const SYNC_ERROR_KEY = 'sockitt-sync-error';
 
 interface SyncMeta {
@@ -27,8 +36,6 @@ interface SyncMeta {
   /** Config schema version of the payload; absent = pre-v3 install. */
   version?: number;
 }
-
-const encoder = new TextEncoder();
 
 let lastPushedRev = 0;
 let lastAppliedRev = 0;
@@ -134,20 +141,39 @@ export function slimConfig(config: Config): Config {
   return { ...config, profiles };
 }
 
-/** Split into chunks whose UTF-8 size stays under MAX_ITEM_BYTES, never mid-codepoint. */
-function chunkByBytes(str: string): string[] {
+/**
+ * Bytes `ch` costs inside a stored JSON string value. Conservative: matches
+ * JSON.stringify's `"`/`\`/control escaping and counts every non-ASCII code
+ * point at its worst-case `\uXXXX` size (12 for an astral pair), since the
+ * writer that measures the quota escapes non-ASCII. Over-counting only shrinks
+ * chunks, which stays safely under the cap; under-counting would overflow it.
+ */
+function jsonByteCost(ch: string): number {
+  if (ch === '"' || ch === '\\') return 2;
+  const cp = ch.codePointAt(0)!;
+  if (cp < 0x20) return ch === '\n' || ch === '\r' || ch === '\t' || ch === '\b' || ch === '\f' ? 2 : 6;
+  if (cp < 0x7f) return 1; // printable ASCII
+  return cp < 0x10000 ? 6 : 12; // non-ASCII escaped as \uXXXX (surrogate pair for astral)
+}
+
+/**
+ * Split into chunks whose stored JSON-serialized value stays under the per-item
+ * quota, never breaking a code point. Sized by serialized cost, not raw UTF-8,
+ * because the value is re-escaped when stored (see CHUNK_BUDGET).
+ */
+export function chunkByBytes(str: string): string[] {
   const chunks: string[] = [];
   let cur = '';
-  let curBytes = 0;
+  let cost = 0;
   for (const ch of str) {
-    const b = encoder.encode(ch).length;
-    if (curBytes + b > MAX_ITEM_BYTES && cur) {
+    const c = jsonByteCost(ch);
+    if (cost + c > CHUNK_BUDGET && cur) {
       chunks.push(cur);
       cur = '';
-      curBytes = 0;
+      cost = 0;
     }
     cur += ch;
-    curBytes += b;
+    cost += c;
   }
   if (cur) chunks.push(cur);
   return chunks;
@@ -245,7 +271,24 @@ export async function pullFromSync(localRev: number): Promise<Config | null> {
  * Records the applied revision so the resulting local change isn't pushed
  * straight back out.
  */
-export async function applyFromSync(remote: Config, local: Config): Promise<void> {
+export async function applyFromSync(
+  remote: Config,
+  local: Config,
+  opts: { force?: boolean } = {}
+): Promise<void> {
+  // Newest-rev-wins guard for the automatic pull: a UI save can land between the
+  // pull's rev check and this write, so re-read storage and bail if local is now
+  // newer than the remote we pulled (its own applyActive will push it out). The
+  // explicit enable-sync JOIN passes force to adopt the remote regardless of rev
+  // (skipping would leave storage stale while the UI shows the remote adopted).
+  if (!opts.force) {
+    const current = await loadConfig().catch(() => null);
+    if (current && current.rev > remote.rev) return;
+  }
+  // Restore device-local fields (credentials and list bodies stripped for sync)
+  // from the caller's in-memory `local` — the freshest copy on the join path,
+  // where the options page's config can lead its debounced save to storage, so a
+  // just-pasted list body or just-typed password would otherwise be lost.
   const localText = new Map<string, string>();
   const localCreds = new Map<string, { username?: string; password?: string }>();
   for (const p of local.profiles) {

@@ -59,7 +59,8 @@ script.
   landed.
 - **Connection tests.** One click routes briefly through a proxy, measures the
   exit IP/country/latency (auth included), restores your configuration, and
-  leaves a green/amber/red health dot in the sidebar.
+  leaves a green/amber/red health dot in the sidebar. Like the exit-IP line, this
+  uses the opt-in IP address lookups (off by default).
 - **Incognito routing.** Optionally give incognito windows their own profile
   (needs "Allow in Incognito").
 - **Quick switch.** Cycle a chosen set of profiles from the toolbar button or a
@@ -163,9 +164,12 @@ authors and maintainers for the prior art.
 
 ## Privacy
 
-Sockitt collects nothing: no analytics, no tracking, no developer server. Your
-configuration stays on your device (or your own browser account if you enable
-Sync). See the full [Privacy Policy](PRIVACY.md).
+Sockitt has no analytics and no tracking. With **IP address lookups** off (the
+default) it contacts no developer-operated server at all; turning them on adds
+lookups of `ipconfig.is` — the developer's own IP-echo service — which sees only
+your connecting IP, never your configuration or browsing. Your configuration
+stays on your device (or your own browser account if you enable Sync). See the
+full [Privacy Policy](PRIVACY.md).
 
 ## License
 

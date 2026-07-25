@@ -236,8 +236,23 @@ async function init(): Promise<void> {
   });
 }
 
+/**
+ * Re-read the latest stored config, apply `mutate` to that fresh copy, persist
+ * it, and adopt it as the popup's snapshot. The popup can sit open while the
+ * background applies sync or rule-list changes; mutating and writing back our
+ * load-time snapshot (the module-global `config`) would blind-clobber those.
+ * `mutate` must locate its target by id in `fresh`; return false to abort the
+ * save (e.g. the profile was deleted from another surface meanwhile).
+ */
+async function commitConfig(mutate: (fresh: Config) => boolean | void): Promise<boolean> {
+  const fresh = await loadConfig();
+  if (mutate(fresh) === false) return false;
+  await saveConfig(fresh);
+  config = fresh;
+  return true;
+}
+
 async function setActive(id: string): Promise<void> {
-  config.activeId = id;
   // Load the new profile's override before the single render so the section
   // never flashes the previous profile's state. The background applies the
   // proxy (and reloads the tab if refreshOnSwitch is on) off the storage write.
@@ -248,7 +263,11 @@ async function setActive(id: string): Promise<void> {
     exitSeq++; // invalidate any in-flight check
     exit = { phase: 'checking' };
   }
-  await saveConfig(config);
+  // Re-read and change only activeId, so a background sync/rule-list change that
+  // landed while the popup was open isn't overwritten by our stale snapshot.
+  await commitConfig((fresh) => {
+    fresh.activeId = id;
+  });
   render();
   wiggleSock();
 }
@@ -551,11 +570,16 @@ function proxyBypassControl(profile: ProxyProfile, host: string, matchUrl: strin
           title: 'Stop sending this site direct',
           innerHTML: '&#10005;',
           onclick: () => {
-            profile.bypass = bypass.filter((_, i) => i !== literalIdx);
-            void saveConfig(config);
-            toast('Bypass removed');
-            render();
-            scheduleExitCheck();
+            void commitConfig((fresh) => {
+              const p = fresh.profiles.find((x) => x.id === profile.id);
+              if (!p || p.kind !== 'proxy') return false;
+              p.bypass = p.bypass.filter((e) => e !== stored);
+            }).then((ok) => {
+              if (!ok) return;
+              toast('Bypass removed');
+              render();
+              scheduleExitCheck();
+            });
           },
         })
       )
@@ -586,11 +610,16 @@ function proxyBypassControl(profile: ProxyProfile, host: string, matchUrl: strin
           class: 'btn sm',
           title: `Send ${host} straight to the network, past this proxy`,
           onclick: () => {
-            profile.bypass = [...bypass, entry];
-            void saveConfig(config);
-            toast(`Bypassing ${host}`);
-            render();
-            scheduleExitCheck();
+            void commitConfig((fresh) => {
+              const p = fresh.profiles.find((x) => x.id === profile.id);
+              if (!p || p.kind !== 'proxy') return false;
+              p.bypass = [...p.bypass, entry];
+            }).then((ok) => {
+              if (!ok) return;
+              toast(`Bypassing ${host}`);
+              render();
+              scheduleExitCheck();
+            });
           },
         },
         'Send this site direct'
@@ -647,11 +676,18 @@ function siteRuleCard(active: SwitchProfile): HTMLElement {
   let ruleField: HTMLElement;
   if (matched) {
     const sel = siteTargetSelect(matched.targetId, async (v) => {
-      matched.targetId = v;
       await requestTabReload();
-      await saveConfig(config);
-      render();
-      scheduleExitCheck();
+      const ok = await commitConfig((fresh) => {
+        const p = fresh.profiles.find((x) => x.id === active.id);
+        if (!p || p.kind !== 'switch') return false;
+        const r = p.rules.find((x) => x.id === matched.id);
+        if (!r) return false;
+        r.targetId = v;
+      });
+      if (ok) {
+        render();
+        scheduleExitCheck();
+      }
     });
     sel.disabled = overridesThisSite;
     ruleField = el(
@@ -676,13 +712,18 @@ function siteRuleCard(active: SwitchProfile): HTMLElement {
         title: `Add a rule routing *.${tab!.host}`,
         onclick: async () => {
           const rule = siteRule(sel.value);
-          if (config.settings.addToBottom) active.rules.push(rule);
-          else active.rules.unshift(rule);
           await requestTabReload();
-          await saveConfig(config);
-          toast('Rule added');
-          render();
-          scheduleExitCheck();
+          const ok = await commitConfig((fresh) => {
+            const p = fresh.profiles.find((x) => x.id === active.id);
+            if (!p || p.kind !== 'switch') return false;
+            if (fresh.settings.addToBottom) p.rules.push(rule);
+            else p.rules.unshift(rule);
+          });
+          if (ok) {
+            toast('Rule added');
+            render();
+            scheduleExitCheck();
+          }
         },
       },
       'Add rule'

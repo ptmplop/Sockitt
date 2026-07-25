@@ -689,7 +689,12 @@ chrome.runtime.onStartup.addListener(() => {
       startup && (startup === DIRECT || startup === SYSTEM || profileById(config, startup));
     if (valid && config.activeId !== startup) {
       config.activeId = startup;
-      await saveConfig(config); // triggers applyActive via onConfigChanged
+      // saveConfigRaw, not saveConfig: the startup profile is a per-device
+      // preference. Bumping rev here would push this device's activeId to the
+      // whole fleet on every browser start, so devices with different startup
+      // profiles fight over the shared activeId. Raw save still triggers
+      // applyActive via onConfigChanged; it just doesn't masquerade as a user edit.
+      await saveConfigRaw(config);
     } else {
       await applyActive();
     }

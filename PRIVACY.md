@@ -8,11 +8,14 @@ with it.
 
 ## Summary
 
-**Sockitt does not collect, transmit, sell, or share any personal data.** It
-has no analytics, no tracking, no advertising, and no backend server operated
-by the developer. Everything the extension stores stays on your own device (or
-in your own browser account if you turn on Sync). Uninstalling the extension
-removes its local data.
+**Sockitt has no analytics, no tracking, and no advertising, and it does not
+collect, sell, or share your personal data.** Everything the extension stores
+stays on your own device (or in your own browser account if you turn on Sync).
+The one server the developer operates is the optional **IP address lookup**
+(`ipconfig.is`), which is off by default: with it off the extension contacts no
+developer server at all, and even with it on the lookup receives only your
+connecting IP — never your configuration, credentials, or browsing (see the IP
+address lookups entry below). Uninstalling the extension removes its local data.
 
 ## What the extension handles, and why
 
@@ -63,8 +66,11 @@ ever sent to the developer or to any third party.
 - It does not collect or transmit your browsing history.
 - It does not read, record, or modify the content of the pages you visit.
 - It does not contain analytics, telemetry, crash reporting, or advertising.
-- It does not send any data to the developer, and the developer runs no server
-  that receives your data.
+- With IP address lookups off (the default), it sends no data to the developer
+  and contacts no developer-operated server. With them on, the only
+  developer-operated server it contacts is `ipconfig.is`, which receives just
+  the connecting IP of the lookup request — never your configuration,
+  credentials, or browsing history.
 
 ## Traffic routed through your proxies
 

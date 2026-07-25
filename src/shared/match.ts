@@ -323,7 +323,16 @@ export function testCondition(
     case 'time':
       return timeInRange(now.getHours() * 60 + now.getMinutes(), c.from, c.to);
     case 'local':
-      return h === 'localhost' || h === '127.0.0.1' || h === '[::1]' || !h.includes('.');
+      // Twin of the PAC's `local` clause (pac.ts): a dotless host is local, but
+      // an IPv6 literal is dotless too — exclude colon-bearing hosts so a public
+      // IPv6 destination isn't wrongly bypassed to DIRECT. Loopback stays local.
+      return (
+        h === 'localhost' ||
+        h === '127.0.0.1' ||
+        h === '[::1]' ||
+        h === '::1' ||
+        (!h.includes('.') && !h.includes(':'))
+      );
     case 'never':
       return false;
   }

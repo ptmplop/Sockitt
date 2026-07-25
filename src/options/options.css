@@ -211,6 +211,8 @@ body {
 .field { display: flex; flex-direction: column; gap: 5px; }
 .field label { font-size: 12px; font-weight: 600; color: var(--text-dim); }
 .note { font-size: 11.5px; color: var(--text-dim); }
+.note.error { color: var(--danger); }
+.note.error[hidden] { display: none; }
 
 textarea.input { resize: vertical; min-height: 88px; line-height: 1.6; }
 
