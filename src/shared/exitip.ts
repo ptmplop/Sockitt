@@ -53,12 +53,6 @@ export async function checkExitIp(timeoutMs = 8000): Promise<ExitInfo> {
   }
 }
 
-/** "TH" → 🇹🇭 (regional-indicator pair); '' for anything that isn't alpha-2. */
-export function flagEmoji(iso?: string): string {
-  if (!iso || !/^[A-Z]{2}$/.test(iso)) return '';
-  return String.fromCodePoint(...[...iso].map((c) => 0x1f1e6 + c.charCodeAt(0) - 65));
-}
-
 /**
  * Local path to the country's flag SVG — the flag-icons (lipis) 4x3 set,
  * vendored into the extension at build time under dist/flags/ (see build.mjs).

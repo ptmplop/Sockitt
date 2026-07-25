@@ -106,7 +106,10 @@ async function runExitCheck(): Promise<void> {
 function updateExitLine(): void {
   const meta = document.querySelector('.dh-meta');
   if (!meta) return;
-  meta.querySelector(':scope > .exit-line')?.remove();
+  // Drop any prior readout — the one-line span (.exit-line) OR the two-line
+  // geo block (.exit-loc). querySelectorAll (not querySelector) so a stack that
+  // somehow accumulated gets fully cleared, never leaving a duplicate flag/IP.
+  meta.querySelectorAll(':scope > .exit-line, :scope > .exit-loc').forEach((n) => n.remove());
   const line = exitLine();
   if (line) meta.append(line);
 }

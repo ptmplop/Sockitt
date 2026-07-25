@@ -416,6 +416,14 @@ textarea.input { resize: vertical; min-height: 88px; line-height: 1.6; }
 .test-row .test-result { margin: 0; }
 .test-result.ok { color: var(--ok); }
 .test-result.bad { color: var(--danger); }
+.test-flag {
+  width: 16px;
+  height: 12px;
+  border-radius: 2px;
+  vertical-align: -0.15em;
+  object-fit: cover;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12);
+}
 
 /* ---- first-proxy confetti ---- */
 .confetti-layer { position: fixed; inset: 0; pointer-events: none; z-index: 100; overflow: hidden; }

@@ -1,6 +1,6 @@
 import { avatarEl, builtinTile, initialsFor } from '../shared/avatar';
 import { docsPanel } from './docs';
-import { EXIT_IP_PERMS, flagEmoji } from '../shared/exitip';
+import { EXIT_IP_PERMS, flagSrc } from '../shared/exitip';
 import { TraceEdge, pacRequestUrl, patternError, resolveRoute } from '../shared/match';
 import { parseRuleList } from '../shared/rulelist';
 import {
@@ -1657,8 +1657,13 @@ function watchProxyTests(): void {
     if (!span) return;
     span.classList.remove('ok', 'bad');
     if (r.ok) {
-      const flag = flagEmoji(r.iso);
-      span.textContent = `Connection successful · ${r.ip ?? '?'}${flag ? ` ${flag}` : ''} · ${r.ms} ms`;
+      const src = flagSrc(r.iso);
+      // Build DOM (not textContent) so the flag SVG sits inline with the text.
+      span.replaceChildren(
+        document.createTextNode(`Connection successful · ${r.ip ?? '?'} `),
+        ...(src ? [el('img', { class: 'test-flag', src, alt: '', width: 16, height: 12 }), document.createTextNode(' ')] : []),
+        document.createTextNode(`· ${r.ms} ms`)
+      );
       span.title = r.country ? `${r.ip} · ${r.country}` : `${r.ip ?? ''}`;
       span.classList.add('ok');
     } else {
