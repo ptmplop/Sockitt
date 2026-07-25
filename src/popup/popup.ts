@@ -5,6 +5,7 @@ import { parseRuleList } from '../shared/rulelist';
 import {
   APPLIED_KEY,
   ERROR_KEY,
+  RELOAD_KEY,
   loadConfig,
   loadTempRules,
   saveConfig,
@@ -185,7 +186,21 @@ async function loadOverride(profileId: string): Promise<void> {
 
 async function setOverride(profileId: string, rule: SwitchRule | null): Promise<void> {
   tempRules = rule ? [rule] : [];
+  await requestTabReload();
   await saveTempRules(profileId, tempRules);
+}
+
+/**
+ * A this-tab override/rule change alters how THIS site routes, so with
+ * "reload on switch" on the page should re-fetch over the new route. Ask the
+ * worker to reload the active tab AFTER it applies the change (set here, before
+ * the save that wakes applyActive, which consumes RELOAD_KEY). Doing it worker-
+ * side — not here — keeps the reload from racing ahead of the proxy update.
+ */
+async function requestTabReload(): Promise<void> {
+  if (config.settings.refreshOnSwitch && tab) {
+    await chrome.storage.session.set({ [RELOAD_KEY]: { at: Date.now() } });
+  }
 }
 
 function statusFor(profile: Profile): string {
@@ -531,9 +546,10 @@ function siteRuleCard(active: SwitchProfile): HTMLElement {
   const matched = matchedRuleFor(active, matchUrl, tab!.host);
   let ruleField: HTMLElement;
   if (matched) {
-    const sel = siteTargetSelect(matched.targetId, (v) => {
+    const sel = siteTargetSelect(matched.targetId, async (v) => {
       matched.targetId = v;
-      void saveConfig(config);
+      await requestTabReload();
+      await saveConfig(config);
       render();
     });
     sel.disabled = overridesThisSite;
@@ -557,11 +573,12 @@ function siteRuleCard(active: SwitchProfile): HTMLElement {
         class: 'btn sm',
         disabled: overridesThisSite,
         title: `Add a rule routing *.${tab!.host}`,
-        onclick: () => {
+        onclick: async () => {
           const rule = siteRule(sel.value);
           if (config.settings.addToBottom) active.rules.push(rule);
           else active.rules.unshift(rule);
-          void saveConfig(config);
+          await requestTabReload();
+          await saveConfig(config);
           toast('Rule added');
           render();
         },

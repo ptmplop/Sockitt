@@ -26,6 +26,9 @@ export const APPLIED_KEY = 'sockitt-applied';
 export const TEST_KEY = 'sockitt-test';
 /** Proxy-test response (worker → options page). */
 export const TEST_RESULT_KEY = 'sockitt-test-result';
+/** Set by the popup when a this-tab override/rule change should reload the tab
+ *  once the worker has applied the new route (consumed by applyActive). */
+export const RELOAD_KEY = 'sockitt-reload';
 
 // Compiler-enforced: adding a RuleType without listing it here fails to build,
 // rather than silently dropping rules of the new type on load/import/sync.

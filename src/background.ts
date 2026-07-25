@@ -4,6 +4,7 @@ import { compilePac, fixedServersValue, staticTerminal } from './shared/pac';
 import {
   APPLIED_KEY,
   ERROR_KEY,
+  RELOAD_KEY,
   TEST_KEY,
   TEST_RESULT_KEY,
   loadConfig,
@@ -153,6 +154,16 @@ async function applyActiveInner(): Promise<void> {
   const switched = lastActiveId !== undefined && lastActiveId !== config.activeId;
   lastActiveId = config.activeId;
   if (switched && config.settings.refreshOnSwitch) await reloadActiveTab();
+
+  // A this-tab override/rule change (from the popup) also alters how the active
+  // tab routes, but leaves activeId unchanged — so `switched` misses it. The
+  // popup sets RELOAD_KEY for those; honour it here, after settings.set, so the
+  // reload rides the new route. Consume it unconditionally so it can't linger.
+  const reloadStore = await chrome.storage.session.get(RELOAD_KEY);
+  if (reloadStore[RELOAD_KEY]) {
+    await chrome.storage.session.remove(RELOAD_KEY);
+    if (!switched && config.settings.refreshOnSwitch) await reloadActiveTab();
+  }
 
   rebuildCredentials(config);
   registerAuthListener();
