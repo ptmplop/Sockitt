@@ -1,5 +1,5 @@
 import { avatarEl, builtinTile, textColorFor } from '../shared/avatar';
-import { EXIT_IP_PERMS, checkExitIp, flagEmoji } from '../shared/exitip';
+import { EXIT_IP_PERMS, checkExitIp, flagSrc } from '../shared/exitip';
 import { compileRule, pacRequestUrl, resolveRoute, testBypass, testCondition } from '../shared/match';
 import { parseRuleList } from '../shared/rulelist';
 import {
@@ -286,20 +286,29 @@ function detailHead(profile: Profile | undefined): HTMLElement {
   return head;
 }
 
-/** One quiet line under the status: where traffic actually exits. */
+/** A quiet readout under the status: where traffic actually exits. */
 function exitLine(): HTMLElement | null {
   if (!config.settings.exitIpCheck) return null;
-  const okLine = (info: ExitInfo, cls: string): HTMLElement => {
-    const flag = flagEmoji(info.iso);
-    // Lead with where the world sees this route exit — flag + country name —
-    // instead of burying the country in a tooltip. No geo? Keep the plain form.
-    // The tooltip still carries the full IP + country so a truncated line (long
-    // IPv6, long country name) never hides either.
-    const text = info.country
-      ? `${flag ? `${flag} ` : ''}${info.country} · ${info.ip} · ${info.ms} ms`
-      : `exit ${info.ip} · ${info.ms} ms`;
+  // With geo, a two-line block: flag + country on top, exit IP · latency below.
+  // Without geo, the plain one-liner. Dimmed while a re-check is in flight. The
+  // tooltip carries the full IP + country so nothing is lost if a line clips.
+  const okBlock = (info: ExitInfo, dim: boolean): HTMLElement => {
     const title = `exit ${info.ip}${info.country ? ` · ${info.country}` : ''}`;
-    return el('span', { class: cls, title }, text);
+    if (!info.country) {
+      return el('span', { class: `exit-line${dim ? ' dim' : ''}`, title }, `exit ${info.ip} · ${info.ms} ms`);
+    }
+    const src = flagSrc(info.iso);
+    return el(
+      'div',
+      { class: `exit-loc${dim ? ' dim' : ''}`, title },
+      el(
+        'div',
+        { class: 'exit-loc-top' },
+        src ? el('img', { class: 'exit-flag', src, alt: '', width: 20, height: 15 }) : null,
+        el('span', { class: 'exit-country' }, info.country)
+      ),
+      el('div', { class: 'exit-loc-ip' }, `${info.ip} · ${info.ms} ms`)
+    );
   };
   switch (exit.phase) {
     case 'idle':
@@ -312,9 +321,9 @@ function exitLine(): HTMLElement | null {
       );
     case 'checking':
       // Keep the last good reading visible (dimmed) instead of blanking.
-      return lastExit ? okLine(lastExit, 'exit-line dim') : el('span', { class: 'exit-line' }, 'checking exit…');
+      return lastExit ? okBlock(lastExit, true) : el('span', { class: 'exit-line' }, 'checking exit…');
     case 'ok':
-      return okLine(exit, 'exit-line');
+      return okBlock(exit, false);
     case 'error':
       return el('span', { class: 'exit-line err', title: exit.message }, 'exit check failed');
   }

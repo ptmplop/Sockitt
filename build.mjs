@@ -49,6 +49,9 @@ async function copyStatic() {
     cp('src/options/options.html', 'dist/options.html'),
     cp('src/options/options.css', 'dist/options.css'),
     ...ICONS.map((icon) => cp(`img/${icon}`, `dist/img/${icon}`)),
+    // Country flag SVGs (flag-icons, MIT) vendored from node_modules so the
+    // popup's exit readout shows a real flag on every OS with no network call.
+    cp('node_modules/flag-icons/flags/4x3', 'dist/flags', { recursive: true }),
   ]);
 }
 

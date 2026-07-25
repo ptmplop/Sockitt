@@ -214,6 +214,39 @@ body {
 }
 .exit-line.dim { opacity: 0.5; }
 .exit-line.err { font-family: inherit; color: var(--danger); }
+
+/* two-line exit readout: flag + country on top, exit IP · latency below */
+.exit-loc { margin-top: 4px; max-width: 100%; }
+.exit-loc.dim { opacity: 0.5; }
+.exit-loc-top { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.exit-flag {
+  width: 20px;
+  height: 15px;
+  flex: none;
+  display: block;
+  border-radius: 2.5px;
+  object-fit: cover;
+  /* hairline ring so white/pale flags (Japan, Poland…) don't bleed into the pane */
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12);
+}
+.exit-country {
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.exit-loc-ip {
+  margin-top: 1px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 button.exit-enable {
   font-family: inherit;
   background: none;
