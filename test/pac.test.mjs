@@ -9,7 +9,7 @@ before(async () => {
   const result = await build({
     stdin: {
       contents:
-        "export * from './src/shared/pac'; export * from './src/shared/match'; export * from './src/shared/rulelist'; export { sanitizeConfig, sanitizeHost, proxyHostError } from './src/shared/state'; export { slimConfig } from './src/shared/sync';",
+        "export * from './src/shared/pac'; export * from './src/shared/match'; export * from './src/shared/rulelist'; export { sanitizeConfig, sanitizeHost, proxyHostError } from './src/shared/state'; export { slimConfig, decidePush, decidePull, remoteCompatibility, reassembleChunks } from './src/shared/sync';",
       resolveDir: new URL('..', import.meta.url).pathname,
       loader: 'ts',
     },
@@ -420,6 +420,55 @@ test('proxyHostError flags empty and directive-breaking hosts', () => {
   }
 });
 
+test('catastrophic-backtracking regex sources are rejected (ReDoS guard)', () => {
+  // Nested quantifiers (star height > 1) are the classic exponential shape.
+  for (const bad of ['(a+)+', '(a+)+$', '(.*)*', '(a*)*b', '([a-z]+)*', '(\\d+)+x', 'a'.repeat(1001)]) {
+    assert.equal(lib.regexSourceIsSafe(bad), false, bad);
+  }
+  // Ordinary regexes (star height <= 1) stay allowed, including common list forms.
+  for (const ok of ['^https?://', '(foo|bar)', '(ab)+', 'a.*b.*c', '[a-z]{2,10}', '(?:x)+', '^https?:\\/\\/[^\\/]+\\.google\\.']) {
+    assert.equal(lib.regexSourceIsSafe(ok), true, ok);
+  }
+});
+
+test('a dangerous regex rule or list entry compiles inert, never onto the hot path', () => {
+  assert.deepEqual(lib.compileRule({ type: 'urlRegex', pattern: '(a+)+$' }), { op: 'never' });
+  assert.deepEqual(lib.compileRule({ type: 'hostRegex', pattern: '(a+)+' }), { op: 'never' });
+  assert.ok(lib.patternError({ type: 'urlRegex', pattern: '(a+)+$' }), 'options UI flags it');
+  // AutoProxy /regex/ list line: dangerous entry dropped, safe suffix kept.
+  const parsed = lib.parseAutoProxy('/(a+)+$/\n||safe.example');
+  assert.ok(!parsed.blacklist.some((c) => c.op === 'urlRegex'), 'no urlRegex from the dangerous line');
+  assert.ok(parsed.blacklist.some((c) => c.op === 'suffix' && c.alsoBare === 'safe.example'));
+  const rl = {
+    kind: 'rulelist', id: 'rl', name: 'l', color: '#111111', format: 'autoproxy',
+    url: '', updateIntervalH: 0, matchTargetId: 'p1', defaultTargetId: 'direct', text: '/(a+)+$/',
+  };
+  assert.ok(!lib.compilePac(makeConfig([P1, rl], 'rl'), rl).includes('(a+)+'), 'source absent from PAC');
+});
+
+test('PAC and resolveRoute agree on a cyclic switch graph (no frozen-edge divergence)', () => {
+  // swR -> swB; swB <-> swA via conditional keyword rules. Before the fix the
+  // PAC froze swB->swA to DIRECT at compile time, so a request reaching swB
+  // where its rule fires but swA's does not routed DIRECT while resolveRoute
+  // (the popup/inspector twin) reported a proxy — a silent leak + a lying UI.
+  const swR = sw('swR', [rule('rR', 'keyword', 'bbb', 'swB')], 'direct');
+  const swA = sw('swA', [rule('rA', 'keyword', 'xxx', 'swB')], 'p1');
+  const swB = sw('swB', [rule('rB', 'keyword', 'yyy', 'swA')], 'p2');
+  const config = makeConfig([P1, P2, swR, swA, swB], 'swR');
+  const pac = lib.compilePac(config, swR);
+  const toDirective = (r) =>
+    r.targetId === 'direct' || r.bypassed ? 'DIRECT' : r.targetId === 'p1' ? SOCKS_P1 : SOCKS_P2;
+  for (const [url, host] of [
+    ['http://bbb-yyy.test/', 'bbb-yyy.test'],         // swB, yyy->swA, xxx? no -> p1
+    ['http://bbb-yyy-xxx.test/', 'bbb-yyy-xxx.test'], // full cycle -> DIRECT
+    ['http://bbb.test/', 'bbb.test'],                 // swB default -> p2
+    ['http://other.test/', 'other.test'],             // swR default -> direct
+  ]) {
+    const route = lib.resolveRoute(config, swR, url, host);
+    assert.equal(runPac(pac, url, host), toDirective(route), `parity for ${host} (route ${route.targetId})`);
+  }
+});
+
 test('AutoProxy ||domain:port strips the port so the host matches', () => {
   const parsed = lib.parseAutoProxy('||example.com:8080');
   assert.deepEqual(parsed.blacklist[0], {
@@ -575,4 +624,67 @@ test('slimConfig strips credentials (and refetchable list bodies) for sync', () 
   // ...and the stripped values vanish from the synced JSON entirely.
   const json = JSON.stringify(slim);
   assert.ok(!json.includes('sekrit-hunter2') && !json.includes('agent-99'));
+});
+
+test('slimConfig keeps a small pasted list but drops url-backed and oversize bodies', () => {
+  const base = {
+    kind: 'rulelist', name: 'A', color: '#123456', format: 'autoproxy',
+    updateIntervalH: 0, matchTargetId: 'p', defaultTargetId: 'direct',
+  };
+  const inlineSmall = { ...base, id: 'a', url: '', text: '||example.com' };
+  const inlineBig = { ...base, id: 'b', url: '', text: 'x'.repeat(9000) };
+  const urlBacked = { ...base, id: 'c', url: 'https://x.io/l.txt', text: '||example.com' };
+  const slim = lib.slimConfig(makeConfig([inlineSmall, inlineBig, urlBacked], 'a'));
+  assert.equal(slim.profiles[0].text, '||example.com'); // small inline preserved (unrecoverable)
+  assert.equal(slim.profiles[1].text, '');              // oversize inline dropped
+  assert.equal(slim.profiles[2].text, '');              // url-backed dropped (refetchable)
+});
+
+/* ---------------- sync version/rev gates (pure seams) ---------------- */
+
+// CV stands in for CONFIG_VERSION; the gate functions take it as a parameter,
+// so these cover the decision logic independent of the current schema number.
+const CV = 4;
+const meta = (over = {}) => ({ rev: 100, chunks: 1, ...over });
+
+test('decidePush gates on remote schema version and revision', () => {
+  assert.equal(lib.decidePush(undefined, 100, CV).action, 'push');            // empty account
+  assert.equal(lib.decidePush(meta({ version: CV + 1 }), 100, CV).action, 'pause'); // newer schema
+  assert.equal(lib.decidePush(meta({ version: undefined }), 100, CV).action, 'pause'); // version-less
+  assert.equal(lib.decidePush(meta({ version: 2 }), 100, CV).action, 'pause');        // <=1.6.2
+  assert.equal(lib.decidePush(meta({ version: 3, rev: 50 }), 100, CV).action, 'push'); // gated older, migrate up
+  assert.equal(lib.decidePush(meta({ version: CV, rev: 200 }), 100, CV).action, 'skip'); // remote newer rev
+  assert.equal(lib.decidePush(meta({ version: CV, rev: 50 }), 100, CV).action, 'push');  // our rev newer
+});
+
+test('decidePull adopts an older/equal-schema newer-rev payload, refuses a newer schema', () => {
+  assert.equal(lib.decidePull(undefined, 0, CV).action, 'skip');
+  assert.equal(lib.decidePull(meta({ rev: 100 }), 100, CV).action, 'skip'); // not newer than local
+  assert.equal(lib.decidePull(meta({ rev: 100, version: CV }), 50, CV).action, 'adopt');
+  assert.equal(lib.decidePull(meta({ rev: 100, version: 3 }), 50, CV).action, 'adopt');
+  assert.equal(lib.decidePull(meta({ rev: 100, version: undefined }), 50, CV).action, 'adopt'); // older is safe
+  assert.equal(lib.decidePull(meta({ rev: 100, version: CV + 1 }), 50, CV).action, 'pause');   // newer schema
+});
+
+test('remoteCompatibility agrees with decidePush on which remotes are joinable', () => {
+  assert.equal(lib.remoteCompatibility(undefined, CV), 'none');
+  assert.equal(lib.remoteCompatibility(meta({ version: CV }), CV), 'compatible');
+  assert.equal(lib.remoteCompatibility(meta({ version: 3 }), CV), 'compatible');
+  assert.equal(lib.remoteCompatibility(meta({ version: undefined }), CV), 'legacy'); // was wrongly 'compatible'
+  assert.equal(lib.remoteCompatibility(meta({ version: 2 }), CV), 'legacy');
+  assert.equal(lib.remoteCompatibility(meta({ version: CV + 1 }), CV), 'newer');
+  // Cross-check: any non-joinable remote is exactly one decidePush pauses on.
+  for (const v of [2, undefined, CV + 1]) {
+    assert.notEqual(lib.remoteCompatibility(meta({ version: v }), CV), 'compatible');
+    assert.equal(lib.decidePush(meta({ version: v, rev: 1 }), 999, CV).action, 'pause');
+  }
+});
+
+test('reassembleChunks joins in order and flags a partial write', () => {
+  assert.equal(
+    lib.reassembleChunks(['sockitt#0', 'sockitt#1'], { 'sockitt#0': '{"a":1', 'sockitt#1': ',"b":2}' }),
+    '{"a":1,"b":2}'
+  );
+  assert.equal(lib.reassembleChunks(['sockitt#0', 'sockitt#1'], { 'sockitt#0': 'x' }), null); // missing chunk
+  assert.equal(lib.reassembleChunks(['sockitt#0'], { 'sockitt#0': 42 }), null); // non-string chunk
 });

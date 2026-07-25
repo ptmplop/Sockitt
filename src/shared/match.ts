@@ -44,6 +44,59 @@ export type CompiledCondition =
 const RE_SPECIALS = /[.+^${}()|[\]\\]/g;
 const DAY_NAMES = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 
+/**
+ * Conservative catastrophic-backtracking guard for regex sources that reach the
+ * per-request hot path (the PAC's `RegExp.test` tables and `testCondition`).
+ * Rejects sources with "star height" > 1 — a quantified group that itself
+ * contains a quantifier, e.g. `(a+)+` or `(.*)*`, the shape behind exponential
+ * backtracking — and over-long sources. Not a complete ReDoS classifier, but it
+ * blocks the practical vectors that arrive in remote/pasted rule-list content;
+ * a rejected source compiles to an inert rule, exactly like an invalid one.
+ * (Wildcard-derived sources only ever produce `.*`/`.`, which are linear, so
+ * only raw regex entries — `hostRegex`/`urlRegex` rules and AutoProxy `/re/`
+ * list lines — are checked.)
+ */
+export function regexSourceIsSafe(source: string): boolean {
+  if (source.length > 1000) return false;
+  const quantified: boolean[] = []; // per open group: does it contain a quantifier?
+  let i = 0;
+  while (i < source.length) {
+    const ch = source[i];
+    if (ch === '\\') {
+      i += 2; // skip an escaped pair
+      continue;
+    }
+    if (ch === '[') {
+      i++; // skip a character class wholesale
+      while (i < source.length && source[i] !== ']') {
+        if (source[i] === '\\') i++;
+        i++;
+      }
+      i++;
+      continue;
+    }
+    if (ch === '(') {
+      quantified.push(false);
+      i++;
+      continue;
+    }
+    if (ch === ')') {
+      const innerHasQuant = quantified.pop() ?? false;
+      const next = source[i + 1];
+      const groupQuantified = next === '*' || next === '+' || next === '{';
+      if (groupQuantified && innerHasQuant) return false; // star height > 1
+      if (groupQuantified && quantified.length) quantified[quantified.length - 1] = true;
+      i++;
+      continue;
+    }
+    if (ch === '*' || ch === '+' || ch === '{') {
+      if (quantified.length) quantified[quantified.length - 1] = true;
+    }
+    i++;
+  }
+  return true;
+}
+
 function wildcardToRegexSource(pattern: string): string {
   const escaped = pattern
     .replace(RE_SPECIALS, '\\$&')
@@ -147,6 +200,7 @@ export function compileRule(rule: Pick<SwitchRule, 'type' | 'pattern'>): Compile
         return compileHostWildcard(pattern);
       case 'hostRegex':
         new RegExp(pattern);
+        if (!regexSourceIsSafe(pattern)) return { op: 'never' };
         return { op: 'hostRegex', source: pattern };
       case 'urlWildcard': {
         // A trailing * is implied so "https://api.github.com/" style prefixes work.
@@ -155,6 +209,7 @@ export function compileRule(rule: Pick<SwitchRule, 'type' | 'pattern'>): Compile
       }
       case 'urlRegex':
         new RegExp(pattern);
+        if (!regexSourceIsSafe(pattern)) return { op: 'never' };
         return { op: 'urlRegex', source: pattern };
       case 'ipCidr': {
         const cidr = parseCidr(pattern);
@@ -367,6 +422,9 @@ export function patternError(rule: Pick<SwitchRule, 'type' | 'pattern'>): string
         new RegExp(p);
       } catch (e) {
         return e instanceof Error ? e.message : 'Invalid regex';
+      }
+      if (!regexSourceIsSafe(p)) {
+        return 'Pattern is too complex (risk of catastrophic backtracking) — simplify it';
       }
       return null;
     case 'ipCidr':

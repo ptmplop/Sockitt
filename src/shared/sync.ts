@@ -33,6 +33,87 @@ const encoder = new TextEncoder();
 let lastPushedRev = 0;
 let lastAppliedRev = 0;
 
+const PAUSE_NEWER =
+  'Sync paused: another device runs a newer Sockitt version — update this one to resume.';
+const PAUSE_LEGACY =
+  'Sync paused: a device running Sockitt 1.6.2 or older wrote the synced data. Update every device, then toggle Sync off and on here to resume.';
+
+export type PushDecision =
+  | { action: 'push' }
+  | { action: 'skip' } // stale/no-op — silent
+  | { action: 'pause'; reason: string };
+
+/**
+ * Pure version/rev gate for a push (no I/O). `remote` is the current remote
+ * meta (undefined = empty account). Get this direction right or you freeze sync
+ * or wipe the fleet — see the CONFIG_VERSION notes in types.ts.
+ */
+export function decidePush(
+  remote: SyncMeta | undefined,
+  configRev: number,
+  configVersion: number
+): PushDecision {
+  if (!remote || typeof remote.rev !== 'number') return { action: 'push' };
+  const remoteVersion = remote.version ?? 2;
+  // A NEWER-schema remote must never be overwritten — our payload would lack
+  // fields its devices rely on.
+  if (remoteVersion > configVersion) return { action: 'pause', reason: PAUSE_NEWER };
+  // A version-less remote (Sockitt ≤ 1.6.2) has no gate and would adopt+strip
+  // anything we push, destroying its local config. Hard stop.
+  if (remoteVersion < 3) return { action: 'pause', reason: PAUSE_LEGACY };
+  // 3..configVersion are gated builds: overwriting is safe and is how the remote
+  // migrates up. Otherwise the normal newest-wins rule applies.
+  if (remote.rev > configRev) return { action: 'skip' };
+  return { action: 'push' };
+}
+
+export type PullDecision =
+  | { action: 'adopt' }
+  | { action: 'skip' }
+  | { action: 'pause'; reason: string };
+
+/** Pure version/rev gate for a pull (no I/O). */
+export function decidePull(
+  meta: SyncMeta | undefined,
+  localRev: number,
+  configVersion: number
+): PullDecision {
+  if (!meta || typeof meta.rev !== 'number' || meta.rev <= localRev) return { action: 'skip' };
+  // Never adopt a NEWER schema: this build's sanitizer would strip fields it
+  // doesn't know and could push the gutted config back. OLDER is safe.
+  if ((meta.version ?? 2) > configVersion) return { action: 'pause', reason: PAUSE_NEWER };
+  return { action: 'adopt' };
+}
+
+/**
+ * Compatibility of the remote payload for the enable-sync join flow. Must agree
+ * with decidePush on which remotes are usable: a NEWER schema (adopting strips
+ * fields) and a version-LESS remote (≤ 1.6.2, which decidePush hard-stops on)
+ * are both unjoinable — otherwise the join adopts a payload the push path then
+ * refuses, stranding the machine. 'legacy' vs 'newer' lets the UI say which.
+ */
+export function remoteCompatibility(
+  meta: SyncMeta | undefined,
+  configVersion: number
+): 'none' | 'compatible' | 'legacy' | 'newer' {
+  if (!meta || typeof meta.rev !== 'number') return 'none';
+  const version = meta.version ?? 2;
+  if (version < 3) return 'legacy';
+  if (version > configVersion) return 'newer';
+  return 'compatible';
+}
+
+/** Join ordered chunk values; null if any chunk is missing (a partial write). */
+export function reassembleChunks(keys: string[], store: Record<string, unknown>): string | null {
+  let json = '';
+  for (const key of keys) {
+    const part = store[key];
+    if (typeof part !== 'string') return null;
+    json += part;
+  }
+  return json;
+}
+
 /**
  * Strip what must not travel: rule-list bodies that other devices can refetch
  * (or that are too big), and proxy credentials — PRIVACY.md promises those
@@ -87,39 +168,11 @@ export async function pushToSync(config: Config): Promise<void> {
   try {
     const metaStore = await chrome.storage.sync.get(META);
     const remote = metaStore[META] as SyncMeta | undefined;
-    if (remote && typeof remote.rev === 'number') {
-      const remoteVersion = remote.version ?? 2;
-      // A NEWER-schema remote must never be overwritten: our payload would
-      // lack fields its devices rely on. Pause until this machine updates.
-      if (remoteVersion > CONFIG_VERSION) {
-        lastPushedRev = config.rev; // don't keep retrying until the next edit
-        await recordError(
-          new Error(
-            'Sync paused: another device runs a newer Sockitt version — update this one to resume.'
-          )
-        );
-        return;
-      }
-      // A version-less remote (Sockitt ≤ 1.6.2) may mean pre-gate devices are
-      // still alive; they adopt anything we push and their sanitizer would
-      // strip newer fields, destroying their local config. Hard stop.
-      if (remoteVersion < 3) {
-        lastPushedRev = config.rev;
-        await recordError(
-          new Error(
-            'Sync paused: a device running Sockitt 1.6.2 or older wrote the synced data. Update every device, then toggle Sync off and on here to resume.'
-          )
-        );
-        return;
-      }
-      // remoteVersion 3..CONFIG_VERSION: those are gated builds — overwriting
-      // is safe (an older gated build pauses until updated rather than
-      // adopting), and it is exactly how the remote migrates to this schema.
-      // The normal newest-wins rule still applies.
-      if (remote.rev > config.rev) {
-        lastPushedRev = config.rev; // don't keep retrying this stale push
-        return;
-      }
+    const decision = decidePush(remote, config.rev, CONFIG_VERSION);
+    if (decision.action !== 'push') {
+      lastPushedRev = config.rev; // don't keep retrying a paused/stale push
+      if (decision.action === 'pause') await recordError(new Error(decision.reason));
+      return;
     }
 
     const chunks = chunkByBytes(JSON.stringify(slimConfig(config)));
@@ -148,12 +201,10 @@ export async function pushToSync(config: Config): Promise<void> {
  * NEWER schema, which the enable-sync join flow must treat as a hard stop:
  * adopting it would strip fields, and pushing over it would gut the fleet.
  */
-export async function remoteSyncState(): Promise<'none' | 'compatible' | 'incompatible'> {
+export async function remoteSyncState(): Promise<'none' | 'compatible' | 'legacy' | 'newer'> {
   try {
     const metaStore = await chrome.storage.sync.get(META);
-    const meta = metaStore[META] as SyncMeta | undefined;
-    if (!meta || typeof meta.rev !== 'number') return 'none';
-    return (meta.version ?? 2) <= CONFIG_VERSION ? 'compatible' : 'incompatible';
+    return remoteCompatibility(metaStore[META] as SyncMeta | undefined, CONFIG_VERSION);
   } catch {
     return 'none';
   }
@@ -163,31 +214,21 @@ export async function pullFromSync(localRev: number): Promise<Config | null> {
   try {
     const metaStore = await chrome.storage.sync.get(META);
     const meta = metaStore[META] as SyncMeta | undefined;
-    if (!meta || typeof meta.rev !== 'number' || meta.rev <= localRev) return null;
-    // Never adopt a payload from a NEWER schema: this build's sanitizer would
-    // strip fields it doesn't know and could push the gutted config back.
-    // OLDER payloads are safe in this direction — sanitizeConfig fills in
-    // whatever the old schema lacked — and adopting them is how a freshly
-    // updated device stays current until the whole fleet migrates.
-    if ((meta.version ?? 2) > CONFIG_VERSION) {
-      await recordError(
-        new Error(
-          'Sync paused: another device runs a newer Sockitt version — update this one to resume.'
-        )
-      );
+    const decision = decidePull(meta, localRev, CONFIG_VERSION);
+    if (decision.action === 'skip') return null;
+    if (decision.action === 'pause') {
+      await recordError(new Error(decision.reason));
       return null;
     }
-    const keys = Array.from({ length: meta.chunks }, (_, i) => `${CHUNK}${i}`);
+    // decidePull returned 'adopt', so meta is a valid SyncMeta.
+    const adopted = meta as SyncMeta;
+    const keys = Array.from({ length: adopted.chunks }, (_, i) => `${CHUNK}${i}`);
     const chunkStore = await chrome.storage.sync.get(keys);
-    let json = '';
-    for (const key of keys) {
-      const part = chunkStore[key];
-      if (typeof part !== 'string') return null; // partial write — skip this round
-      json += part;
-    }
+    const json = reassembleChunks(keys, chunkStore);
+    if (json === null) return null; // partial write — skip this round
     const config = sanitizeConfig(JSON.parse(json));
     if (!config) return null;
-    config.rev = meta.rev;
+    config.rev = adopted.rev;
     // A good pull supersedes any lingering "sync paused" notice.
     await clearError();
     return config;

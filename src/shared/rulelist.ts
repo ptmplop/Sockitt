@@ -1,4 +1,4 @@
-import type { CompiledCondition } from './match';
+import { type CompiledCondition, regexSourceIsSafe } from './match';
 import { RuleListFormat } from './types';
 
 export interface ParsedRuleList {
@@ -94,6 +94,9 @@ function compileAutoProxyEntry(entry: string): CompiledCondition {
     try {
       const source = entry.slice(1, -1);
       new RegExp(source);
+      // List regex is remote/pasted content on the per-request hot path — a
+      // catastrophic-backtracking source would wedge proxy resolution.
+      if (!regexSourceIsSafe(source)) return { op: 'never' };
       return { op: 'urlRegex', source };
     } catch {
       return { op: 'never' };

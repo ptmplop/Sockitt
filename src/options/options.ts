@@ -1251,12 +1251,17 @@ function settingsPanel(): HTMLElement {
             void clearSync();
             return;
           }
-          // A remote written by a different schema version must not be joined:
+          // A remote written by an incompatible schema must not be joined:
           // enabling would push this config over it, and old installs (which
           // have no version gate) would adopt the overwrite — wiping the group.
-          if ((await remoteSyncState()) === 'incompatible') {
+          const state = await remoteSyncState();
+          if (state === 'newer') {
             toast('Sync unavailable: your synced data was written by a newer Sockitt — update this machine first', 4000);
             return false; // snap the toggle back off
+          }
+          if (state === 'legacy') {
+            toast('Sync unavailable: your synced data was written by Sockitt 1.6.2 or older — update every device, or toggle Sync off to clear it and reseed from this machine', 5000);
+            return false;
           }
           // Joining: adopt an existing synced config instead of overwriting it
           // with this machine's (so enabling sync on a fresh install can't wipe

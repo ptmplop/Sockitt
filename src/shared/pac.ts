@@ -35,7 +35,7 @@ export function compilePac(config: Config, root: Profile, tempRules: SwitchRule[
   const bodies: string[] = [];
   const fnByProfile = new Map<string, string>();
   const emitting = new Set<string>();
-  const need = { ip: false, lv: false, date: false, endsWith: false, suffixWalk: false, loops: false };
+  const need = { ip: false, lv: false, date: false, endsWith: false, suffixWalk: false, loops: false, visited: false };
 
   const J = (s: string): string => JSON.stringify(s);
   const regexLiteral = (source: string): string => `new RegExp(${JSON.stringify(source)})`;
@@ -90,24 +90,42 @@ export function compilePac(config: Config, root: Profile, tempRules: SwitchRule[
   const targetExpr = (targetId: string): string => {
     if (targetId === DIRECT) return '"DIRECT"';
     const target = profileById(config, targetId);
-    if (!target || emitting.has(target.id)) return '"DIRECT"'; // missing or cycle
+    if (!target) return '"DIRECT"'; // dangling reference
     if (target.kind === 'virtual') {
+      // Virtuals are inlined, so a virtual→virtual cycle has no runtime frame to
+      // guard and must be cut at compile time.
+      if (emitting.has(target.id)) return '"DIRECT"';
       emitting.add(target.id);
       const expr = targetExpr(target.targetId);
       emitting.delete(target.id);
       return expr;
     }
+    // switch/rulelist compile to a function; a back-edge into one still being
+    // compiled is a real recursive call (its name is assigned before its body).
+    // The per-request visited guard in the callee cuts the cycle to DIRECT the
+    // same way resolveRoute's `visited` set does — rather than freezing the cut
+    // into the memoized body, which diverged when a profile was reachable by two
+    // paths with different ancestors.
     return `${fnFor(target)}(url,h)`;
   };
 
   const fnFor = (profile: Profile): string => {
     const existing = fnByProfile.get(profile.id);
     if (existing) return existing;
-    const fn = `P${fnByProfile.size}`;
-    fnByProfile.set(profile.id, fn);
-    emitting.add(profile.id);
-    bodies.push(`function ${fn}(url,h){${emitBody(profile)}}`);
-    emitting.delete(profile.id);
+    const idx = fnByProfile.size;
+    const fn = `P${idx}`;
+    fnByProfile.set(profile.id, fn); // set before emitBody so a cycle resolves to a call
+    const body = emitBody(profile);
+    // A switch/rulelist can be re-entered through a target cycle; guard it per
+    // request so a revisit returns DIRECT, mirroring resolveRoute's monotonic
+    // `visited` set (set on entry, never cleared within a request). Proxy bodies
+    // are terminal and never re-enter, so they need no guard.
+    if (profile.kind === 'switch' || profile.kind === 'rulelist') {
+      need.visited = true;
+      bodies.push(`function ${fn}(url,h){if(V[${idx}])return "DIRECT";V[${idx}]=1;${body}}`);
+    } else {
+      bodies.push(`function ${fn}(url,h){${body}}`);
+    }
     return fn;
   };
 
@@ -233,6 +251,7 @@ export function compilePac(config: Config, root: Profile, tempRules: SwitchRule[
   }
 
   const perRequest =
+    (need.visited ? 'V={};' : '') +
     'var h=host.toLowerCase();' +
     (need.ip ? 'ip=A(h);' : '') +
     (need.lv ? 'lv=1;for(var i=0;i<h.length;i++)if(h.charCodeAt(i)===46)lv++;' : '') +
@@ -243,7 +262,7 @@ export function compilePac(config: Config, root: Profile, tempRules: SwitchRule[
   return [
     `/* Sockitt: ${root.name.replace(/[/*\r\n]+/g, ' ')} */`,
     `var R=[${regexes.map(regexLiteral).join(',')}];`,
-    'var ip=-1,lv=0,wd=0,mins=0;',
+    'var ip=-1,lv=0,wd=0,mins=0;' + (need.visited ? 'var V={};' : ''),
     ...helpers,
     ...tables,
     ...bodies,
