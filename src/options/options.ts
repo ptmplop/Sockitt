@@ -13,6 +13,7 @@ import {
   newSwitchProfile,
   newVirtualProfile,
   onConfigChanged,
+  proxyHostError,
   sanitizeConfig,
   saveConfig,
 } from '../shared/state';
@@ -542,8 +543,15 @@ function proxyEditor(profile: ProxyProfile): HTMLElement {
     placeholder: '127.0.0.1',
     spellcheck: false,
     oninput: () => {
-      profile.host = host.value.trim();
-      scheduleSave();
+      const err = proxyHostError(host.value);
+      host.classList.toggle('invalid', err !== null);
+      host.title = err ?? '';
+      // Only commit a valid host — a blank or directive-breaking value must not
+      // be saved and applied, where it would fail silently to DIRECT.
+      if (!err) {
+        profile.host = host.value.trim();
+        scheduleSave();
+      }
     },
   }) as HTMLInputElement;
 

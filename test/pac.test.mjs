@@ -9,7 +9,7 @@ before(async () => {
   const result = await build({
     stdin: {
       contents:
-        "export * from './src/shared/pac'; export * from './src/shared/match'; export * from './src/shared/rulelist'; export { sanitizeConfig } from './src/shared/state'; export { slimConfig } from './src/shared/sync';",
+        "export * from './src/shared/pac'; export * from './src/shared/match'; export * from './src/shared/rulelist'; export { sanitizeConfig, sanitizeHost, proxyHostError } from './src/shared/state'; export { slimConfig } from './src/shared/sync';",
       resolveDir: new URL('..', import.meta.url).pathname,
       loader: 'ts',
     },
@@ -381,6 +381,43 @@ test('__proto__ as a rule-list host matches in both PAC and resolveRoute', () =>
   }
   // A host that is NOT in the list must still fall through to DIRECT.
   assert.equal(runPac(pac, 'http://toString/', 'toString'), 'DIRECT');
+});
+
+test('rule types from the prototype chain are dropped, not compiled to undefined', () => {
+  // Pre-fix isRuleType used `in`, so these keys passed sanitization; compileRule
+  // then returned undefined and compilePac/resolveRoute threw — silently
+  // leaving the proxy unapplied while the UI showed the profile as active.
+  for (const type of ['toString', 'constructor', '__proto__', 'hasOwnProperty', 'valueOf']) {
+    const swp = sw('sw', [rule('r1', type, '*.evil.com', 'p1')], 'direct');
+    const config = lib.sanitizeConfig(makeConfig([P1, swp], 'sw'));
+    assert.equal(config.profiles[1].rules.length, 0, `${type} rule must be dropped`);
+    const clean = config.profiles[1];
+    const pac = lib.compilePac(config, clean); // must not throw
+    assert.equal(runPac(pac, 'https://evil.com/', 'evil.com'), 'DIRECT', type);
+    assert.equal(lib.resolveRoute(config, clean, 'https://evil.com/', 'evil.com').targetId, 'direct', type);
+  }
+});
+
+test('sanitize strips a proxy host that would inject an extra PAC proxy', () => {
+  assert.equal(sanitizedProxy(rawProxy({ scheme: 'socks5', host: '203.0.113.7; SOCKS5 evil.test' })).host, '203.0.113.7');
+  assert.equal(sanitizedProxy(rawProxy({ host: '203.0.113.7 evil' })).host, '203.0.113.7');
+  assert.equal(sanitizedProxy(rawProxy({ host: 'evil/..' })).host, 'evil');
+  // Clean hosts and bracketed IPv6 are untouched.
+  assert.equal(sanitizedProxy(rawProxy({ host: 'proxy.example.com' })).host, 'proxy.example.com');
+  assert.equal(sanitizedProxy(rawProxy({ host: '[::1]' })).host, '[::1]');
+  // ...and the injected proxy never reaches the compiled PAC.
+  const q = { ...rawProxy({ scheme: 'socks5', host: 'a; SOCKS5 evil.test' }), id: 'q', bypass: [] };
+  const clean = lib.sanitizeConfig(makeConfig([q], 'q')).profiles[0];
+  assert.ok(!lib.compilePac(makeConfig([clean], 'q'), clean).includes('evil.test'));
+});
+
+test('proxyHostError flags empty and directive-breaking hosts', () => {
+  for (const ok of ['proxy.example.com', '127.0.0.1', '[::1]']) {
+    assert.equal(lib.proxyHostError(ok), null, ok);
+  }
+  for (const bad of ['', '   ', 'a; SOCKS5 evil', 'has space', 'has/slash']) {
+    assert.ok(lib.proxyHostError(bad), JSON.stringify(bad));
+  }
 });
 
 test('AutoProxy ||domain:port strips the port so the host matches', () => {

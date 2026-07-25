@@ -90,7 +90,34 @@ function applyActiveGuarded(): void {
   void applyActive();
 }
 
+/**
+ * Surface a failure to apply the proxy so it can never be a silent fail-open.
+ * Without this, a throw in settingsValueFor/compilePac (e.g. a malformed host
+ * or rule) or a rejected settings.set would leave chrome.proxy on the previous
+ * route while the popup still shows the newly-selected profile as active.
+ * Mirrors onProxyError's fatal treatment: red "!" badge + ERROR_KEY, which the
+ * popup renders.
+ */
+async function recordApplyError(e: unknown): Promise<void> {
+  const message = e instanceof Error ? e.message : String(e);
+  console.error('Sockitt: could not apply proxy settings —', e);
+  await Promise.allSettled([
+    chrome.storage.session.set({ [ERROR_KEY]: { message, at: Date.now(), fatal: true } }),
+    chrome.action.setBadgeBackgroundColor({ color: '#f5576c' }),
+    chrome.action.setBadgeText({ text: '!' }),
+    chrome.action.setTitle({ title: `Sockitt — proxy not applied (${message})` }),
+  ]);
+}
+
 async function applyActive(): Promise<void> {
+  try {
+    await applyActiveInner();
+  } catch (e) {
+    await recordApplyError(e);
+  }
+}
+
+async function applyActiveInner(): Promise<void> {
   const config = await loadConfig();
   cachedConfig = config;
   const tempRules = await loadTempRules(config.activeId);

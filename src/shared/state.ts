@@ -41,7 +41,31 @@ const RULE_TYPE_SET: Record<RuleType, true> = {
   time: true,
 };
 function isRuleType(t: unknown): t is RuleType {
-  return typeof t === 'string' && t in RULE_TYPE_SET;
+  // Object.hasOwn, not `in`: `in` walks the prototype chain, so "toString",
+  // "constructor", "__proto__" etc. would validate as rule types, survive
+  // sanitization, and make compileRule return undefined — which throws in
+  // compilePac/resolveRoute and silently leaves the proxy unapplied.
+  return typeof t === 'string' && Object.hasOwn(RULE_TYPE_SET, t);
+}
+
+/**
+ * A proxy host is embedded into a PAC directive ("SOCKS5 host:port") and a
+ * fixed_servers rule. Strip anything that could break out of that directive: a
+ * ';' would splice an extra proxy into the fallback chain, and whitespace or a
+ * slash is never valid in a bare host. Everything from the first offending
+ * character on is dropped. An empty result is surfaced at apply time, not here.
+ */
+export function sanitizeHost(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  return raw.trim().split(/[\s;/\\]/)[0] ?? '';
+}
+
+/** UI-side validator for the proxy Host field. Returns an error or null. */
+export function proxyHostError(host: string): string | null {
+  const h = host.trim();
+  if (!h) return 'Host is required';
+  if (h !== sanitizeHost(h)) return 'Host cannot contain spaces, ";" or "/"';
+  return null;
 }
 
 // Same compiler-enforced pattern for schemes: a new ProxyScheme fails to build
@@ -239,7 +263,7 @@ function sanitizeProfile(raw: unknown): Profile | null {
         kind: 'proxy',
         ...base,
         scheme,
-        host: typeof o.host === 'string' ? o.host.trim() : '',
+        host: sanitizeHost(o.host),
         port: Number.isInteger(port) && port >= 1 && port <= 65535 ? port : 1080,
         // Credentials only apply to http/https; drop them otherwise.
         username: schemeSupportsAuth(scheme) ? username : undefined,
