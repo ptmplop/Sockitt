@@ -47,7 +47,10 @@ body {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  padding: 26px 18px;
+  /* Tighter bottom padding: the footer (divider + links) is pinned to the
+     bottom via .tools margin-top:auto, so a large bottom pad just wastes space
+     under the links. Keep the roomier top pad for the brand. */
+  padding: 26px 18px 14px;
   background: linear-gradient(180deg, #161b26, #0f131b);
   border-right: 1px solid rgba(0, 0, 0, 0.18);
   box-shadow: 1px 0 0 rgba(255, 255, 255, 0.04) inset;
