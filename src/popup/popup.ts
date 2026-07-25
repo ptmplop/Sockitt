@@ -291,11 +291,15 @@ function exitLine(): HTMLElement | null {
   if (!config.settings.exitIpCheck) return null;
   const okLine = (info: ExitInfo, cls: string): HTMLElement => {
     const flag = flagEmoji(info.iso);
-    return el(
-      'span',
-      { class: cls, title: info.country ?? '' },
-      `exit ${info.ip}${flag ? ` ${flag}` : ''} · ${info.ms} ms`
-    );
+    // Lead with where the world sees this route exit — flag + country name —
+    // instead of burying the country in a tooltip. No geo? Keep the plain form.
+    // The tooltip still carries the full IP + country so a truncated line (long
+    // IPv6, long country name) never hides either.
+    const text = info.country
+      ? `${flag ? `${flag} ` : ''}${info.country} · ${info.ip} · ${info.ms} ms`
+      : `exit ${info.ip} · ${info.ms} ms`;
+    const title = `exit ${info.ip}${info.country ? ` · ${info.country}` : ''}`;
+    return el('span', { class: cls, title }, text);
   };
   switch (exit.phase) {
     case 'idle':
