@@ -237,7 +237,10 @@ button.exit-enable:focus-visible { outline: none; box-shadow: var(--ring); borde
   scrollbar-gutter: stable;
 }
 
-.this-site-head { display: flex; align-items: baseline; gap: 10px; }
+/* Stacked: the label is an eyebrow, the host sits on its own full-width line
+   below it so the whole pane (~383px, ~48 mono chars) is available — real
+   hostnames show in full instead of clipping to fit beside the label. */
+.this-site-head { display: flex; flex-direction: column; align-items: stretch; gap: 5px; }
 .ts-label {
   display: flex;
   align-items: center;
@@ -254,9 +257,8 @@ button.exit-enable:focus-visible { outline: none; box-shadow: var(--ring); borde
   font-size: 13px;
   font-weight: 600;
   color: var(--text);
-  margin-left: auto;
-  max-width: 62%;
-  direction: rtl; /* clip the boring head, keep the meaningful tail */
+  max-width: 100%;
+  direction: rtl; /* on the rare over-long host, clip the boring head, keep the meaningful tail */
   text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
