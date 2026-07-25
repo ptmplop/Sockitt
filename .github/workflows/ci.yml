@@ -13,8 +13,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -22,12 +22,15 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run zip
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: sockitt
           path: sockitt.zip
       - name: Attach zip to release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        # Third-party action pinned to an immutable commit SHA (a mutable major
+        # tag could be retagged to malicious code and would run with the
+        # workflow's write token). Update the SHA + comment together on bumps.
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           files: sockitt.zip
