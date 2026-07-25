@@ -51,8 +51,9 @@ script.
   all by editing the alias once.
 - **Popup switcher.** Change profile in one click, see where the current tab
   routes, edit the matching rule inline, or set a temporary per-site override
-  that lasts only until the browser restarts. An exit-IP line shows the IP,
-  country, and latency your traffic actually exits with after every switch.
+  that lasts only until the browser restarts. An optional exit-IP line (off by
+  default) shows where the current tab actually exits — flag, country, IP, and
+  latency.
 - **Route inspector.** Trace any URL through your configuration with the same
   resolver real routing uses — which rule fired, the chain it walked, where it
   landed.
@@ -108,8 +109,9 @@ See [docs/rules.md](docs/rules.md) for the full pattern syntax and
 By default Sockitt requests four permissions - `proxy`, `storage`, `activeTab`,
 and `alarms` - and **no host permissions**. It cannot read your browsing
 history, does not touch page content, and contains no analytics of any kind.
-The only network requests it makes are fetches of rule-list URLs that you
-configure.
+By default the only network requests it makes are fetches of rule-list URLs that
+you configure; enabling IP address lookups (opt-in, below) adds lookups of
+`ipconfig.is`.
 
 Extra capabilities are strictly opt-in and requested only when you use them:
 
@@ -117,9 +119,9 @@ Extra capabilities are strictly opt-in and requested only when you use them:
 - **HTTP/HTTPS proxy authentication** requests `webRequest`,
   `webRequestAuthProvider`, and all-sites access, which Chromium needs to answer
   proxy auth challenges. Sockitt asks when you set credentials.
-- **Exit-IP check / connection tests** request access to `ipconfig.is`, the
-  IP-echo service they query. Asked the first time either feature is used; the
-  popup check can be disabled in Settings.
+- **IP address lookups** - the popup's exit-IP line and connection tests -
+  request access to `ipconfig.is`, the IP-echo service they query. Off by
+  default; enable them with one setting, which asks for access the first time.
 - **Sync** stores your configuration in your own browser account
   (`chrome.storage.sync`). Proxy credentials are never synced; enter them on
   each machine.

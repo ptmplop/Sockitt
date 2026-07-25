@@ -213,7 +213,7 @@ function buildDocsPanel(): HTMLElement {
       terms([
         ['Guard proxy control', ['If another extension takes over the browser’s proxy settings, Sockitt re-applies its own (at most once every 30 seconds).']],
         ['Per-tab route badge', ['Shows which profile the current tab routes through as a small badge on the toolbar icon. Requires the optional ', code('tabs'), ' permission, which is requested when you enable it.']],
-        ['IP address lookups (ipconfig.is)', ['The master switch for everything that contacts ', code('ipconfig.is'), ' — the popup’s exit-IP readout and the connection test. Off by default: Sockitt never reaches ', code('ipconfig.is'), ' until you turn it on (which requests access to it), and turning it off disables both. Off = no lookups at all.']],
+        ['IP address lookups', ['The master switch for everything that contacts ', code('ipconfig.is'), ' — the popup’s exit-IP readout and the connection test. Off by default: Sockitt never reaches ', code('ipconfig.is'), ' until you turn it on (which requests access to it), and turning it off disables both. Off = no lookups at all.']],
         ['Quick-added rules go to the bottom', ['Rules added from the popup are appended below existing rules. Turn off to give them top priority instead.']],
         ['Confirm before deleting', ['Ask for confirmation before a profile is deleted or everything is reset.']],
       ]),
