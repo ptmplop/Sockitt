@@ -100,30 +100,6 @@ async function runExitCheck(): Promise<void> {
 }
 
 /**
- * Dim the exit readout to a re-check state (the last value stays visible) the
- * moment a route change lands, so an edit gives the same feedback a profile
- * switch does. The actual re-fetch is driven by runExitCheck once it fires.
- */
-function markExitRechecking(): void {
-  if (!config.settings.exitIpCheck || exit.phase !== 'ok') return;
-  exitSeq++; // invalidate any in-flight check so it can't overwrite the new one
-  exit = { phase: 'checking' };
-}
-
-/**
- * Refresh the exit readout after a this-tab route edit (override / rule / bypass).
- * Driven from the popup so it never depends solely on the worker's APPLIED_KEY
- * signal — which lands late or not at all when the service worker was asleep, the
- * reason the readout refreshed only sometimes. The debounced fetch still rides the
- * new route: APPLIED_KEY, when it does arrive, resets the very same timer.
- */
-function refreshExitAfterEdit(): void {
-  markExitRechecking();
-  updateExitLine();
-  scheduleExitCheck();
-}
-
-/**
  * Patch the exit line in place. A full render() here would land mid-user-
  * interaction (checks resolve seconds after open) and destroy open dropdowns.
  */
@@ -175,14 +151,7 @@ async function init(): Promise<void> {
   render();
   void maybeCheckExit();
   chrome.storage.onChanged.addListener((changes, area) => {
-    // Any applied route change — switch, this-tab override/rule/bypass, sync,
-    // scheduled rule-list refresh — should refresh the readout. Show the
-    // re-check at once, then re-fetch (debounced) over the newly applied route.
-    if (area === 'session' && changes[APPLIED_KEY]) {
-      markExitRechecking();
-      updateExitLine();
-      scheduleExitCheck();
-    }
+    if (area === 'session' && changes[APPLIED_KEY]) scheduleExitCheck();
   });
 }
 
@@ -194,7 +163,10 @@ async function setActive(id: string): Promise<void> {
   await loadOverride(id);
   // Recheck the exit IP for the new route, but keep the previous reading shown
   // dimmed (lastExit) rather than blanking to "checking…".
-  markExitRechecking();
+  if (config.settings.exitIpCheck && exit.phase === 'ok') {
+    exitSeq++; // invalidate any in-flight check
+    exit = { phase: 'checking' };
+  }
   await saveConfig(config);
   render();
   wiggleSock();
@@ -219,7 +191,6 @@ async function setOverride(profileId: string, rule: SwitchRule | null): Promise<
   tempRules = rule ? [rule] : [];
   await requestTabReload();
   await saveTempRules(profileId, tempRules);
-  refreshExitAfterEdit();
 }
 
 /**
@@ -502,7 +473,6 @@ function proxyBypassControl(profile: ProxyProfile, host: string, matchUrl: strin
             void saveConfig(config);
             toast('Bypass removed');
             render();
-            refreshExitAfterEdit();
           },
         })
       )
@@ -537,7 +507,6 @@ function proxyBypassControl(profile: ProxyProfile, host: string, matchUrl: strin
             void saveConfig(config);
             toast(`Bypassing ${host}`);
             render();
-            refreshExitAfterEdit();
           },
         },
         'Send this site direct'
@@ -598,7 +567,6 @@ function siteRuleCard(active: SwitchProfile): HTMLElement {
       await requestTabReload();
       await saveConfig(config);
       render();
-      refreshExitAfterEdit();
     });
     sel.disabled = overridesThisSite;
     ruleField = el(
@@ -629,7 +597,6 @@ function siteRuleCard(active: SwitchProfile): HTMLElement {
           await saveConfig(config);
           toast('Rule added');
           render();
-          refreshExitAfterEdit();
         },
       },
       'Add rule'
