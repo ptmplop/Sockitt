@@ -1216,8 +1216,8 @@ function settingsPanel(): HTMLElement {
         }
       ),
       toggleRow(
-        'IP address lookups (ipconfig.is)',
-        'The only thing that contacts ipconfig.is: the popup’s exit-IP readout (flag, country, IP under the active tab) and the proxy connection test. Off by default — Sockitt never reaches ipconfig.is until you turn this on, and turning it off disables both. Enabling asks for access to ipconfig.is.',
+        'IP address lookups',
+        'The popup’s exit-IP readout — the flag, country, and IP shown under the active tab — and the proxy connection test. Off by default: both stay off until you turn this on, and turning it off disables them. Enabling asks for the network access it needs.',
         s.exitIpCheck,
         async (v) => {
           if (v && !(await ensureExitIpPermission())) {
