@@ -50,7 +50,7 @@ body {
   /* Tighter bottom padding: the footer (divider + links) is pinned to the
      bottom via .tools margin-top:auto, so a large bottom pad just wastes space
      under the links. Keep the roomier top pad for the brand. */
-  padding: 26px 18px 14px;
+  padding: 26px 18px 10px;
   background: linear-gradient(180deg, #161b26, #0f131b);
   border-right: 1px solid rgba(0, 0, 0, 0.18);
   box-shadow: 1px 0 0 rgba(255, 255, 255, 0.04) inset;
@@ -124,25 +124,28 @@ body {
 .side-footer {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding-top: 10px;
+  gap: 1px;
+  /* Pull the tools above closer to the divider (trims the 16px parent gap to
+     ~8px) and keep the line-to-links space tight — a compact bottom cluster. */
+  margin-top: -8px;
+  padding-top: 8px;
   border-top: 1px solid var(--border);
 }
 .side-link {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 8px;
+  gap: 7px;
+  padding: 5px 8px;
   border-radius: var(--radius-sm);
   color: var(--text-dim);
   text-decoration: none;
   font-weight: 600;
-  font-size: 12.5px;
+  font-size: 12px;
   transition: color 0.13s, background 0.13s;
 }
 .side-link:hover { color: var(--text); background: var(--surface-hover); }
 .side-link:focus-visible { outline: none; box-shadow: var(--ring); }
-.side-link svg { flex: none; }
+.side-link svg { flex: none; width: 14px; height: 14px; }
 .side-link.ipcheck:hover { color: var(--accent-2); }
 
 /* ---- editor pane ---- */
