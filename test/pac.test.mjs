@@ -210,6 +210,21 @@ test('temp rules take priority over permanent rules and reach parity', () => {
   assert.equal(route.ruleId, 'tmp');
 });
 
+test('probe override reroutes only the given host, leaving all other traffic normal', () => {
+  const profile = sw('sw1', [rule('r', 'hostWildcard', '*.example.com', 'p1')], 'direct');
+  const config = makeConfig([P1, P2, profile], 'sw1');
+  // Tab exits via p2; send only ipconfig.is through p2, everything else untouched.
+  const pac = lib.compilePac(config, profile, [], { host: 'ipconfig.is', directive: SOCKS_P2 });
+  assert.equal(runPac(pac, 'https://ipconfig.is/json', 'ipconfig.is'), SOCKS_P2); // overridden host
+  assert.equal(runPac(pac, 'https://ipconfig.is/json', 'IpConfig.Is'), SOCKS_P2); // case-insensitive
+  assert.equal(runPac(pac, 'https://www.example.com/', 'www.example.com'), SOCKS_P1); // normal rule intact
+  assert.equal(runPac(pac, 'https://other.test/', 'other.test'), 'DIRECT'); // normal default intact
+  // A direct-exit tab overrides ipconfig.is to DIRECT without touching the rest.
+  const pacDirect = lib.compilePac(config, profile, [], { host: 'ipconfig.is', directive: 'DIRECT' });
+  assert.equal(runPac(pacDirect, 'https://ipconfig.is/json', 'ipconfig.is'), 'DIRECT');
+  assert.equal(runPac(pacDirect, 'https://www.example.com/', 'www.example.com'), SOCKS_P1);
+});
+
 /* ---------------- rule lists ---------------- */
 
 const AUTOPROXY_TEXT = [

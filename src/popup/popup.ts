@@ -1,11 +1,13 @@
 import { avatarEl, builtinTile, textColorFor } from '../shared/avatar';
-import { EXIT_IP_PERMS, checkExitIp, flagSrc } from '../shared/exitip';
+import { EXIT_IP_PERMS, EXIT_IP_URL, checkExitIp, flagSrc } from '../shared/exitip';
 import { compileRule, pacRequestUrl, resolveRoute, testBypass, testCondition } from '../shared/match';
 import { parseRuleList } from '../shared/rulelist';
 import {
   APPLIED_KEY,
   ERROR_KEY,
   RELOAD_KEY,
+  TAB_EXIT_KEY,
+  TAB_EXIT_RESULT_KEY,
   loadConfig,
   loadTempRules,
   saveConfig,
@@ -67,6 +69,85 @@ let exitTimer: ReturnType<typeof setTimeout> | undefined;
 let exitSeq = 0;
 /** Last good reading — shown dimmed during a recheck so the line never blanks. */
 let lastExit: ExitInfo | null = null;
+/** Matches a tab-exit probe request to its worker response. */
+let probeNonce = 0;
+
+const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+/** Route key for equality: DIRECT and bypassed collapse together, else proxy id. */
+function routeKey(r: { targetId: string; bypassed?: boolean }): string {
+  return r.bypassed || r.targetId === DIRECT ? DIRECT : r.targetId;
+}
+
+/**
+ * True when the current tab exits differently from how the exit-IP host is
+ * routed — so a plain lookup would report the wrong exit and the tab's own route
+ * must be probed. Direct/System always route the two the same, so those (and a
+ * matching route) take the cheaper plain lookup.
+ */
+function tabNeedsProbe(active: Profile): boolean {
+  if (!tab) return false;
+  const exitHost = new URL(EXIT_IP_URL).hostname;
+  const tabRoute = resolveRoute(config, active, pacRequestUrl(tab.url), tab.host, tempRules);
+  const exitRoute = resolveRoute(config, active, pacRequestUrl(EXIT_IP_URL), exitHost, tempRules);
+  return routeKey(tabRoute) !== routeKey(exitRoute);
+}
+
+/** One tab-exit probe round-trip to the worker; resolves with its raw response. */
+function sendTabExitProbe(tabUrl: string, tabHost: string, timeoutMs: number): Promise<Record<string, unknown>> {
+  return new Promise((resolve) => {
+    const nonce = ++probeNonce;
+    const listener = (changes: Record<string, chrome.storage.StorageChange>, area: string): void => {
+      if (area !== 'session' || !changes[TAB_EXIT_RESULT_KEY]) return;
+      const r = changes[TAB_EXIT_RESULT_KEY].newValue as Record<string, unknown> | undefined;
+      if (r && r.nonce === nonce) finish(r);
+    };
+    const timer = setTimeout(() => finish({ ok: false, error: 'timed out' }), timeoutMs);
+    const finish = (r: Record<string, unknown>): void => {
+      clearTimeout(timer);
+      chrome.storage.onChanged.removeListener(listener);
+      resolve(r);
+    };
+    chrome.storage.onChanged.addListener(listener);
+    void chrome.storage.session
+      .set({ [TAB_EXIT_KEY]: { nonce, tabUrl, tabHost } })
+      .catch(() => finish({ ok: false, error: 'send failed' }));
+  });
+}
+
+/**
+ * Probe where the tab exits, retrying briefly while the worker holds a test.
+ * `stillCurrent` stops the retry loop once a newer check supersedes this one, so
+ * a superseded probe can't keep churning the proxy.
+ */
+async function probeTabExit(tabUrl: string, tabHost: string, stillCurrent: () => boolean): Promise<ExitInfo> {
+  const deadline = Date.now() + 12_000;
+  for (;;) {
+    // Bail before touching the worker if a newer check already superseded this
+    // one — a probe churns the proxy, so a doomed one shouldn't even start.
+    if (!stillCurrent()) throw new Error('superseded');
+    const r = await sendTabExitProbe(tabUrl, tabHost, Math.max(1500, deadline - Date.now()));
+    if (r.ok && typeof r.ip === 'string') {
+      return { ip: r.ip, iso: r.iso as string | undefined, country: r.country as string | undefined, ms: Number(r.ms) };
+    }
+    if (r.error === 'busy' && Date.now() < deadline) {
+      await delay(350);
+      continue;
+    }
+    throw new Error(typeof r.error === 'string' ? r.error : 'probe failed');
+  }
+}
+
+/**
+ * Where the CURRENT TAB exits. When the tab routes the same as the exit-IP host
+ * (plain proxy, or both Direct), a plain lookup already reports it; when they
+ * differ (an override/rule sends the tab elsewhere), probe the tab's own route.
+ */
+async function fetchTabExit(stillCurrent: () => boolean): Promise<ExitInfo> {
+  const active = config.profiles.find((p) => p.id === config.activeId);
+  if (!tab || !active || !tabNeedsProbe(active)) return checkExitIp(6000);
+  return probeTabExit(tab.url, tab.host, stillCurrent);
+}
 
 async function maybeCheckExit(): Promise<void> {
   if (!config.settings.exitIpCheck) {
@@ -88,7 +169,7 @@ async function runExitCheck(): Promise<void> {
   exit = { phase: 'checking' };
   updateExitLine();
   try {
-    const info = await checkExitIp(6000);
+    const info = await fetchTabExit(() => seq === exitSeq);
     if (seq !== exitSeq) return;
     exit = { phase: 'ok', ...info };
     lastExit = info;
@@ -191,6 +272,7 @@ async function setOverride(profileId: string, rule: SwitchRule | null): Promise<
   tempRules = rule ? [rule] : [];
   await requestTabReload();
   await saveTempRules(profileId, tempRules);
+  scheduleExitCheck(); // the tab's route just changed — re-probe where it exits
 }
 
 /**
@@ -473,6 +555,7 @@ function proxyBypassControl(profile: ProxyProfile, host: string, matchUrl: strin
             void saveConfig(config);
             toast('Bypass removed');
             render();
+            scheduleExitCheck();
           },
         })
       )
@@ -507,6 +590,7 @@ function proxyBypassControl(profile: ProxyProfile, host: string, matchUrl: strin
             void saveConfig(config);
             toast(`Bypassing ${host}`);
             render();
+            scheduleExitCheck();
           },
         },
         'Send this site direct'
@@ -567,6 +651,7 @@ function siteRuleCard(active: SwitchProfile): HTMLElement {
       await requestTabReload();
       await saveConfig(config);
       render();
+      scheduleExitCheck();
     });
     sel.disabled = overridesThisSite;
     ruleField = el(
@@ -597,6 +682,7 @@ function siteRuleCard(active: SwitchProfile): HTMLElement {
           await saveConfig(config);
           toast('Rule added');
           render();
+          scheduleExitCheck();
         },
       },
       'Add rule'

@@ -26,6 +26,10 @@ export const APPLIED_KEY = 'sockitt-applied';
 export const TEST_KEY = 'sockitt-test';
 /** Proxy-test response (worker → options page). */
 export const TEST_RESULT_KEY = 'sockitt-test-result';
+/** Tab-exit probe request (popup → worker): probe where the current tab exits. */
+export const TAB_EXIT_KEY = 'sockitt-tab-exit';
+/** Tab-exit probe response (worker → popup). */
+export const TAB_EXIT_RESULT_KEY = 'sockitt-tab-exit-result';
 /** Set by the popup when a this-tab override/rule change should reload the tab
  *  once the worker has applied the new route (consumed by applyActive). */
 export const RELOAD_KEY = 'sockitt-reload';

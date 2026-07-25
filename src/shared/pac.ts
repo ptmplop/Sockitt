@@ -29,7 +29,18 @@ export function pacDirective(scheme: ProxyScheme, host: string, port: number): s
 /** Prefix for rule-list dictionary keys — see emitBuckets. */
 const DK = '$';
 
-export function compilePac(config: Config, root: Profile, tempRules: SwitchRule[] = []): string {
+export function compilePac(
+  config: Config,
+  root: Profile,
+  tempRules: SwitchRule[] = [],
+  /**
+   * Probe override: force one host to a fixed PAC directive, leaving every other
+   * host on the normal route. Used by the tab-exit probe to send only the exit-IP
+   * lookup through the current tab's proxy without disturbing any other traffic.
+   * `host` must be lower-case (compared against the lower-cased request host).
+   */
+  probe?: { host: string; directive: string }
+): string {
   const regexes: string[] = [];
   const tables: string[] = []; // dict/array literals for rule-list buckets
   const bodies: string[] = [];
@@ -259,6 +270,10 @@ export function compilePac(config: Config, root: Profile, tempRules: SwitchRule[
       ? 'var n=new Date();wd=1<<n.getDay();mins=n.getHours()*60+n.getMinutes();'
       : '');
 
+  // Emitted right after `h` is computed, so the override host short-circuits to
+  // its fixed directive and every other host falls through to the normal route.
+  const probeClause = probe ? `if(h===${J(probe.host)})return ${J(probe.directive)};` : '';
+
   return [
     `/* Sockitt: ${root.name.replace(/[/*\r\n]+/g, ' ')} */`,
     `var R=[${regexes.map(regexLiteral).join(',')}];`,
@@ -266,7 +281,7 @@ export function compilePac(config: Config, root: Profile, tempRules: SwitchRule[
     ...helpers,
     ...tables,
     ...bodies,
-    `function FindProxyForURL(url,host){${perRequest}${rootStmt}}`,
+    `function FindProxyForURL(url,host){${perRequest}${probeClause}${rootStmt}}`,
   ].join('\n');
 }
 

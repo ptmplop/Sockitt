@@ -1,10 +1,12 @@
 import { initialsFor, textColorFor } from './shared/avatar';
 import { pacRequestUrl, resolveRoute } from './shared/match';
-import { compilePac, fixedServersValue, staticTerminal } from './shared/pac';
+import { compilePac, fixedServersValue, pacDirective, staticTerminal } from './shared/pac';
 import {
   APPLIED_KEY,
   ERROR_KEY,
   RELOAD_KEY,
+  TAB_EXIT_KEY,
+  TAB_EXIT_RESULT_KEY,
   TEST_KEY,
   TEST_RESULT_KEY,
   loadConfig,
@@ -14,7 +16,7 @@ import {
   saveConfig,
   saveConfigRaw,
 } from './shared/state';
-import { checkExitIp } from './shared/exitip';
+import { EXIT_IP_URL, checkExitIp } from './shared/exitip';
 import { applyFromSync, onSyncChanged, pullFromSync, pushToSync } from './shared/sync';
 import {
   Config,
@@ -110,15 +112,21 @@ async function recordApplyError(e: unknown): Promise<void> {
   ]);
 }
 
-async function applyActive(): Promise<void> {
+/**
+ * `signal` (default true) writes APPLIED_KEY so open UI re-checks the route.
+ * A tab-exit probe restores the route with signal:false — it returns to the
+ * pre-probe route, so it's not a change; signalling would make the popup
+ * re-check → re-probe → restore → signal … in an endless proxy-churn loop.
+ */
+async function applyActive(signal = true): Promise<void> {
   try {
-    await applyActiveInner();
+    await applyActiveInner(signal);
   } catch (e) {
     await recordApplyError(e);
   }
 }
 
-async function applyActiveInner(): Promise<void> {
+async function applyActiveInner(signal = true): Promise<void> {
   const config = await loadConfig();
   cachedConfig = config;
   const tempRules = await loadTempRules(config.activeId);
@@ -132,7 +140,9 @@ async function applyActiveInner(): Promise<void> {
   // triggers rides the NEW route, never the one being replaced.
   await Promise.all([
     chrome.storage.session.remove(ERROR_KEY),
-    chrome.storage.session.set({ [APPLIED_KEY]: { activeId: config.activeId, at: Date.now() } }),
+    signal
+      ? chrome.storage.session.set({ [APPLIED_KEY]: { activeId: config.activeId, at: Date.now() } })
+      : Promise.resolve(),
     chrome.action.setBadgeText({ text: '' }),
     chrome.action.setTitle({ title: `Sockitt — ${label}` }),
     paintIcon(profile),
@@ -405,6 +415,75 @@ async function runProxyTest(req: {
   }
 }
 
+/** PAC return directive for a resolved route: the terminal proxy's, or DIRECT. */
+function probeDirectiveFor(config: Config, route: { targetId: string; bypassed?: boolean }): string {
+  if (route.bypassed || route.targetId === DIRECT) return 'DIRECT';
+  const t = profileById(config, route.targetId);
+  return t && t.kind === 'proxy' ? pacDirective(t.scheme, t.host, t.port) : 'DIRECT';
+}
+
+/**
+ * Probe where the CURRENT TAB exits: send only the exit-IP lookup through the
+ * tab's resolved proxy via a targeted PAC (every other host keeps its normal
+ * route, so nothing the user is browsing is disturbed), measure it, then restore
+ * the real config. Reuses runProxyTest's concurrency contract — one probe/test at
+ * a time (testInFlight), proxy errors suppressed across the window, and the real
+ * route restored in the finally even if the fetch throws.
+ */
+async function runTabExitProbe(req: { nonce: number; tabUrl: string; tabHost: string }): Promise<void> {
+  const respond = (r: Record<string, unknown>) =>
+    chrome.storage.session.set({ [TAB_EXIT_RESULT_KEY]: { nonce: req.nonce, ...r } }).catch(() => undefined);
+  if (testInFlight) {
+    // A test/probe holds the proxy; the popup retries 'busy' shortly.
+    await respond({ ok: false, error: 'busy' });
+    return;
+  }
+  testInFlight = true;
+  suppressProxyErrorsUntil = Date.now() + 12_000;
+  const result: Record<string, unknown> = { ok: false };
+  try {
+    const config = await loadConfig();
+    const active = profileById(config, config.activeId);
+    // DIRECT / System / no active profile can't be probed with a targeted PAC —
+    // the popup handles those with a plain (passive) lookup and never asks here.
+    if (!active) throw new Error('active profile does not route');
+    const tempRules = await loadTempRules(config.activeId);
+    const route = resolveRoute(config, active, pacRequestUrl(req.tabUrl), req.tabHost, tempRules);
+    const directive = probeDirectiveFor(config, route);
+    const exitHost = new URL(EXIT_IP_URL).hostname;
+    await chrome.storage.session.set({ [TESTING_KEY]: true });
+    await chrome.proxy.settings.set({
+      value: {
+        mode: 'pac_script',
+        pacScript: { data: compilePac(config, active, tempRules, { host: exitHost, directive }), mandatory: true },
+      },
+      scope: 'regular',
+    });
+    const applied = await chrome.proxy.settings.get({});
+    if (applied.levelOfControl === 'controlled_by_other_extensions') {
+      throw new Error('another extension controls the proxy settings');
+    }
+    const info = await checkExitIp(8000);
+    Object.assign(result, { ok: true, targetId: route.bypassed ? DIRECT : route.targetId, ...info });
+  } catch (e) {
+    result.error = e instanceof Error ? e.message : String(e);
+  } finally {
+    // Restore the real route. Signal only when a genuine change landed during
+    // the probe (pending) — the restore itself returns to the pre-probe route,
+    // and signalling that would make the popup re-check → re-probe → restore →
+    // signal in an endless loop. `pending` is false on the no-change (loop)
+    // path, so that path stays silent; a real change still re-checks normally.
+    suppressProxyErrorsUntil = Date.now() + 3000;
+    const pending = reapplyAfterTest;
+    reapplyAfterTest = false;
+    await applyActive(pending).catch(() => undefined);
+    await chrome.storage.session.remove(TESTING_KEY).catch(() => undefined);
+    testInFlight = false;
+    if (reapplyAfterTest) void applyActive();
+  }
+  await respond(result);
+}
+
 async function reloadActiveTab(): Promise<void> {
   try {
     const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
@@ -594,7 +673,7 @@ void loadConfig().then(applyIncognito).catch(() => undefined);
 // data on wake-up. applyActive's own pushToSync is a no-op right after a pull
 // (rev already matches), so no echo.
 chrome.runtime.onInstalled.addListener(() => {
-  void maybePullSync().then(applyActive);
+  void maybePullSync().then(() => applyActive());
 });
 
 chrome.runtime.onStartup.addListener(() => {
@@ -632,6 +711,16 @@ chrome.storage.onChanged.addListener((changes, area) => {
       host: typeof req.host === 'string' ? req.host : undefined,
       port: typeof req.port === 'number' ? req.port : undefined,
     });
+  }
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'session' || !changes[TAB_EXIT_KEY]) return;
+  const req = changes[TAB_EXIT_KEY].newValue as
+    | { nonce?: unknown; tabUrl?: unknown; tabHost?: unknown }
+    | undefined;
+  if (req && typeof req.nonce === 'number' && typeof req.tabUrl === 'string' && typeof req.tabHost === 'string') {
+    void runTabExitProbe({ nonce: req.nonce, tabUrl: req.tabUrl, tabHost: req.tabHost });
   }
 });
 
