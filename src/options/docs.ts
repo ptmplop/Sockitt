@@ -77,7 +77,7 @@ function buildDocsPanel(): HTMLElement {
         ', pick which one is active from the toolbar popup, and (with an Auto Switch profile) let rules decide per site whether a request goes direct or through a proxy.'
       ),
       p(
-        'Everything is stored locally in the browser. The only network requests Sockitt makes on its own are fetches of rule-list URLs that you configure, and — when you enable the exit-IP check or run a connection test — lookups of ', code('ipconfig.is'), ' to show where your traffic exits.'
+        'Everything is stored locally in the browser. The only network requests Sockitt makes on its own are fetches of rule-list URLs that you configure, and — only if you turn on IP address lookups (off by default) — lookups of ', code('ipconfig.is'), ' for the popup readout and connection tests, which show where your traffic exits.'
       )
     ),
 
@@ -186,7 +186,7 @@ function buildDocsPanel(): HTMLElement {
       terms([
         ['Rule', ['Shows the rule that currently matches this site and lets you change its target inline, or add a ', code('*.host'), ' rule if none exists.']],
         ['Override', ['A single, always-temporary rule for the current site. It takes priority over permanent rules and is cleared when the browser restarts (or when you remove it). While an override is set for the site you are on, its matching rule is greyed out.']],
-        ['Exit IP', ['A small line under the active profile showing where traffic actually exits — IP, country, and lookup latency — checked when the popup opens and after every switch. Uses ', code('ipconfig.is'), '; turn it off in Settings if you prefer no lookups.']],
+        ['Exit IP', ['A small line under the active profile showing where the current tab actually exits — flag, country, IP, and lookup latency. Uses ', code('ipconfig.is'), ' and is off by default; turn on IP address lookups in Settings to use it.']],
       ]),
       p('The footer’s ', code('Manage profiles & rules'), ' opens this options page.')
     ),
@@ -195,7 +195,7 @@ function buildDocsPanel(): HTMLElement {
       'Testing and inspection',
       terms([
         ['Route inspector', ['The sidebar’s ', code('Route inspector'), ' page traces any URL through your configuration with the same resolver real routing uses: which rule fired (including the popup override), the chain it walked through aliases and rule lists, and the proxy it landed on.']],
-        ['Connection test', ['Every proxy editor has a ', code('Test connection'), ' button. It briefly routes your browsing through that proxy, fetches ', code('ipconfig.is'), ' to capture the exit IP, country, and latency, then restores your configuration — auth included, so wrong credentials show up here too.']],
+        ['Connection test', ['Every proxy editor has a ', code('Test connection'), ' button. It briefly routes your browsing through that proxy, fetches ', code('ipconfig.is'), ' to capture the exit IP, country, and latency, then restores your configuration — auth included, so wrong credentials show up here too. It’s an ', code('ipconfig.is'), ' lookup, so it needs IP address lookups turned on in Settings (off by default).']],
         ['Health dots', ['After a test, the proxy shows a dot in the sidebar: green if it connected, red if it failed. Hover for the exit IP, country, and latency. Dots reset when the browser restarts.']],
       ])
     ),
@@ -213,7 +213,7 @@ function buildDocsPanel(): HTMLElement {
       terms([
         ['Guard proxy control', ['If another extension takes over the browser’s proxy settings, Sockitt re-applies its own (at most once every 30 seconds).']],
         ['Per-tab route badge', ['Shows which profile the current tab routes through as a small badge on the toolbar icon. Requires the optional ', code('tabs'), ' permission, which is requested when you enable it.']],
-        ['Show exit IP in popup', ['Fetches ', code('ipconfig.is'), ' after each switch to show the exit IP, country, and latency in the popup. Needs access to ', code('ipconfig.is'), ', requested when you turn it on. Off = no lookups at all.']],
+        ['IP address lookups (ipconfig.is)', ['The master switch for everything that contacts ', code('ipconfig.is'), ' — the popup’s exit-IP readout and the connection test. Off by default: Sockitt never reaches ', code('ipconfig.is'), ' until you turn it on (which requests access to it), and turning it off disables both. Off = no lookups at all.']],
         ['Quick-added rules go to the bottom', ['Rules added from the popup are appended below existing rules. Turn off to give them top priority instead.']],
         ['Confirm before deleting', ['Ask for confirmation before a profile is deleted or everything is reset.']],
       ]),

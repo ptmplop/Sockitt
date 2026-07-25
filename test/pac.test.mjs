@@ -615,11 +615,11 @@ test('sanitize validates the new v4 settings fields', () => {
   cfg.settings.incognitoProfileId = 'no-such-profile';
   assert.equal(lib.sanitizeConfig(cfg).settings.incognitoProfileId, '');
 
-  // Absent fields (pre-v4 config) fall back to defaults.
+  // Absent fields (pre-v4 config) fall back to defaults — IP lookups default OFF.
   delete cfg.settings.exitIpCheck;
   delete cfg.settings.incognitoProfileId;
   const upgraded = lib.sanitizeConfig(cfg);
-  assert.equal(upgraded.settings.exitIpCheck, true);
+  assert.equal(upgraded.settings.exitIpCheck, false);
   assert.equal(upgraded.settings.incognitoProfileId, '');
 });
 

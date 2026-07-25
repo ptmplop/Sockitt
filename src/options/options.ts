@@ -591,13 +591,19 @@ function proxyEditor(profile: ProxyProfile): HTMLElement {
     class: 'note test-result',
     dataset: { profile: profile.id },
   });
+  const ipLookupsOn = config.settings.exitIpCheck;
   const testBtn = el(
     'button',
     {
       class: 'btn test-btn',
+      disabled: !ipLookupsOn, // the test is an ipconfig.is lookup — gated by the master switch
       dataset: { profile: profile.id },
       onclick: async () => {
         testResult.classList.remove('ok', 'bad');
+        if (!config.settings.exitIpCheck) {
+          testResult.textContent = 'Turn on IP address lookups in Settings to test.';
+          return;
+        }
         if (!(await ensureExitIpPermission())) {
           testResult.textContent = 'Needs access to ipconfig.is to run the check.';
           return;
@@ -639,7 +645,9 @@ function proxyEditor(profile: ProxyProfile): HTMLElement {
     el(
       'span',
       { class: 'note' },
-      'Routes your browsing through this proxy for a few seconds to fetch ipconfig.is (exit IP, country, latency), then restores your configuration.'
+      ipLookupsOn
+        ? 'Routes your browsing through this proxy for a few seconds to fetch ipconfig.is (exit IP, country, latency), then restores your configuration.'
+        : 'The connection test uses ipconfig.is — turn on IP address lookups in Settings to enable it.'
     )
   );
 
@@ -1208,8 +1216,8 @@ function settingsPanel(): HTMLElement {
         }
       ),
       toggleRow(
-        'Show exit IP in popup',
-        'When the popup opens and after each switch, fetch ipconfig.is to show where traffic actually exits (IP, country, latency). On by default; the popup asks for access to ipconfig.is the first time it runs. Turn off here to stop all lookups.',
+        'IP address lookups (ipconfig.is)',
+        'The only thing that contacts ipconfig.is: the popup’s exit-IP readout (flag, country, IP under the active tab) and the proxy connection test. Off by default — Sockitt never reaches ipconfig.is until you turn this on, and turning it off disables both. Enabling asks for access to ipconfig.is.',
         s.exitIpCheck,
         async (v) => {
           if (v && !(await ensureExitIpPermission())) {

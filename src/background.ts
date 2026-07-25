@@ -373,6 +373,8 @@ async function runProxyTest(req: {
   const result: Record<string, unknown> = { nonce: req.nonce, profileId: req.profileId, ok: false };
   try {
     const config = await loadConfig();
+    // Master privacy switch: never contact ipconfig.is when the user has it off.
+    if (!config.settings.exitIpCheck) throw new Error('IP lookups are turned off in Settings');
     const profile = profileById(config, req.profileId);
     if (!profile || profile.kind !== 'proxy') throw new Error('profile not found');
     // The request carries the editor's current (possibly unsaved) values so a
@@ -443,6 +445,8 @@ async function runTabExitProbe(req: { nonce: number; tabUrl: string; tabHost: st
   const result: Record<string, unknown> = { ok: false };
   try {
     const config = await loadConfig();
+    // Master privacy switch: never contact ipconfig.is when the user has it off.
+    if (!config.settings.exitIpCheck) throw new Error('IP lookups are turned off in Settings');
     const active = profileById(config, config.activeId);
     // DIRECT / System / no active profile can't be probed with a targeted PAC —
     // the popup handles those with a plain (passive) lookup and never asks here.

@@ -132,7 +132,11 @@ export interface Settings {
   refreshOnSwitch: boolean;
   /** Per-tab badge showing where the tab routes (needs optional "tabs" permission). */
   badgeResult: boolean;
-  /** Show the exit IP/country in the popup (queries ipconfig.is; needs its origin permission). */
+  /**
+   * Master switch for every ipconfig.is lookup: the popup's exit-IP readout AND
+   * the proxy connection test. Off (the default) means Sockitt never contacts
+   * ipconfig.is on its own. Turning it on requests the ipconfig.is origin grant.
+   */
   exitIpCheck: boolean;
   /** Profile for incognito windows; '' follows the regular profile. */
   incognitoProfileId: string;
@@ -193,7 +197,7 @@ export function defaultSettings(): Settings {
     addToBottom: true,
     refreshOnSwitch: false,
     badgeResult: false,
-    exitIpCheck: true,
+    exitIpCheck: false, // privacy default: no ipconfig.is contact until the user opts in
     incognitoProfileId: '',
   };
 }
