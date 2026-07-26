@@ -1568,7 +1568,7 @@ function emptyPane(): HTMLElement {
     { class: 'card hero' },
     el('img', { class: 'mark hero-mark', src: 'img/logo-mark.png', alt: '' }),
     el('h2', {}, 'Route traffic your way'),
-    el('p', {}, 'Create a proxy profile (SOCKS5, SOCKS4, HTTP, or HTTPS), then add an Auto Switch profile to route sites by rule — host wildcards, regex, CIDR blocks, keywords, or time windows.'),
+    el('p', {}, 'Create a proxy profile (SOCKS5, SOCKS4, HTTP, or HTTPS), then add an Auto switch profile to route sites by rule — host wildcards, regex, CIDR blocks, keywords, or time windows.'),
     el(
       'div',
       { class: 'cta' },

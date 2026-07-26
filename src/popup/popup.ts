@@ -665,7 +665,7 @@ function proxyBypassControl(profile: ProxyProfile, host: string, matchUrl: strin
 }
 
 /**
- * The editable per-site card, shown only when an Auto Switch profile is active:
+ * The editable per-site card, shown only when an Auto switch profile is active:
  * a hairline-divided field group — route readout, the matching rule, override.
  */
 function siteRuleCard(active: SwitchProfile): HTMLElement {
@@ -902,7 +902,7 @@ function thisTab(profile: Profile | undefined): (Node | null)[] {
         { class: 'sm-hint' },
         noProfiles
           ? 'No proxies yet — create one on the left, then route this site through it.'
-          : 'Connects directly — no proxy. To route this site, pick an Auto Switch profile on the left.'
+          : 'Connects directly — no proxy. To route this site, pick an Auto switch profile on the left.'
       ),
     ];
   }
@@ -939,7 +939,7 @@ function thisTab(profile: Profile | undefined): (Node | null)[] {
   if (profile.kind === 'proxy') {
     // Route readout + the per-site bypass control share one field-group card.
     const card = el('div', { class: 'card site-mgr' }, routeField(chip, null), proxyBypassControl(profile, host, matchUrl));
-    return [thisTabHead(host), card, el('p', { class: 'sm-hint' }, 'Per-site target routing needs an Auto Switch profile.')];
+    return [thisTabHead(host), card, el('p', { class: 'sm-hint' }, 'Per-site target routing needs an Auto switch profile.')];
   }
   if (profile.kind === 'virtual') {
     return [thisTabHead(host), routeReadout(chip, null), el('p', { class: 'sm-hint' }, 'This alias points at another profile — edit its rules from that profile in Options.')];

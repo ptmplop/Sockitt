@@ -65,9 +65,8 @@ script.
   resolver real routing uses — which rule fired, the chain it walked, where it
   landed.
 - **Connection tests.** One click routes briefly through a proxy, measures the
-  exit IP/country/latency (auth included), restores your configuration, and
-  leaves a green/amber/red health dot in the sidebar. Like the exit-IP line, this
-  uses the opt-in IP address lookups (off by default).
+  exit IP/country/latency (auth included), and restores your configuration. Like
+  the exit-IP line, this uses the opt-in IP address lookups (off by default).
 - **Incognito routing.** Optionally give incognito windows their own profile
   (needs "Allow in Incognito").
 - **Quick switch.** Cycle a chosen set of profiles from the toolbar button or a
