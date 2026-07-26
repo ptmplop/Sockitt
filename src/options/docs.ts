@@ -72,12 +72,27 @@ function buildDocsPanel(): HTMLElement {
     card(
       'What Sockitt does',
       p(
-        'Sockitt routes your browser traffic through proxies. You create ',
+        'Sockitt answers one question for every request your browser makes: does this go straight out to the network, or through a proxy — and if so, which one? You describe the answer once, as ',
         el('em', {}, 'profiles'),
-        ', pick which one is active from the toolbar popup, and (with an Auto Switch profile) let rules decide per site whether a request goes direct or through a proxy.'
+        ', and Sockitt applies it to every request from then on.'
       ),
       p(
-        'Everything is stored locally in the browser. The only network requests Sockitt makes on its own are fetches of rule-list URLs that you configure, and — only if you turn on IP address lookups (off by default) — lookups of ', code('ipconfig.is'), ' for the popup readout and connection tests, which show where your traffic exits.'
+        'A profile is one of six things. ', code('Direct'), ' and ', code('System'), ' are built in and need no setup. A ',
+        code('Proxy'), ' is a single server — SOCKS5, SOCKS4, HTTP, or HTTPS. An ', code('Auto Switch'),
+        ' is an ordered list of rules that picks between the others per request. A ', code('Rule list'),
+        ' does the same from a subscribed AutoProxy/GFWList or Switchy list. An ', code('Alias'),
+        ' is a pointer, so many rules can be retargeted by editing one thing. Exactly one profile is active at a time; you choose it in the toolbar popup, with a keyboard shortcut, or automatically at browser start.'
+      ),
+      p(
+        'Activate a plain proxy and everything goes through it, minus that profile’s bypass list. Activate an Auto Switch and the decision becomes per-request: rules are checked top to bottom, the first match wins, and each one can send the request to a proxy, to Direct, or on to another profile. Because profiles can point at profiles, a large setup stays a graph you edit in one place instead of a rule table you keep rewriting.'
+      ),
+      p(
+        'Anything conditional is compiled into a PAC script that the browser runs for each request, with the work done up front: host wildcards become suffix comparisons, CIDR blocks become a single integer test, and rule-list domains become one dictionary lookup, so a 6,000-entry list costs about what a single rule does. The script is marked ',
+        el('em', {}, 'mandatory'),
+        ' — when a proxy is unreachable its requests fail rather than quietly retrying direct, so a dead proxy can never leak the traffic you meant to route through it.'
+      ),
+      p(
+        'While you browse, the popup shows where the current tab actually lands — which rule decided it and the chain it walked — and lets you add, retarget, delete, or temporarily override that site’s rule without leaving the page.'
       )
     ),
 
@@ -86,9 +101,9 @@ function buildDocsPanel(): HTMLElement {
       el(
         'ol',
         { class: 'doc-list' },
-        el('li', {}, 'Click ', code('New proxy'), ', choose the protocol, and enter the host and port (for example a SOCKS5 ', code('ssh -D 1080 myserver'), ' tunnel on ', code('127.0.0.1:1080'), ', or an HTTP proxy with a username and password).'),
+        el('li', {}, 'In the sidebar under ', code('Create'), ', click ', code('Proxy'), ', choose the protocol, and enter the host and port (for example a SOCKS5 ', code('ssh -D 1080 myserver'), ' tunnel on ', code('127.0.0.1:1080'), ', or an HTTP proxy with a username and password).'),
         el('li', {}, 'Open the toolbar popup and select the profile; all traffic now goes through it.'),
-        el('li', {}, 'For per-site routing, create an ', code('Auto Switch'), ' profile, activate it, and add rules (or add them straight from the popup while browsing).')
+        el('li', {}, 'For per-site routing, create an ', code('Auto switch'), ' profile, activate it, and add rules (or add them straight from the popup while browsing).')
       )
     ),
 
@@ -182,13 +197,15 @@ function buildDocsPanel(): HTMLElement {
 
     card(
       'The toolbar popup',
-      p('Clicking the Sockitt icon opens the popup, where you switch the active profile in one click. When an Auto Switch profile is active, the top section manages the current site:'),
+      p('Clicking the Sockitt icon opens the popup. The left pane switches the active profile in one click (a filter box appears once you have a dozen or more); the right pane is about the tab you are on. What it offers depends on which kind of profile is active:'),
       terms([
-        ['Rule', ['Shows the rule that currently matches this site and lets you change its target inline, or add a ', code('*.host'), ' rule if none exists. The ', code('✕'), ' deletes that rule outright — it is the same rule you would find in the profile’s list here, so a broad pattern like ', code('*.example.com'), ' stops routing every site it covered, not just this one.']],
-        ['Override', ['A single, always-temporary rule for the current site. It takes priority over permanent rules and is cleared when the browser restarts (or when you remove it). While an override is set for the site you are on, its matching rule is greyed out.']],
+        ['Route', ['Always shown, for every profile kind: the profile this tab actually lands on, and a tag saying what decided it — a rule, your override, a bypass entry, the profile’s default, or simply “all traffic” for a plain proxy.']],
+        ['Rule', ['With an Auto Switch profile active: the rule that currently matches this site, whose target you can change inline — or an ', code('Add rule'), ' button offering a ', code('*.host'), ' rule if none matches. The ', code('✕'), ' deletes that rule outright; it is the same rule you would find in the profile’s table here, so deleting a broad pattern like ', code('*.example.com'), ' stops routing every site it covered, not just this one.']],
+        ['Override', ['With an Auto Switch profile active: a single, always-temporary rule for the current site. It takes priority over permanent rules and is cleared when the browser restarts (or when you remove it). While an override is set for the site you are on, its matching rule is greyed out.']],
+        ['Send this site direct', ['With a plain proxy active: adds ', code('*.host'), ' to that proxy’s bypass list, so this one site skips the proxy while everything else keeps using it. The button is replaced by a note if a broader entry (', code('<local>'), ', a parent wildcard, a CIDR block) already sends the host direct, and by a removable chip once added.']],
         ['Exit IP', ['A small line under the active profile showing where the current tab actually exits — flag, IP, and lookup latency, with the country name spelled out in the tooltip. Uses ', code('ipconfig.is'), ' and is off by default; turn on IP address lookups in Settings to use it.']],
       ]),
-      p('The footer’s ', code('Manage profiles & rules'), ' opens this options page.')
+      p('For System, or for a page that is not http(s), the popup says so rather than guessing — Sockitt cannot inspect an OS PAC’s per-site rules. The footer’s ', code('Manage profiles & rules'), ' opens this options page.')
     ),
 
     card(
@@ -213,13 +230,13 @@ function buildDocsPanel(): HTMLElement {
       terms([
         ['Guard proxy control', ['If another extension takes over the browser’s proxy settings, Sockitt re-applies its own (at most once every 30 seconds).']],
         ['Per-tab route badge', ['Shows which profile the current tab routes through as a small badge on the toolbar icon. Requires the optional ', code('tabs'), ' permission, which is requested when you enable it.']],
-        ['IP address lookups', ['The master switch for everything that contacts ', code('ipconfig.is'), ' — the popup’s exit-IP readout and the connection test. Off by default: Sockitt never reaches ', code('ipconfig.is'), ' until you turn it on (which requests access to it), and turning it off disables both. Off = no lookups at all.']],
+        ['IP address lookups', ['The master switch for everything that contacts ', code('ipconfig.is'), ' — the popup’s exit-IP readout and the connection test. Off by default: Sockitt never reaches ', code('ipconfig.is'), ' until you turn it on (which requests access to it), and turning it off disables both. With it off, the only network requests Sockitt makes on its own are fetches of the rule-list URLs you configure.']],
         ['Quick-added rules go to the bottom', ['Rules added from the popup are appended below existing rules. Turn off to give them top priority instead.']],
         ['Confirm before deleting', ['Ask for confirmation before a profile is deleted or everything is reset.']],
       ]),
       el('h4', { class: 'doc-sub' }, 'Sync'),
       terms([
-        ['Sync configuration', ['Mirrors profiles and rules to your browser account so other machines pick them up; the newest change wins. Large rule-list bodies are not synced, so set a URL and each machine refreshes its own copy. Proxy credentials are never synced — enter them on each machine. Enabling sync on a machine that already has a synced setup adopts the existing one rather than overwriting it.']],
+        ['Sync configuration', ['Off (the default), your configuration is stored only in this browser and never leaves the device. On, it mirrors profiles and rules to your browser account so other machines pick them up; the newest change wins. Large rule-list bodies are not synced, so set a URL and each machine refreshes its own copy. Proxy credentials are never synced — enter them on each machine. Enabling sync on a machine that already has a synced setup adopts the existing one rather than overwriting it.']],
       ])
     ),
 

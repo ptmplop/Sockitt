@@ -252,7 +252,19 @@ function mockSource() {
 
   // Screenshots must not show a focus ring on whatever happened to be first in
   // the tab order, and the cursor never appears in a headless capture anyway.
-  addEventListener('load', () => document.activeElement?.blur?.());
+  addEventListener('load', () => {
+    // Options boots on the first profile. A scene wanting another page (Route
+    // inspector, Docs, Settings…) names its sidebar entry; click it the way a
+    // user would rather than reaching into the page's private state.
+    if (S.clickNav) {
+      const hit = [...document.querySelectorAll('.nav-item')].find(
+        (n) => n.textContent.trim() === S.clickNav
+      );
+      if (!hit) throw new Error('no sidebar entry named ' + S.clickNav);
+      hit.click();
+    }
+    document.activeElement?.blur?.();
+  });
 })();`;
 }
 
@@ -338,15 +350,18 @@ async function main() {
   await mkdir(OUT, { recursive: true });
   await cp(resolve('dist'), STAGE, { recursive: true });
   await writeFile(resolve(STAGE, 'mock.js'), mockSource());
-  await writeFile(
-    resolve(STAGE, 'scene.js'),
-    `globalThis.__SOCKITT_SCENE__ = ${JSON.stringify({ config: CONFIG, tab: TAB, exit: EXIT }, null, 2)};`
-  );
-
   const server = await serve();
   const base = `http://127.0.0.1:${server.address().port}`;
   try {
     for (const scene of SCENES) {
+      await writeFile(
+        resolve(STAGE, 'scene.js'),
+        `globalThis.__SOCKITT_SCENE__ = ${JSON.stringify(
+          { config: CONFIG, tab: TAB, exit: EXIT, clickNav: scene.clickNav ?? null },
+          null,
+          2
+        )};`
+      );
       await stageScene(scene);
       const out = resolve(OUT, scene.file);
       if (!(await capture(scene, `${base}/shot-${scene.page}.html`, out))) {

@@ -73,7 +73,9 @@ Two details the harness depends on:
 
 Edit `CONFIG`/`TAB`/`EXIT` at the top of the script to change what the scenes
 show. The popup scene is captured at exactly the 720×520 that `popup.css` pins,
-on a transparent background so its rounded corners survive.
+on a transparent background so its rounded corners survive. The options page
+boots on the first profile; a scene can name a sidebar entry with `clickNav`
+(`'Docs'`, `'Route inspector'`, `'Settings'`) to capture that page instead.
 
 ## Testing philosophy
 
