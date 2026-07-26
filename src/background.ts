@@ -4,6 +4,8 @@ import { compilePac, fixedServersValue, pacDirective, staticTerminal } from './s
 import {
   APPLIED_KEY,
   ERROR_KEY,
+  PENDING_RELOAD_KEY,
+  POPUP_PORT,
   RELOAD_KEY,
   TAB_EXIT_KEY,
   TAB_EXIT_RESULT_KEY,
@@ -36,6 +38,13 @@ const ALARM_PREFIX = 'rl:';
 
 let lastRevert = 0;
 let lastActiveId: string | undefined;
+/**
+ * Open popup lifetime ports. A count, not a flag: when this worker is recycled
+ * the popup reconnects, and the new port can arrive before the dead one's
+ * disconnect is delivered — a flag would read "closed" for that overlap and let
+ * a reload through.
+ */
+let popupPorts = 0;
 /** Most recently applied config; lets tab events gate without a storage read. */
 let cachedConfig: Config | null = null;
 
@@ -488,12 +497,48 @@ async function runTabExitProbe(req: { nonce: number; tabUrl: string; tabHost: st
   await respond(result);
 }
 
+/**
+ * How long a deferred reload stays valid. Normally it is consumed the moment
+ * the popup closes; the TTL only covers the case where this worker never saw
+ * that disconnect (killed mid-flight), so a stale entry can't reload a tab out
+ * of the blue much later.
+ */
+const PENDING_RELOAD_TTL_MS = 5 * 60_000;
+
+/**
+ * Reload the active tab so it re-fetches over the new route — but not while the
+ * popup is open. Chrome dismisses the action popup when the tab underneath it
+ * navigates, so an immediate reload would close the popup mid-edit. Deferring
+ * also collapses a burst of changes (switch profile, add a rule, set an
+ * override) into one reload when the popup closes.
+ */
 async function reloadActiveTab(): Promise<void> {
   try {
     const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    if (tab?.id !== undefined) await chrome.tabs.reload(tab.id);
+    if (tab?.id === undefined) return;
+    if (popupPorts > 0) {
+      await chrome.storage.session.set({ [PENDING_RELOAD_KEY]: { tabId: tab.id, at: Date.now() } });
+      return;
+    }
+    await chrome.tabs.reload(tab.id);
   } catch {
     // no active tab or no permission — nothing to reload
+  }
+}
+
+/** Run the reload held back while the popup was open, if there is one. */
+async function flushPendingReload(): Promise<void> {
+  try {
+    const store = await chrome.storage.session.get(PENDING_RELOAD_KEY);
+    const pending = store[PENDING_RELOAD_KEY] as { tabId?: unknown; at?: unknown } | undefined;
+    // Remove first: a reload that can't run (tab closed) must not linger and
+    // fire on some later popup close.
+    await chrome.storage.session.remove(PENDING_RELOAD_KEY);
+    if (typeof pending?.tabId !== 'number') return;
+    if (Date.now() - (typeof pending.at === 'number' ? pending.at : 0) > PENDING_RELOAD_TTL_MS) return;
+    await chrome.tabs.reload(pending.tabId);
+  } catch {
+    // tab gone, or no permission — nothing to reload
   }
 }
 
@@ -699,6 +744,18 @@ chrome.runtime.onStartup.addListener(() => {
       await applyActive();
     }
   })();
+});
+
+// The popup's lifetime port — see reloadActiveTab. Registered on the first
+// synchronous turn so a popup opening against a cold worker still connects.
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== POPUP_PORT) return;
+  popupPorts++;
+  port.onDisconnect.addListener(() => {
+    void chrome.runtime.lastError; // reading it keeps a disconnect from logging
+    popupPorts = Math.max(0, popupPorts - 1);
+    if (popupPorts === 0) void flushPendingReload();
+  });
 });
 
 onConfigChanged((config) => {

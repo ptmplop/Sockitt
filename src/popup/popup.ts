@@ -5,6 +5,7 @@ import { parseRuleList } from '../shared/rulelist';
 import {
   APPLIED_KEY,
   ERROR_KEY,
+  POPUP_PORT,
   RELOAD_KEY,
   TAB_EXIT_KEY,
   TAB_EXIT_RESULT_KEY,
@@ -216,7 +217,33 @@ function wiggleSock(): void {
   mark.classList.add('wiggle');
 }
 
+/**
+ * Tell the worker this popup is open, for as long as it is. Nothing is ever
+ * sent over the port — the worker watches only connect/disconnect, and holds
+ * back "reload on switch" while a port is up, because navigating the tab under
+ * an open popup makes Chrome dismiss it mid-edit. Closing the popup tears this
+ * page down with the port, which is the signal to run the held-back reload.
+ */
+function markPopupOpen(): void {
+  const connect = (): void => {
+    try {
+      const port = chrome.runtime.connect({ name: POPUP_PORT });
+      // A disconnect while this page is still alive means the worker was
+      // recycled, not that we closed — reconnect so the hold keeps holding.
+      // (When the popup itself closes, the timer dies with the page.)
+      port.onDisconnect.addListener(() => {
+        void chrome.runtime.lastError;
+        setTimeout(connect, 100);
+      });
+    } catch {
+      // Worker unreachable: reloads simply happen immediately, as they used to.
+    }
+  };
+  connect();
+}
+
 async function init(): Promise<void> {
+  markPopupOpen();
   config = await loadConfig();
   const session = await chrome.storage.session.get(ERROR_KEY).catch(() => ({}));
   proxyError = (session as Record<string, { message: string }>)[ERROR_KEY] ?? null;

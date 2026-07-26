@@ -33,6 +33,16 @@ export const TAB_EXIT_RESULT_KEY = 'sockitt-tab-exit-result';
 /** Set by the popup when a this-tab override/rule change should reload the tab
  *  once the worker has applied the new route (consumed by applyActive). */
 export const RELOAD_KEY = 'sockitt-reload';
+/** A reload the worker held back because the popup was open, run once it closes. */
+export const PENDING_RELOAD_KEY = 'sockitt-pending-reload';
+
+/**
+ * Name of the popup's lifetime port. The popup connects it for as long as it is
+ * open and never sends a message over it — the worker only watches connect /
+ * disconnect, so it knows whether a tab reload would yank the popup out from
+ * under the user.
+ */
+export const POPUP_PORT = 'sockitt-popup';
 
 // Compiler-enforced: adding a RuleType without listing it here fails to build,
 // rather than silently dropping rules of the new type on load/import/sync.

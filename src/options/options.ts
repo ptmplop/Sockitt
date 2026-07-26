@@ -1214,7 +1214,7 @@ function settingsPanel(): HTMLElement {
       }),
       toggleRow(
         'Reload tab after switching',
-        'Refresh the active tab whenever you pick a profile in the popup.',
+        'Refresh the active tab when you pick a profile — once you close the popup.',
         s.refreshOnSwitch,
         (v) => {
           s.refreshOnSwitch = v;
