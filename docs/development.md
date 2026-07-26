@@ -111,10 +111,24 @@ UI code is deliberately thin enough to verify by hand.
    dashboard expects, so the same artifact serves both direct installs and
    store submission.
 
-## Signing (Chrome Web Store verified CRX uploads)
+## Chrome Web Store
 
-The store item is opted in to **verified CRX uploads**, so each store upload
-must be a `.crx` signed with our private key.
+The published item is
+[Sockitt — Proxy Switcher](https://chromewebstore.google.com/detail/sockitt-%E2%80%94-proxy-switcher/ebfioiljhjgijbmnnpgadkgmokjbjkca),
+item ID `ebfioiljhjgijbmnnpgadkgmokjbjkca`. That is the ID an installed copy
+reports and the one to use in any store link.
+
+> Note: it is **not** the ID derived from the local signing key below
+> (`fmpcgjkpojmmaciakgknagcogmlfofkg`). A store item takes its ID from whichever
+> key created it, so these differing values mean the listing was created from an
+> upload that did not use that key. Confirm in the Developer Dashboard which
+> upload path the item actually expects before the next release — a `.crx`
+> signed with the wrong key is rejected.
+
+## Signing (verified CRX uploads)
+
+If the item is opted in to **verified CRX uploads**, each store upload must be a
+`.crx` signed with our private key.
 
 - The **private key lives outside the repo** at `../sockitt-signing-key.pem`
   (the `personal/` folder), is gitignored, and must be backed up securely.
@@ -124,7 +138,8 @@ must be a `.crx` signed with our private key.
   or the browser with `CHROME`). Upload `sockitt.crx` to the store.
 - The matching **public key** (SubjectPublicKeyInfo PEM) is the value pasted
   into the store's verified-upload field. The extension ID derived from it is
-  `fmpcgjkpojmmaciakgknagcogmlfofkg`.
+  `fmpcgjkpojmmaciakgknagcogmlfofkg` — which is *not* the published item's ID;
+  see the note above.
 - The GitHub release keeps shipping the unpacked `sockitt.zip` for
   Load-unpacked installs; `sockitt.crx` is only for store uploads and is never
   committed.

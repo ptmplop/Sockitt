@@ -8,7 +8,14 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ptmplop/Sockitt/releases/latest">Download</a> &nbsp;·&nbsp;
+  <a href="https://chromewebstore.google.com/detail/sockitt-%E2%80%94-proxy-switcher/ebfioiljhjgijbmnnpgadkgmokjbjkca">
+    <img src="https://img.shields.io/badge/Chrome%20Web%20Store-Install-4285F4?logo=googlechrome&logoColor=white" alt="Install from the Chrome Web Store">
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://chromewebstore.google.com/detail/sockitt-%E2%80%94-proxy-switcher/ebfioiljhjgijbmnnpgadkgmokjbjkca">Chrome Web Store</a> &nbsp;·&nbsp;
+  <a href="https://github.com/ptmplop/Sockitt/releases/latest">Releases</a> &nbsp;·&nbsp;
   <a href="docs/rules.md">Rules reference</a> &nbsp;·&nbsp;
   <a href="docs/architecture.md">Architecture</a> &nbsp;·&nbsp;
   <a href="docs/development.md">Development</a>
@@ -74,11 +81,15 @@ script.
 
 ## Install
 
-**From a release (easiest).** Download `sockitt.zip` from the
+**From the Chrome Web Store (easiest).**
+[Sockitt — Proxy Switcher](https://chromewebstore.google.com/detail/sockitt-%E2%80%94-proxy-switcher/ebfioiljhjgijbmnnpgadkgmokjbjkca)
+— one click, and it updates itself.
+
+**From a release.** Download `sockitt.zip` from the
 [latest release](https://github.com/ptmplop/Sockitt/releases/latest) and unzip
 it. Open `chrome://extensions`, enable **Developer mode**, click **Load
-unpacked**, and select the unzipped folder. (The same zip is the artifact
-intended for the Chrome Web Store; a store listing is planned.)
+unpacked**, and select the unzipped folder. Useful for trying a version before
+it reaches the store, or for pinning one — unpacked installs do not auto-update.
 
 **From source.**
 
