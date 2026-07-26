@@ -730,6 +730,31 @@ function siteRuleCard(active: SwitchProfile): HTMLElement {
       }
     });
     sel.disabled = overridesThisSite;
+    // Deleting is permanent — the rule may cover more than this one site, so the
+    // tooltip names the pattern that goes, not just "this site". Matches how a
+    // rule is deleted in Options: a plain ✕, no confirmation.
+    const del = el('button', {
+      class: 'btn ghost icon ov-remove',
+      title: `Delete this rule (${matched.pattern})`,
+      innerHTML: '&#10005;',
+      disabled: overridesThisSite,
+      onclick: async () => {
+        await requestTabReload();
+        const ok = await commitConfig((fresh) => {
+          const p = fresh.profiles.find((x) => x.id === active.id);
+          if (!p || p.kind !== 'switch') return false;
+          const before = p.rules.length;
+          p.rules = p.rules.filter((r) => r.id !== matched.id);
+          return p.rules.length !== before; // already deleted elsewhere — no save
+        });
+        if (ok) {
+          toast('Rule deleted');
+          render();
+          scheduleExitCheck();
+        }
+      },
+    });
+    del.setAttribute('aria-label', `Delete the rule ${matched.pattern}`);
     ruleField = el(
       'div',
       { class: `sm-field${overridesThisSite ? ' greyed' : ''}` },
@@ -738,7 +763,8 @@ function siteRuleCard(active: SwitchProfile): HTMLElement {
         'div',
         { class: 'sm-ctl' },
         el('span', { class: 'sm-pattern', title: matched.pattern }, matched.pattern),
-        sel
+        sel,
+        del
       )
     );
   } else {

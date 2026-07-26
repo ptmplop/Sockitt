@@ -184,7 +184,7 @@ function buildDocsPanel(): HTMLElement {
       'The toolbar popup',
       p('Clicking the Sockitt icon opens the popup, where you switch the active profile in one click. When an Auto Switch profile is active, the top section manages the current site:'),
       terms([
-        ['Rule', ['Shows the rule that currently matches this site and lets you change its target inline, or add a ', code('*.host'), ' rule if none exists.']],
+        ['Rule', ['Shows the rule that currently matches this site and lets you change its target inline, or add a ', code('*.host'), ' rule if none exists. The ', code('✕'), ' deletes that rule outright — it is the same rule you would find in the profile’s list here, so a broad pattern like ', code('*.example.com'), ' stops routing every site it covered, not just this one.']],
         ['Override', ['A single, always-temporary rule for the current site. It takes priority over permanent rules and is cleared when the browser restarts (or when you remove it). While an override is set for the site you are on, its matching rule is greyed out.']],
         ['Exit IP', ['A small line under the active profile showing where the current tab actually exits — flag, country, IP, and lookup latency. Uses ', code('ipconfig.is'), ' and is off by default; turn on IP address lookups in Settings to use it.']],
       ]),
