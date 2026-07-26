@@ -188,10 +188,10 @@ async function runExitCheck(): Promise<void> {
 function updateExitLine(): void {
   const meta = document.querySelector('.dh-meta');
   if (!meta) return;
-  // Drop any prior readout — the one-line span (.exit-line) OR the two-line
-  // geo block (.exit-loc). querySelectorAll (not querySelector) so a stack that
-  // somehow accumulated gets fully cleared, never leaving a duplicate flag/IP.
-  meta.querySelectorAll(':scope > .exit-line, :scope > .exit-loc').forEach((n) => n.remove());
+  // Drop the prior readout. querySelectorAll (not querySelector) so a stack
+  // that somehow accumulated gets fully cleared, never leaving a duplicate
+  // flag/IP — and never leaving the row taller than the space reserved for it.
+  meta.querySelectorAll(':scope > .exit-line').forEach((n) => n.remove());
   const line = exitLine();
   if (line) meta.append(line);
 }
@@ -417,44 +417,40 @@ function detailHead(profile: Profile | undefined): HTMLElement {
   return head;
 }
 
-/** A quiet readout under the status: where traffic actually exits. */
+/**
+ * A quiet one-line readout under the status: where THIS tab actually exits —
+ * "Exit via 🇹🇭 · 27.145.178.97 · 237 ms".
+ *
+ * Every phase renders exactly one line, and the line exists from the first
+ * paint (empty while idle) whenever the setting is on. The check resolves a
+ * second or two after the popup opens, so a line that appeared — or grew from
+ * one row to two — at that moment would shove the whole card down under the
+ * user's cursor mid-click. The fixed height in CSS is what holds the space.
+ */
 function exitLine(): HTMLElement | null {
   if (!config.settings.exitIpCheck) return null;
-  // Led by "Tab exits via:" — bare, the flag and country read as a property of
-  // the profile above them rather than as where THIS tab comes out, which is
-  // the whole point of the readout. With geo it's two lines (label + flag +
-  // country, then exit IP · latency); without geo the label carries the IP
-  // directly. Dimmed while a re-check is in flight. The tooltip carries the
-  // full IP + country so nothing is lost if a line clips.
-  const lead = (): HTMLElement => el('span', { class: 'exit-lead' }, 'Tab exits via:');
-  const okBlock = (info: ExitInfo, dim: boolean): HTMLElement => {
-    const title = `This tab exits via ${info.ip}${info.country ? ` · ${info.country}` : ''}`;
-    if (!info.country) {
-      return el(
-        'span',
-        { class: `exit-line${dim ? ' dim' : ''}`, title },
-        lead(),
-        ' ',
-        el('span', { class: 'exit-ip' }, `${info.ip} · ${info.ms} ms`)
-      );
-    }
+  const okLine = (info: ExitInfo, dim: boolean): HTMLElement => {
     const src = flagSrc(info.iso);
     return el(
-      'div',
-      { class: `exit-loc${dim ? ' dim' : ''}`, title },
-      el(
-        'div',
-        { class: 'exit-loc-top' },
-        lead(),
-        src ? el('img', { class: 'exit-flag', src, alt: '', width: 20, height: 15 }) : null,
-        el('span', { class: 'exit-country' }, info.country)
-      ),
-      el('div', { class: 'exit-loc-ip' }, `${info.ip} · ${info.ms} ms`)
+      'span',
+      {
+        class: `exit-line${dim ? ' dim' : ''}`,
+        // The country name is off the line — the flag carries it. Keep it in
+        // the tooltip (and the flag's alt) so it is still there for anyone who
+        // doesn't read flags, or reads the page with a screen reader.
+        title: `This tab exits via ${info.ip}${info.country ? ` · ${info.country}` : ''}`,
+      },
+      el('span', { class: 'exit-lead' }, 'Exit via'),
+      src ? el('img', { class: 'exit-flag', src, alt: info.country ?? '', width: 20, height: 15 }) : null,
+      // The leading separator belongs to the flag — without one, the line would
+      // open on a stray "· ".
+      el('span', { class: 'exit-ip' }, `${src ? '· ' : ''}${info.ip} · ${info.ms} ms`)
     );
   };
   switch (exit.phase) {
     case 'idle':
-      return null;
+      // The check hasn't reported yet — hold the row, say nothing.
+      return el('span', { class: 'exit-line' });
     case 'no-perm':
       return el(
         'button',
@@ -464,10 +460,10 @@ function exitLine(): HTMLElement | null {
     case 'checking':
       // Keep the last good reading visible (dimmed) instead of blanking.
       return lastExit
-        ? okBlock(lastExit, true)
+        ? okLine(lastExit, true)
         : el('span', { class: 'exit-line' }, 'Checking where this tab exits…');
     case 'ok':
-      return okBlock(exit, false);
+      return okLine(exit, false);
     case 'error':
       return el('span', { class: 'exit-line err', title: exit.message }, 'Exit check failed');
   }

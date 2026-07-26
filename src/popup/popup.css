@@ -181,7 +181,7 @@ body {
   flex: none;
   display: flex;
   /* Top-align so the avatar tile lines up with the title row rather than being
-     centred against the taller meta column (name + status + two-line exit). */
+     centred against the taller meta column (name + status + exit line). */
   align-items: flex-start;
   gap: 12px;
   padding: 14px 18px;
@@ -202,30 +202,35 @@ body {
 .sdot.warn { background: var(--amber); box-shadow: 0 0 7px color-mix(in srgb, var(--amber) 70%, transparent); }
 .sdot.off { background: var(--text-dim); }
 
-/* exit-IP line under the status */
+/* Exit-IP line under the status: "Exit via 🇹🇭 · 27.145.178.97 · 237 ms".
+   One row in every phase, at a FIXED height — the reading lands a second or
+   two after the popup opens, and a row that grew then would shift the card
+   below it under the user's cursor. 18px clears both the 11px text and the
+   15px flag, so no phase can outgrow the space held for it. */
 .exit-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 18px;
+  margin-top: 3px;
+  max-width: 100%;
   font-size: 11px;
   color: var(--text-dim);
-  margin-top: 2px;
-  display: block;
-  max-width: 100%;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .exit-line.dim { opacity: 0.5; }
 .exit-line.err { color: var(--danger); }
+/* "Exit via" — labels the readout so it can't be read as the profile's own
+   address. Never shrinks; the address beside it takes the ellipsis. */
+.exit-lead { flex: none; }
 /* Only the address itself is mono — the label beside it stays UI type. */
-.exit-ip { font-family: var(--mono); }
-
-/* "Tab exits via:" — labels the readout so it can't be read as the profile's
-   own address. Never shrinks; the country beside it takes the ellipsis. */
-.exit-lead { flex: none; font-size: 11px; color: var(--text-dim); }
-
-/* two-line exit readout: label + flag + country on top, exit IP · latency below */
-.exit-loc { margin-top: 4px; max-width: 100%; }
-.exit-loc.dim { opacity: 0.5; }
-.exit-loc-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.exit-ip {
+  min-width: 0;
+  font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .exit-flag {
   width: 20px;
   height: 15px;
@@ -235,24 +240,6 @@ body {
   object-fit: cover;
   /* hairline ring so white/pale flags (Japan, Poland…) don't bleed into the pane */
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12);
-}
-.exit-country {
-  min-width: 0;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.exit-loc-ip {
-  margin-top: 1px;
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--text-dim);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 button.exit-enable {
   font-family: inherit;

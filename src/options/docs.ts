@@ -186,7 +186,7 @@ function buildDocsPanel(): HTMLElement {
       terms([
         ['Rule', ['Shows the rule that currently matches this site and lets you change its target inline, or add a ', code('*.host'), ' rule if none exists. The ', code('✕'), ' deletes that rule outright — it is the same rule you would find in the profile’s list here, so a broad pattern like ', code('*.example.com'), ' stops routing every site it covered, not just this one.']],
         ['Override', ['A single, always-temporary rule for the current site. It takes priority over permanent rules and is cleared when the browser restarts (or when you remove it). While an override is set for the site you are on, its matching rule is greyed out.']],
-        ['Exit IP', ['A small line under the active profile showing where the current tab actually exits — flag, country, IP, and lookup latency. Uses ', code('ipconfig.is'), ' and is off by default; turn on IP address lookups in Settings to use it.']],
+        ['Exit IP', ['A small line under the active profile showing where the current tab actually exits — flag, IP, and lookup latency, with the country name spelled out in the tooltip. Uses ', code('ipconfig.is'), ' and is off by default; turn on IP address lookups in Settings to use it.']],
       ]),
       p('The footer’s ', code('Manage profiles & rules'), ' opens this options page.')
     ),

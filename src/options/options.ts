@@ -1254,7 +1254,7 @@ function settingsPanel(): HTMLElement {
       ),
       toggleRow(
         'IP address lookups',
-        'The popup’s exit-IP readout — the flag, country, and IP shown under the active tab — and the proxy connection test. Off by default: both stay off until you turn this on, and turning it off disables them. Enabling asks for the network access it needs.',
+        'The popup’s exit-IP readout — the flag, IP, and latency shown under the active tab — and the proxy connection test. Off by default: both stay off until you turn this on, and turning it off disables them. Enabling asks for the network access it needs.',
         s.exitIpCheck,
         async (v) => {
           if (v && !(await ensureExitIpPermission())) {
