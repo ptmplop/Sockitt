@@ -205,7 +205,6 @@ body {
 /* exit-IP line under the status */
 .exit-line {
   font-size: 11px;
-  font-family: var(--mono);
   color: var(--text-dim);
   margin-top: 2px;
   display: block;
@@ -215,12 +214,18 @@ body {
   white-space: nowrap;
 }
 .exit-line.dim { opacity: 0.5; }
-.exit-line.err { font-family: inherit; color: var(--danger); }
+.exit-line.err { color: var(--danger); }
+/* Only the address itself is mono — the label beside it stays UI type. */
+.exit-ip { font-family: var(--mono); }
 
-/* two-line exit readout: flag + country on top, exit IP · latency below */
+/* "Tab exits via:" — labels the readout so it can't be read as the profile's
+   own address. Never shrinks; the country beside it takes the ellipsis. */
+.exit-lead { flex: none; font-size: 11px; color: var(--text-dim); }
+
+/* two-line exit readout: label + flag + country on top, exit IP · latency below */
 .exit-loc { margin-top: 4px; max-width: 100%; }
 .exit-loc.dim { opacity: 0.5; }
-.exit-loc-top { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.exit-loc-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .exit-flag {
   width: 20px;
   height: 15px;

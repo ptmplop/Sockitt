@@ -420,13 +420,23 @@ function detailHead(profile: Profile | undefined): HTMLElement {
 /** A quiet readout under the status: where traffic actually exits. */
 function exitLine(): HTMLElement | null {
   if (!config.settings.exitIpCheck) return null;
-  // With geo, a two-line block: flag + country on top, exit IP · latency below.
-  // Without geo, the plain one-liner. Dimmed while a re-check is in flight. The
-  // tooltip carries the full IP + country so nothing is lost if a line clips.
+  // Led by "Tab exits via:" — bare, the flag and country read as a property of
+  // the profile above them rather than as where THIS tab comes out, which is
+  // the whole point of the readout. With geo it's two lines (label + flag +
+  // country, then exit IP · latency); without geo the label carries the IP
+  // directly. Dimmed while a re-check is in flight. The tooltip carries the
+  // full IP + country so nothing is lost if a line clips.
+  const lead = (): HTMLElement => el('span', { class: 'exit-lead' }, 'Tab exits via:');
   const okBlock = (info: ExitInfo, dim: boolean): HTMLElement => {
-    const title = `exit ${info.ip}${info.country ? ` · ${info.country}` : ''}`;
+    const title = `This tab exits via ${info.ip}${info.country ? ` · ${info.country}` : ''}`;
     if (!info.country) {
-      return el('span', { class: `exit-line${dim ? ' dim' : ''}`, title }, `exit ${info.ip} · ${info.ms} ms`);
+      return el(
+        'span',
+        { class: `exit-line${dim ? ' dim' : ''}`, title },
+        lead(),
+        ' ',
+        el('span', { class: 'exit-ip' }, `${info.ip} · ${info.ms} ms`)
+      );
     }
     const src = flagSrc(info.iso);
     return el(
@@ -435,6 +445,7 @@ function exitLine(): HTMLElement | null {
       el(
         'div',
         { class: 'exit-loc-top' },
+        lead(),
         src ? el('img', { class: 'exit-flag', src, alt: '', width: 20, height: 15 }) : null,
         el('span', { class: 'exit-country' }, info.country)
       ),
@@ -448,15 +459,17 @@ function exitLine(): HTMLElement | null {
       return el(
         'button',
         { class: 'exit-line exit-enable', onclick: () => void enableExitCheck() },
-        'Show exit IP…'
+        'Show where this tab exits…'
       );
     case 'checking':
       // Keep the last good reading visible (dimmed) instead of blanking.
-      return lastExit ? okBlock(lastExit, true) : el('span', { class: 'exit-line' }, 'checking exit…');
+      return lastExit
+        ? okBlock(lastExit, true)
+        : el('span', { class: 'exit-line' }, 'Checking where this tab exits…');
     case 'ok':
       return okBlock(exit, false);
     case 'error':
-      return el('span', { class: 'exit-line err', title: exit.message }, 'exit check failed');
+      return el('span', { class: 'exit-line err', title: exit.message }, 'Exit check failed');
   }
 }
 
