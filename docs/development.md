@@ -16,6 +16,8 @@ npm test            # node --test: executes generated PAC in a node:vm sandbox
 npm run build       # minified production build to dist/
 npm run watch       # rebuild on change, inline sourcemaps
 npm run zip         # builds, then packs dist/ into sockitt.zip
+npm run crx         # builds, then signs dist/ into sockitt.crx (see Signing below)
+npm run shots       # builds, then regenerates img/screenshots/ from the real UI
 npm run icons       # regenerate img/ assets from img/logo-source.png (ImageMagick)
 ```
 
@@ -46,9 +48,32 @@ src/
   options/               options UI, settings, and docs.ts (in-app docs)
   theme.css              design tokens shared by both pages
 scripts/gen-icons.mjs    logo-source.png to PNG icon set (ImageMagick)
+scripts/gen-screenshots.mjs  README screenshots, captured from the built UI
 build.mjs                esbuild driver and static copier
 test/pac.test.mjs        PAC, parity, and matcher tests
 ```
+
+## Screenshots
+
+`npm run shots` rewrites `img/screenshots/` by loading the **real** `dist/`
+pages in headless Chrome behind a small `chrome.*` shim that serves a scripted
+config from memory (`scripts/gen-screenshots.mjs`). Nothing is mocked up by
+hand, so a screenshot cannot show a layout the code no longer produces — after
+a UI change, re-run it and commit the result.
+
+Two details the harness depends on:
+
+- The stage is served over **HTTP**, not `file://`. The pages load their bundle
+  with `<script type="module">`, and module scripts are fetched with CORS
+  semantics a file origin can never satisfy — from a file the page renders blank.
+- The shim answers the popup's **tab-exit probe** the way the service worker
+  would. When the current tab routes differently from `ipconfig.is` (the usual
+  case under a switch profile) the popup asks the worker to probe the tab's own
+  route; unanswered, the readout sits on "Checking…" until it times out.
+
+Edit `CONFIG`/`TAB`/`EXIT` at the top of the script to change what the scenes
+show. The popup scene is captured at exactly the 720×520 that `popup.css` pins,
+on a transparent background so its rounded corners survive.
 
 ## Testing philosophy
 

@@ -103,7 +103,12 @@ the compiler independently resolves any cycle to Direct.
 ## Per-site override (temporary)
 
 While an Auto Switch profile is active, the popup's top section manages the
-current site. Alongside the matching permanent rule, you can set a single
+current site. It shows the permanent rule that matches, and lets you retarget
+it or delete it outright — the same rule you would find in the profile's table
+here, so deleting a broad pattern like `*.example.com` stops routing every site
+it covered, not only the one you are on.
+
+Alongside that rule you can set a single
 **Override**: an always-temporary rule for the current site that takes priority
 over permanent rules, greys out the matching rule while it is set, and is
 cleared when the browser restarts (or when you remove it). Overrides live in

@@ -23,12 +23,12 @@ default permission set, and a rule engine that compiles to an optimised PAC
 script.
 
 <p align="center">
-  <img src="img/screenshots/app-popup.png" width="600" alt="Sockitt popup"><br>
-  <sub>Popup: switch profiles on the left, manage the current tab on the right</sub>
+  <img src="img/screenshots/app-popup.png" width="640" alt="Sockitt popup"><br>
+  <sub>Popup: switch profiles on the left; on the right, where this tab routes, its rule, and where it exits</sub>
 </p>
 <p align="center">
-  <img src="img/screenshots/app-options.png" width="600" alt="Sockitt options - Auto Switch rules"><br>
-  <sub>Options: rule-based auto routing</sub>
+  <img src="img/screenshots/app-options.png" width="640" alt="Sockitt options - Auto Switch rules"><br>
+  <sub>Options: an ordered, first-match-wins rule table</sub>
 </p>
 
 ## Features
@@ -50,10 +50,10 @@ script.
 - **Aliases.** Pointer profiles: aim many rules at one alias, then retarget them
   all by editing the alias once.
 - **Popup switcher.** Change profile in one click, see where the current tab
-  routes, edit the matching rule inline, or set a temporary per-site override
-  that lasts only until the browser restarts. An optional exit-IP line (off by
-  default) shows where the current tab actually exits — flag, country, IP, and
-  latency.
+  routes, retarget or delete the matching rule inline, or set a temporary
+  per-site override that lasts only until the browser restarts. An optional
+  exit-IP line (off by default) shows where the current tab actually exits —
+  flag, IP, and latency, with the country named in the tooltip.
 - **Route inspector.** Trace any URL through your configuration with the same
   resolver real routing uses — which rule fired, the chain it walked, where it
   landed.
@@ -146,6 +146,8 @@ npm test            # runs generated PAC scripts in a Node VM
 npm run build       # production build to dist/
 npm run watch       # dev build with inline sourcemaps
 npm run zip         # store-ready sockitt.zip
+npm run crx         # signed sockitt.crx for Chrome Web Store uploads
+npm run shots       # regenerate the README screenshots from the built UI
 npm run icons       # regenerate icons from img/logo-source.png (needs ImageMagick)
 ```
 

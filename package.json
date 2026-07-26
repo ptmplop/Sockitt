@@ -11,7 +11,8 @@
     "watch": "node build.mjs --watch",
     "zip": "node build.mjs --zip",
     "crx": "node build.mjs --crx",
-    "test": "node --test"
+    "test": "node --test",
+    "shots": "node build.mjs && node scripts/gen-screenshots.mjs"
   },
   "devDependencies": {
     "@types/chrome": "^0.2.2",

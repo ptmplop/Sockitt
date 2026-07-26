@@ -107,6 +107,32 @@ permissions, which the options page requests only when a user sets
 credentials; credentials are excluded from sync and never leave the device.
 SOCKS proxies cannot be authenticated by Chromium.
 
+## Popup ↔ worker channels
+
+The config in `chrome.storage.local` is the only channel that *changes*
+behaviour, but a few request/response pairs need a side channel. They all ride
+`chrome.storage.session` (keys declared together in `state.ts`), so both ends
+stay wake-safe: a worker that was asleep is started by the write and reads the
+request from storage rather than from a message it missed.
+
+| Key | Direction | Purpose |
+|---|---|---|
+| `sockitt-error` | worker → UI | Last proxy failure, rendered as a popup banner |
+| `sockitt-applied` | worker → UI | "Settings applied" tick, so an open popup re-checks its exit IP against the new route |
+| `sockitt-test` / `-result` | options ↔ worker | Connection test request and its outcome |
+| `sockitt-tab-exit` / `-result` | popup ↔ worker | Probe where the *current tab* exits when it routes differently from `ipconfig.is` |
+| `sockitt-reload` | popup → worker | A this-tab rule/override change should reload the tab once the new route is applied |
+| `sockitt-pending-reload` | worker (internal) | A reload deferred until the popup closes |
+
+One thing is **not** storage: the popup holds a `chrome.runtime.connect` port
+open for as long as it is open, and never sends a message over it. The worker
+watches only connect/disconnect. Chrome dismisses the action popup when the tab
+underneath it navigates, so while that port is up a "reload on switch" is
+recorded rather than performed, and runs on disconnect — which also collapses a
+burst of edits into a single reload. The popup reconnects if the worker is
+recycled, so the deferral cannot be lost to a worker restart, and the pending
+reload is itself kept in session storage (with a short TTL) so it survives one.
+
 ## Error surfacing
 
 `chrome.proxy.onProxyError` stores the failure in `chrome.storage.session` and

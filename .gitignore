@@ -1,7 +1,10 @@
 node_modules/
 dist/
 sockitt.zip
-sockitt.crx
+# Glob, not the bare name: a file-sync daemon watching this folder turns each
+# rebuild's delete-and-recreate into conflict copies ("sockitt 2.crx", …).
+sockitt*.crx
 .crx-tmp/
+.shots-tmp/
 *.pem
 .DS_Store
