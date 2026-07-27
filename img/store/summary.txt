@@ -1,0 +1,1 @@
+Switch proxies in one click, or set rules that route each site through the right one automatically. SOCKS5, SOCKS4, HTTP, HTTPS.

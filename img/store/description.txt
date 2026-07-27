@@ -1,0 +1,61 @@
+Sockitt decides, for every request your browser makes, whether it goes straight out to the network or through a proxy, and which proxy that is.
+
+If you juggle more than one proxy (an office HTTP proxy, an ssh -D SOCKS tunnel, an exit in another country) you know the routine: dig through your operating system's network settings, flip everything over, then remember to flip it back. Sockitt replaces that with one click, or with rules that do it for you and then stay out of the way.
+
+Set it up once to route company domains through the office proxy and let everything else go direct. To send one stubborn site through a tunnel without disturbing the rest of your browsing. To keep localhost and intranet hosts off the proxy automatically. Or simply to move your whole browser to a different exit in a single click.
+
+Your rules compile into an optimized PAC script that the browser evaluates per request, so routing costs effectively nothing while you browse.
+
+
+SWITCH IN ONE CLICK
+
+• Proxy profiles for SOCKS5, SOCKS4, HTTP, or HTTPS, each with a host, port, and optional bypass list.
+• Optional username and password authentication for HTTP and HTTPS proxies, with the permission requested only when you add credentials. (Chromium cannot authenticate SOCKS proxies at all.)
+• Built in Direct and System modes, always one click away.
+• Every profile gets a colored initials avatar drawn onto the toolbar icon, so your active route is visible at a glance.
+
+
+ROUTE AUTOMATICALLY, SITE BY SITE
+
+• Auto switch profiles run an ordered, first match wins rule table.
+• Match on host wildcard (*.example.com), host regex, URL wildcard, URL regex, URL keyword, IPv4 CIDR (10.0.0.0/8), host label count, weekday, or time of day.
+• Send each match to a proxy, to Direct, or on to another profile, a rule list, or an alias.
+• Because profiles can point at other profiles, a large setup stays something you edit in one place instead of a rule table you keep rewriting.
+
+
+SUBSCRIBE TO RULE LISTS
+
+• Import AutoProxy/GFWList or Switchy lists by URL with scheduled auto updates, or paste your own.
+• Domain entries compile to a single dictionary lookup, so a list with thousands of entries stays fast.
+
+
+MANAGE THE TAB YOU ARE ON
+
+• The popup shows exactly where the active tab routes, and what decided it.
+• Retarget or delete the matching rule inline, without opening the options page.
+• Set a temporary override for one site that lasts only until you restart the browser.
+• An optional exit IP readout (off by default) shows the country flag, IP address, and round trip latency your current tab exits with.
+
+
+BUILT FOR TRUST
+
+• Minimal default permissions: proxy, storage, activeTab, and alarms. No host permissions at all.
+• Every extra capability is opt in, and is requested only when you switch on the feature that needs it.
+• No analytics, no tracking, no ads, and nothing sent to the developer by default.
+• When a proxy is unreachable, its requests fail rather than quietly retrying direct, so a dead proxy can never leak the traffic you meant to route through it.
+• A red badge tells you when something is wrong instead of pretending to work.
+
+
+POWER FEATURES
+
+• Route inspector: trace any URL through your configuration using the same resolver real routing uses, and see which rule fired, the chain it walked, and where it landed.
+• Connection tests: confirm a proxy works and see its exit IP, country, and latency, authentication included. Uses the same opt in lookup as the exit IP readout.
+• Aliases: point many rules at one alias, then retarget them all by editing the alias once.
+• Quick switch: cycle a chosen set of profiles from the toolbar button or a keyboard shortcut.
+• Incognito routing: optionally give incognito windows a profile of their own.
+• Sync: mirror your configuration across machines through your browser account. Proxy credentials never leave the device.
+
+
+Built from scratch for Manifest V3, with no frameworks and no runtime dependencies. Works on Chrome, Edge, Brave, Opera, Vivaldi, and other Chromium browsers (Chrome 110 or newer).
+
+Open source, MIT licensed: https://github.com/ptmplop/Sockitt
