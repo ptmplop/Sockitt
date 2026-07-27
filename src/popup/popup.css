@@ -314,6 +314,19 @@ button.exit-enable:focus-visible { outline: none; box-shadow: var(--ring); borde
   color: var(--text-dim);
 }
 .ts-label::before { content: ""; width: 3px; height: 13px; border-radius: 2px; background: var(--grad); flex: none; }
+/* "loading": the host below is a navigation still in flight, not the page on
+   screen. Amber, like the other temporary state in this pane (the override). */
+.ts-state {
+  flex: none;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--amber) 35%, transparent);
+  padding: 1px 7px;
+  border-radius: 999px;
+}
 .ts-host {
   font-family: var(--mono);
   font-size: 13px;

@@ -91,6 +91,25 @@ matches against `pacRequestUrl()` so it agrees with real routing. A test runs
 every fixture through both the generated PAC (in a Node VM) and `resolveRoute()`
 and asserts they agree, so the preview cannot drift from reality.
 
+## Which page "this tab" means
+
+Chrome leaves `tab.url` on the old document until a navigation commits, and a
+navigation to a host you cannot reach commits only when it gives up — tens of
+seconds for a dropped SYN, and never a URL change in a tab that was empty to
+begin with. Reading `tab.url` alone therefore answers with the previous page, or
+with nothing at all, in exactly the moment the popup is opened to ask why a site
+will not load. `tabTarget()` (`shared/tabs.ts`) prefers `tab.pendingUrl` — the
+address in flight — and marks the result `pending`; the activeTab grant covers
+the whole tab rather than just its committed origin, so no extra permission is
+needed. The popup and the per-tab badge both resolve routes against it.
+
+A `pending` target also changes what "re-fetch this page" means: `tabs.reload`
+would reload the document still on screen and abandon the navigation being
+waited on, so the worker re-issues the navigation by URL instead. That happens
+whether or not "reload on switch" is set — nothing has committed, so there is no
+page to disturb, and the request hanging right then is the one the new rule was
+added to fix.
+
 ## Proxy authentication
 
 HTTP and HTTPS proxies can carry a username and password. Because Chrome's proxy
@@ -124,8 +143,8 @@ request from storage rather than from a message it missed.
 | `sockitt-applied` | worker → UI | "Settings applied" tick, so an open popup re-checks its exit IP against the new route |
 | `sockitt-test` / `-result` | options ↔ worker | Connection test request and its outcome |
 | `sockitt-tab-exit` / `-result` | popup ↔ worker | Probe where the *current tab* exits when it routes differently from `ipconfig.is` |
-| `sockitt-reload` | popup → worker | A this-tab rule/override change should reload the tab once the new route is applied |
-| `sockitt-pending-reload` | worker (internal) | A reload deferred until the popup closes |
+| `sockitt-reload` | popup → worker | A this-tab rule/override/bypass change should re-fetch the tab once the new route is applied — carrying a `tabId` and `url` when the page never loaded and the navigation has to be re-issued rather than reloaded |
+| `sockitt-pending-reload` | worker (internal) | A reload (or re-navigation) deferred until the popup closes |
 
 One thing is **not** storage: the popup holds a `chrome.runtime.connect` port
 open for as long as it is open, and never sends a message over it. The worker

@@ -33,6 +33,21 @@ export const TAB_EXIT_RESULT_KEY = 'sockitt-tab-exit-result';
 /** Set by the popup when a this-tab override/rule change should reload the tab
  *  once the worker has applied the new route (consumed by applyActive). */
 export const RELOAD_KEY = 'sockitt-reload';
+/**
+ * What the popup asks for when it writes RELOAD_KEY.
+ *
+ * Bare `{ at }` keeps the original meaning: reload the active tab, if the
+ * refreshOnSwitch setting is on. `url` (with the `tabId` it belongs to) means
+ * "re-issue this navigation instead" — the popup sends it when the page it just
+ * routed had not loaded yet, which chrome.tabs.reload cannot re-try: reload
+ * re-fetches the document still on screen and drops the navigation the user is
+ * waiting on (see shared/tabs.ts).
+ */
+export interface ReloadRequest {
+  at: number;
+  tabId?: number;
+  url?: string;
+}
 /** A reload the worker held back because the popup was open, run once it closes. */
 export const PENDING_RELOAD_KEY = 'sockitt-pending-reload';
 /**

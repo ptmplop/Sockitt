@@ -28,6 +28,7 @@ import {
   recordProxyError,
 } from './shared/errors';
 import { EXIT_IP_URL, checkExitIp } from './shared/exitip';
+import { tabTarget } from './shared/tabs';
 import { applyFromSync, onSyncChanged, pullFromSync, pushToSync } from './shared/sync';
 import {
   Config,
@@ -185,16 +186,29 @@ async function applyActiveInner(signal = true): Promise<void> {
   // can't race ahead of the new route (the old popup-side reload could).
   const switched = lastActiveId !== undefined && lastActiveId !== config.activeId;
   lastActiveId = config.activeId;
-  if (switched && config.settings.refreshOnSwitch) await reloadActiveTab();
 
-  // A this-tab override/rule change (from the popup) also alters how the active
-  // tab routes, but leaves activeId unchanged — so `switched` misses it. The
-  // popup sets RELOAD_KEY for those; honour it here, after settings.set, so the
-  // reload rides the new route. Consume it unconditionally so it can't linger.
+  // A this-tab override/rule/bypass change (from the popup) also alters how the
+  // active tab routes, but leaves activeId unchanged — so `switched` misses it.
+  // The popup sets RELOAD_KEY for those; honour it here, after settings.set, so
+  // the re-fetch rides the new route. Consume it unconditionally so it can't
+  // linger. Both signals resolve to at most ONE action on the tab: they mean the
+  // same tab, and reloading it twice is just a second flash of the same page.
   const reloadStore = await chrome.storage.session.get(RELOAD_KEY);
-  if (reloadStore[RELOAD_KEY]) {
-    await chrome.storage.session.remove(RELOAD_KEY);
-    if (!switched && config.settings.refreshOnSwitch) await reloadActiveTab();
+  const request = reloadStore[RELOAD_KEY] as Record<string, unknown> | undefined;
+  if (request) await chrome.storage.session.remove(RELOAD_KEY);
+  const retryUrl = navigableUrl(request?.url);
+  if (retryUrl) {
+    // A re-navigation is honoured whatever refreshOnSwitch says: the popup only
+    // asks for one when the page never loaded, so there is no page to disturb —
+    // and without it the rule just added wouldn't be tried until the request
+    // that is hanging right now finally gives up. It also subsumes the switch
+    // reload: re-issuing the navigation is the stronger of the two.
+    await reloadActiveTab({
+      tabId: typeof request?.tabId === 'number' ? request.tabId : undefined,
+      url: retryUrl,
+    });
+  } else if (config.settings.refreshOnSwitch && (switched || request)) {
+    await reloadActiveTab();
   }
 
   rebuildCredentials(config);
@@ -667,23 +681,56 @@ async function runTabExitProbe(req: { nonce: number; tabUrl: string; tabHost: st
  * of the blue much later.
  */
 const PENDING_RELOAD_TTL_MS = 5 * 60_000;
+/**
+ * A deferred RE-NAVIGATION gets a much shorter window. It only makes sense in
+ * the moment — the user just routed a page that hadn't loaded and is about to
+ * close the popup — and if this worker's write lost the race with the popup's
+ * disconnect, the entry survives to the NEXT popup close. A late reload is
+ * invisible; a late navigation would move a tab the user is now reading.
+ */
+const PENDING_NAV_TTL_MS = 60_000;
+
+/** Never navigate a tab anywhere but a web page, whatever storage says. */
+function navigableUrl(url: unknown): string | undefined {
+  return typeof url === 'string' && /^https?:/i.test(url) ? url : undefined;
+}
 
 /**
- * Reload the active tab so it re-fetches over the new route — but not while the
- * popup is open. Chrome dismisses the action popup when the tab underneath it
- * navigates, so an immediate reload would close the popup mid-edit. Deferring
- * also collapses a burst of changes (switch profile, add a rule, set an
- * override) into one reload when the popup closes.
+ * Re-fetch a tab over the current route: re-issue the navigation it was waiting
+ * on when `url` is given, else reload what it is showing. A pending navigation
+ * cannot be reloaded — chrome.tabs.reload re-fetches the committed document and
+ * abandons the navigation, which for a page that never loaded means throwing
+ * away the very request the user is trying to fix.
  */
-async function reloadActiveTab(): Promise<void> {
+async function refetchTab(tabId: number, url?: string): Promise<void> {
+  if (url) await chrome.tabs.update(tabId, { url });
+  else await chrome.tabs.reload(tabId);
+}
+
+/**
+ * Re-fetch a tab so it rides the new route — but not while the popup is open.
+ * Chrome dismisses the action popup when the tab underneath it navigates, so
+ * acting immediately would close the popup mid-edit. Deferring also collapses a
+ * burst of changes (switch profile, add a rule, set an override) into one
+ * re-fetch when the popup closes.
+ *
+ * `tabId` names the tab the popup was showing; without one the active tab is
+ * used, which is what a plain profile switch means.
+ */
+async function reloadActiveTab(target: { tabId?: number; url?: string } = {}): Promise<void> {
   try {
-    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    if (tab?.id === undefined) return;
+    let tabId = target.tabId;
+    if (tabId === undefined) {
+      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      tabId = tab?.id;
+    }
+    if (tabId === undefined) return;
+    const url = navigableUrl(target.url);
     if (popupPorts > 0) {
-      await chrome.storage.session.set({ [PENDING_RELOAD_KEY]: { tabId: tab.id, at: Date.now() } });
+      await chrome.storage.session.set({ [PENDING_RELOAD_KEY]: { tabId, url, at: Date.now() } });
       return;
     }
-    await chrome.tabs.reload(tab.id);
+    await refetchTab(tabId, url);
   } catch {
     // no active tab or no permission — nothing to reload
   }
@@ -693,13 +740,17 @@ async function reloadActiveTab(): Promise<void> {
 async function flushPendingReload(): Promise<void> {
   try {
     const store = await chrome.storage.session.get(PENDING_RELOAD_KEY);
-    const pending = store[PENDING_RELOAD_KEY] as { tabId?: unknown; at?: unknown } | undefined;
+    const pending = store[PENDING_RELOAD_KEY] as
+      | { tabId?: unknown; at?: unknown; url?: unknown }
+      | undefined;
     // Remove first: a reload that can't run (tab closed) must not linger and
     // fire on some later popup close.
     await chrome.storage.session.remove(PENDING_RELOAD_KEY);
     if (typeof pending?.tabId !== 'number') return;
-    if (Date.now() - (typeof pending.at === 'number' ? pending.at : 0) > PENDING_RELOAD_TTL_MS) return;
-    await chrome.tabs.reload(pending.tabId);
+    const url = navigableUrl(pending.url);
+    const ttl = url ? PENDING_NAV_TTL_MS : PENDING_RELOAD_TTL_MS;
+    if (Date.now() - (typeof pending.at === 'number' ? pending.at : 0) > ttl) return;
+    await refetchTab(pending.tabId, url);
   } catch {
     // tab gone, or no permission — nothing to reload
   }
@@ -834,10 +885,14 @@ async function updateTabBadge(tabId: number, config: Config | null = cachedConfi
     const errorStore = await chrome.storage.session.get(ERROR_KEY);
     if (errorStore[ERROR_KEY]) return; // leave the global error badge visible
     const tab = await chrome.tabs.get(tabId);
-    if (!tab.url || !/^https?:/i.test(tab.url)) return void (await clear());
+    // The page being loaded, not the one being replaced — otherwise the badge
+    // reads out the previous page's route for as long as a navigation takes,
+    // which on a host that never answers is half a minute of the wrong answer,
+    // and disagrees with the popup's Route readout the whole time.
+    const page = tabTarget(tab);
+    if (!page) return void (await clear());
     const tempRules = await loadTempRules(cfg.activeId);
-    const host = new URL(tab.url).hostname;
-    const route = resolveRoute(cfg, active, pacRequestUrl(tab.url), host, tempRules);
+    const route = resolveRoute(cfg, active, pacRequestUrl(page.url), page.host, tempRules);
     const target = profileById(cfg, route.targetId);
     const text = target && !route.bypassed ? initialsFor(target) : 'DIR';
     await chrome.action.setBadgeBackgroundColor({ tabId, color: target?.color ?? NEUTRAL });

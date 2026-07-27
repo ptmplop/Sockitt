@@ -114,7 +114,10 @@ Opera, Vivaldi, and other Chromium browsers (Chrome 110+).
 2. Pick the profile in the popup. Everything now routes through it.
 3. For per-site routing, create an **Auto Switch** profile and activate it. As
    you browse, the popup shows where the current tab routes and lets you add or
-   edit a rule for it - permanently, or as a temporary override.
+   edit a rule for it - permanently, or as a temporary override. This works while
+   a page is still loading too: a site you cannot reach directly is shown as the
+   tab's target the moment it starts loading, so you can route it through a proxy
+   and have Sockitt request it again, instead of waiting for it to time out.
 
 See [docs/rules.md](docs/rules.md) for the full pattern syntax and
 [docs/architecture.md](docs/architecture.md) for how it works internally.

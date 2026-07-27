@@ -7,6 +7,7 @@ import {
   OPEN_PAGE_KEY,
   POPUP_PORT,
   RELOAD_KEY,
+  ReloadRequest,
   TAB_EXIT_KEY,
   TAB_EXIT_RESULT_KEY,
   loadConfig,
@@ -14,6 +15,7 @@ import {
   saveConfig,
   saveTempRules,
 } from '../shared/state';
+import { TabTarget, tabTarget } from '../shared/tabs';
 import { ERROR_KEY, ProxyAlert, asProxyAlert, errorSummaryLine, loadProxyAlert } from '../shared/errors';
 import {
   Config,
@@ -31,13 +33,15 @@ import { el, toast } from '../shared/ui';
 
 const app = document.getElementById('app')!;
 
-interface TabInfo {
-  url: string;
-  host: string;
-}
+/**
+ * The tab the popup is about: the page it shows, or the page it is trying to
+ * reach (see shared/tabs.ts). The id rides along so a retry can name that exact
+ * tab instead of whichever one happens to be active when the worker gets to it.
+ */
+type ActiveTab = TabTarget & { id?: number };
 
 let config: Config;
-let tab: TabInfo | null = null;
+let tab: ActiveTab | null = null;
 /** Live proxy failure, if any. Rendered as a topbar icon — never as a banner. */
 let proxyAlert: ProxyAlert | null = null;
 let tempRules: SwitchRule[] = [];
@@ -258,9 +262,8 @@ async function init(): Promise<void> {
   await loadOverride(config.activeId);
   try {
     const [active] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    if (active?.url && /^https?:/i.test(active.url)) {
-      tab = { url: active.url, host: new URL(active.url).hostname };
-    }
+    const target = tabTarget(active);
+    tab = target ? { ...target, id: active?.id } : null;
   } catch {
     tab = null;
   }
@@ -342,10 +345,21 @@ async function setOverride(profileId: string, rule: SwitchRule | null): Promise<
  * worker to reload the active tab AFTER it applies the change (set here, before
  * the save that wakes applyActive, which consumes RELOAD_KEY). Doing it worker-
  * side — not here — keeps the reload from racing ahead of the proxy update.
+ *
+ * A page that has not loaded yet is re-requested by URL instead of reloaded, and
+ * whatever "reload on switch" says. Two reasons: chrome.tabs.reload would
+ * re-fetch the document still on screen and abandon the navigation the user is
+ * waiting on, and there is no loaded page here to disturb — the request hanging
+ * right now is the very one the new rule was added to fix, so trying it again is
+ * the whole point of adding the rule.
  */
 async function requestTabReload(): Promise<void> {
-  if (config.settings.refreshOnSwitch && tab) {
-    await chrome.storage.session.set({ [RELOAD_KEY]: { at: Date.now() } });
+  if (!tab) return;
+  const request: ReloadRequest = tab.pending
+    ? { at: Date.now(), tabId: tab.id, url: tab.url }
+    : { at: Date.now() };
+  if (tab.pending || config.settings.refreshOnSwitch) {
+    await chrome.storage.session.set({ [RELOAD_KEY]: request });
   }
 }
 
@@ -542,13 +556,33 @@ function targetChip(targetId: string, size: number): { tile: HTMLElement; name: 
   return p ? { tile: avatarEl(p, size), name: p.name } : { tile: builtinTile('D', size), name: 'Direct' };
 }
 
-function thisTabHead(host: string | null): HTMLElement {
+/**
+ * The host the rest of the right pane is about. When that host comes from a
+ * navigation still in flight, a pill says so — otherwise the card would look
+ * like a readout of the page on screen, which is precisely what it is not.
+ */
+function thisTabHead(target: ActiveTab | null): HTMLElement {
   return el(
     'div',
     { class: 'this-site-head' },
-    el('span', { class: 'ts-label' }, 'This tab'),
-    host
-      ? el('span', { class: 'ts-host', title: host }, host)
+    el(
+      'span',
+      { class: 'ts-label' },
+      'This tab',
+      target?.pending
+        ? el(
+            'span',
+            {
+              class: 'ts-state',
+              title:
+                'This page has not loaded yet — the site below is the one the tab is trying to open, so you can route it without waiting for it to give up.',
+            },
+            'loading'
+          )
+        : null
+    ),
+    target
+      ? el('span', { class: 'ts-host', title: target.host }, target.host)
       : el('span', { class: 'ts-host muted' }, '—')
   );
 }
@@ -620,17 +654,20 @@ function proxyBypassControl(profile: ProxyProfile, host: string, matchUrl: strin
           class: 'btn ghost icon ov-remove',
           title: 'Stop sending this site direct',
           innerHTML: '&#10005;',
-          onclick: () => {
-            void commitConfig((fresh) => {
+          onclick: async () => {
+            // Same as the rule/override controls: this changes how the site
+            // routes, so the page should re-fetch over the new route (and a page
+            // that never loaded is re-requested outright).
+            await requestTabReload();
+            const ok = await commitConfig((fresh) => {
               const p = fresh.profiles.find((x) => x.id === profile.id);
               if (!p || p.kind !== 'proxy') return false;
               p.bypass = p.bypass.filter((e) => e !== stored);
-            }).then((ok) => {
-              if (!ok) return;
-              toast('Bypass removed');
-              render();
-              scheduleExitCheck();
             });
+            if (!ok) return;
+            toast('Bypass removed');
+            render();
+            scheduleExitCheck();
           },
         })
       )
@@ -660,17 +697,17 @@ function proxyBypassControl(profile: ProxyProfile, host: string, matchUrl: strin
         {
           class: 'btn sm',
           title: `Send ${host} straight to the network, past this proxy`,
-          onclick: () => {
-            void commitConfig((fresh) => {
+          onclick: async () => {
+            await requestTabReload();
+            const ok = await commitConfig((fresh) => {
               const p = fresh.profiles.find((x) => x.id === profile.id);
               if (!p || p.kind !== 'proxy') return false;
               p.bypass = [...p.bypass, entry];
-            }).then((ok) => {
-              if (!ok) return;
-              toast(`Bypassing ${host}`);
-              render();
-              scheduleExitCheck();
             });
+            if (!ok) return;
+            toast(`Bypassing ${host}`);
+            render();
+            scheduleExitCheck();
           },
         },
         'Send this site direct'
@@ -685,6 +722,9 @@ function proxyBypassControl(profile: ProxyProfile, host: string, matchUrl: strin
  */
 function siteRuleCard(active: SwitchProfile): HTMLElement {
   const matchUrl = pacRequestUrl(tab!.url);
+  // The page hasn't loaded, so every change here ends in "…and try it again";
+  // the buttons say so rather than leaving the user to guess and hit reload.
+  const pending = tab!.pending;
   const override = tempRules[0];
   // Grey out the rule controls only when the override actually captures THIS
   // site — an override set on another site must not lock editing here.
@@ -786,7 +826,9 @@ function siteRuleCard(active: SwitchProfile): HTMLElement {
       {
         class: 'btn sm',
         disabled: overridesThisSite,
-        title: `Add a rule routing *.${tab!.host}`,
+        title: pending
+          ? `Add a rule routing *.${tab!.host} and request the page again over it`
+          : `Add a rule routing *.${tab!.host}`,
         onclick: async () => {
           const rule = siteRule(sel.value);
           await requestTabReload();
@@ -797,13 +839,13 @@ function siteRuleCard(active: SwitchProfile): HTMLElement {
             else p.rules.unshift(rule);
           });
           if (ok) {
-            toast('Rule added');
+            toast(pending ? 'Rule added — retrying' : 'Rule added');
             render();
             scheduleExitCheck();
           }
         },
       },
-      'Add rule'
+      pending ? 'Add & retry' : 'Add rule'
     );
     ruleField = el(
       'div',
@@ -869,14 +911,16 @@ function siteRuleCard(active: SwitchProfile): HTMLElement {
           'button',
           {
             class: 'btn sm',
-            title: `Temporarily route *.${tab!.host} until the browser restarts`,
+            title: pending
+              ? `Temporarily route *.${tab!.host} until the browser restarts, and request the page again over it`
+              : `Temporarily route *.${tab!.host} until the browser restarts`,
             onclick: () => {
               void setOverride(active.id, siteRule(sel.value));
-              toast('Override set');
+              toast(pending ? 'Override set — retrying' : 'Override set');
               render();
             },
           },
-          'Set'
+          pending ? 'Set & retry' : 'Set'
         )
       )
     );
@@ -910,7 +954,7 @@ function thisTab(profile: Profile | undefined): (Node | null)[] {
 
   if (activeId === DIRECT) {
     return [
-      thisTabHead(host),
+      thisTabHead(tab),
       routeReadout({ tile: builtinTile('D', 20), name: 'Direct', tag: 'no proxy' }, null),
       el(
         'p',
@@ -924,7 +968,7 @@ function thisTab(profile: Profile | undefined): (Node | null)[] {
 
   if (activeId === SYSTEM || !profile) {
     return [
-      thisTabHead(host),
+      thisTabHead(tab),
       routeReadout(null, 'Following your OS proxy settings.'),
       el('p', { class: 'sm-hint' }, 'Sockitt can’t inspect the OS PAC’s per-site rules, so it won’t show a route here.'),
     ];
@@ -932,9 +976,15 @@ function thisTab(profile: Profile | undefined): (Node | null)[] {
 
   if (profile.kind === 'switch') {
     return [
-      thisTabHead(host),
+      thisTabHead(tab),
       siteRuleCard(profile),
-      el('p', { class: 'sm-hint' }, 'A rule persists; an override takes priority for this site and clears when the browser restarts.'),
+      el(
+        'p',
+        { class: 'sm-hint' },
+        tab.pending
+          ? 'This page hasn’t loaded yet. Give the site a rule or an override and Sockitt requests it again over that route.'
+          : 'A rule persists; an override takes priority for this site and clears when the browser restarts.'
+      ),
     ];
   }
 
@@ -954,12 +1004,12 @@ function thisTab(profile: Profile | undefined): (Node | null)[] {
   if (profile.kind === 'proxy') {
     // Route readout + the per-site bypass control share one field-group card.
     const card = el('div', { class: 'card site-mgr' }, routeField(chip, null), proxyBypassControl(profile, host, matchUrl));
-    return [thisTabHead(host), card, el('p', { class: 'sm-hint' }, 'Per-site target routing needs an Auto switch profile.')];
+    return [thisTabHead(tab), card, el('p', { class: 'sm-hint' }, 'Per-site target routing needs an Auto switch profile.')];
   }
   if (profile.kind === 'virtual') {
-    return [thisTabHead(host), routeReadout(chip, null), el('p', { class: 'sm-hint' }, 'This alias points at another profile — edit its rules from that profile in Options.')];
+    return [thisTabHead(tab), routeReadout(chip, null), el('p', { class: 'sm-hint' }, 'This alias points at another profile — edit its rules from that profile in Options.')];
   }
-  return [thisTabHead(host), routeReadout(chip, null), el('p', { class: 'sm-hint' }, 'Routing follows this list’s entries. Edit the list in Options.')];
+  return [thisTabHead(tab), routeReadout(chip, null), el('p', { class: 'sm-hint' }, 'Routing follows this list’s entries. Edit the list in Options.')];
 }
 
 /* ---- render: two-pane window (switcher left, this-tab right) ---- */
