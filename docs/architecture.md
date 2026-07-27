@@ -25,6 +25,7 @@ options ┘        (config)                  └─> action icon / badge / title
 | `src/shared/state.ts` | Storage load/save and `sanitizeConfig` (also validates imports and sync); session override rules |
 | `src/shared/rulelist.ts` | AutoProxy/GFWList and Switchy list parsing (base64 decode plus a small memo) |
 | `src/shared/sync.ts` | Config mirroring over `chrome.storage.sync`: byte-bounded chunks, rule-list bodies excluded (refetchable), pre-push revision check, last-write-wins by revision |
+| `src/shared/errors.ts` | Proxy failure model: the live alert, the session error log (repeats collapsed), and the plain-English vocabulary both UI surfaces render |
 | `src/shared/avatar.ts` | Initials avatars (DiceBear-initials style, generated locally) |
 | `src/background.ts` | The applier: proxy settings, icon painting, error badge, quick-switch, alarms, sync, and HTTP(S) proxy auth |
 | `src/popup/` | Switcher UI and live per-site route management |
@@ -117,7 +118,9 @@ request from storage rather than from a message it missed.
 
 | Key | Direction | Purpose |
 |---|---|---|
-| `sockitt-error` | worker → UI | Last proxy failure, rendered as a popup banner |
+| `sockitt-error` | worker → UI | The live proxy failure ("requests are failing right now"), absent once it clears |
+| `sockitt-error-log` | worker → UI | Failure history for the session, newest first, repeats collapsed |
+| `sockitt-open-page` | popup → options | Which options page to open (`openOptionsPage` takes no target, and may focus a page that is already up) |
 | `sockitt-applied` | worker → UI | "Settings applied" tick, so an open popup re-checks its exit IP against the new route |
 | `sockitt-test` / `-result` | options ↔ worker | Connection test request and its outcome |
 | `sockitt-tab-exit` / `-result` | popup ↔ worker | Probe where the *current tab* exits when it routes differently from `ipconfig.is` |
@@ -135,10 +138,49 @@ reload is itself kept in session storage (with a short TTL) so it survives one.
 
 ## Error surfacing
 
-`chrome.proxy.onProxyError` stores the failure in `chrome.storage.session` and
-sets a red `!` badge; the popup shows the message. After applying settings the
-worker also checks `levelOfControl`, and if another extension holds proxy
-control the badge and title say so instead of pretending to work.
+`chrome.proxy.onProxyError` and a failure to apply settings at all feed one
+path, `raiseProxyError()`. It records two things in `chrome.storage.session`:
+
+- an **alert** (`sockitt-error`) — "requests are failing right now", carrying a
+  `streak` count that drives the toolbar badge (`!`, `!4`, `!9+`);
+- a **log entry** (`sockitt-error-log`) — the history behind it, capped at 50,
+  with identical consecutive failures collapsed into one entry plus a count so a
+  proxy that has been down for an hour is one line, not a thousand.
+
+Chrome's event says a proxy failed but never *which* one, so the worker stamps
+each entry with the route in force at the time: the exact server when the active
+profile routes everything the same way (`staticTerminal`), or the reachable
+proxy set when it decides per request. Guessing one of the latter would be worse
+than naming the shortlist.
+
+**Clearing is the interesting part.** Chrome reports failures and never
+recoveries, so "the proxy works again" has to be inferred from the failures
+stopping. Every failure re-arms a 30-second decay, as *both* a
+`chrome.alarms` alarm and a `setTimeout`: the alarm survives the worker being
+suspended (a lone timeout would die with it and leave the badge stuck on
+forever, the bug this replaced), while the timeout is the one that fires
+punctually, since `chrome.alarms` clamps short delays to 30s on Chrome 120+ and
+to a full minute below that. Whichever fires first wins; `decayProxyAlert()` is
+idempotent. Applying settings clears the alert immediately too, and a proxy that
+is still down simply re-raises on its next request.
+
+The badge belongs to the worker, but the alert can be dropped from several
+places (a re-apply, the decay, Dismiss on the options page), so a
+`storage.onChanged` listener watches the *cleared edge* of `sockitt-error` and
+repaints once for all of them. It re-derives the badge from live state rather
+than blindly blanking it, so it cannot race a concurrent apply into showing "all
+fine" when another extension has taken proxy control, or when a fresh failure
+landed while the repaint was in flight.
+
+The UI never shows this as a banner. The popup renders a warning triangle inside
+its fixed-height top bar — a banner there would push both panes down inside a
+720x520 window, shifting whatever the user was about to click — and the detail
+lives on the options page's **Proxy errors** panel, which has room for the
+carrier, the advice, and the log.
+
+After applying settings the worker also checks `levelOfControl`, and if another
+extension holds proxy control the badge and title say so instead of pretending
+to work.
 
 ## Storage and lifecycle
 

@@ -38,6 +38,13 @@ ever sent to the developer or to any third party.
   leave the device is a backup you create yourself: the Export button writes
   your full configuration — credentials included, in plain text — to a JSON
   file, so treat exported backups as secrets.
+- **The proxy error log** - when a proxy fails, Sockitt records the browser's
+  error code, the time, and which of your proxy profiles was carrying traffic
+  (name, address, and port) so the Proxy errors page can tell you what broke.
+  It is held in `chrome.storage.session` only: gone when the browser restarts,
+  never written to your saved configuration, and never synced. It records no
+  credential and no page address, and nothing in it is transmitted anywhere —
+  the "Copy report" button puts it on your own clipboard and nowhere else.
 - **The active tab's address** - when you open the popup (or enable the
   optional per-tab route badge), Sockitt reads the current tab's URL to show
   which proxy that page will use and to let you add or override a rule for it.

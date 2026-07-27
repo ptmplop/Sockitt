@@ -35,11 +35,40 @@ body {
 }
 .topbar .brand { display: flex; align-items: center; gap: 9px; font-size: 16px; font-weight: 800; letter-spacing: -0.01em; }
 .topbar .mark { width: 24px; height: 24px; }
+.topbar-actions { display: flex; align-items: center; gap: 2px; }
 .topbar .cog { width: 30px; height: 30px; color: var(--text-dim); }
 .topbar .cog svg { width: 18px; height: 18px; display: block; }
 .topbar .cog:hover { color: var(--text); background: var(--surface-hover); }
 
-.pop-banner { margin: 8px 12px 0; }
+/* Proxy-failure indicator. It lives INSIDE the fixed-height top bar rather than
+   in the flow below it, so a failure never changes the height of anything —
+   the panes and the card beneath keep the exact geometry they had. */
+/* Descendant-qualified so it outranks .btn.ghost's dimmed colour, exactly as
+   .topbar .cog above has to. */
+.topbar .alert-btn {
+  width: auto;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 8px;
+  gap: 5px;
+  /* Lifted off the base --danger, which is tuned for the light panes and reads
+     muddy on the dark bar. */
+  color: #ff7d90;
+}
+.topbar .alert-btn:hover { color: #ff9aa9; background: color-mix(in srgb, #ff7d90 18%, transparent); }
+.alert-btn .alert-ico { display: inline-flex; }
+.alert-btn .alert-ico svg { width: 18px; height: 18px; display: block; }
+.alert-count { font-size: 11.5px; font-weight: 800; font-variant-numeric: tabular-nums; }
+/* A slow breath, not a flash: enough to catch the eye on open, never enough to
+   nag while the user works. */
+@keyframes alert-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+.alert-btn .alert-ico { animation: alert-breathe 2.4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .alert-btn .alert-ico { animation: none; }
+}
 
 /* ---- body split ---- */
 .body { flex: 1; min-height: 0; display: flex; }
@@ -263,6 +292,12 @@ button.exit-enable:focus-visible { outline: none; box-shadow: var(--ring); borde
   gap: 12px;
   scrollbar-gutter: stable;
 }
+/* Never shrink to fit — scroll instead. A flex item's automatic minimum size is
+   its content, EXCEPT when it clips its own overflow: .site-mgr sets
+   overflow:hidden (to round its inner rows), which drops that floor to zero. So
+   in a short pane the card silently compressed and swallowed its own bottom
+   padding, leaving the last control sitting on the card's border. */
+.detail-scroll > * { flex: none; }
 
 /* Stacked: the label is an eyebrow, the host sits on its own full-width line
    below it so the whole pane (~383px, ~48 mono chars) is available — real

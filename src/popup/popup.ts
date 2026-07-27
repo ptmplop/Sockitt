@@ -4,7 +4,7 @@ import { compileRule, pacRequestUrl, resolveRoute, testBypass, testCondition } f
 import { parseRuleList } from '../shared/rulelist';
 import {
   APPLIED_KEY,
-  ERROR_KEY,
+  OPEN_PAGE_KEY,
   POPUP_PORT,
   RELOAD_KEY,
   TAB_EXIT_KEY,
@@ -14,6 +14,7 @@ import {
   saveConfig,
   saveTempRules,
 } from '../shared/state';
+import { ERROR_KEY, ProxyAlert, asProxyAlert, errorSummaryLine, loadProxyAlert } from '../shared/errors';
 import {
   Config,
   DIRECT,
@@ -37,7 +38,8 @@ interface TabInfo {
 
 let config: Config;
 let tab: TabInfo | null = null;
-let proxyError: { message: string } | null = null;
+/** Live proxy failure, if any. Rendered as a topbar icon — never as a banner. */
+let proxyAlert: ProxyAlert | null = null;
 let tempRules: SwitchRule[] = [];
 /** Left-pane profile filter — only surfaced when there are many profiles. */
 let filterText = '';
@@ -52,6 +54,13 @@ const SETTINGS_ICON =
   '<line x1="3" y1="6" x2="12.5" y2="6"/><line x1="19.5" y1="6" x2="21" y2="6"/><circle cx="16" cy="6" r="2.5"/>' +
   '<line x1="3" y1="12" x2="5.5" y2="12"/><line x1="12.5" y1="12" x2="21" y2="12"/><circle cx="9" cy="12" r="2.5"/>' +
   '<line x1="3" y1="18" x2="10.5" y2="18"/><line x1="17.5" y1="18" x2="21" y2="18"/><circle cx="14" cy="18" r="2.5"/>' +
+  '</svg>';
+
+/** Warning triangle for the proxy-failure indicator. */
+const ALERT_ICON =
+  '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+  '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>' +
+  '<line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>' +
   '</svg>';
 
 /* ---- exit-IP check (detail header) ---- */
@@ -245,8 +254,7 @@ function markPopupOpen(): void {
 async function init(): Promise<void> {
   markPopupOpen();
   config = await loadConfig();
-  const session = await chrome.storage.session.get(ERROR_KEY).catch(() => ({}));
-  proxyError = (session as Record<string, { message: string }>)[ERROR_KEY] ?? null;
+  proxyAlert = await loadProxyAlert();
   await loadOverride(config.activeId);
   try {
     const [active] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
@@ -259,7 +267,14 @@ async function init(): Promise<void> {
   render();
   void maybeCheckExit();
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'session' && changes[APPLIED_KEY]) scheduleExitCheck();
+    if (area !== 'session') return;
+    if (changes[APPLIED_KEY]) scheduleExitCheck();
+    // A failure can start — or stop — while the popup sits open, so the
+    // indicator tracks the alert rather than the moment the popup was opened.
+    if (changes[ERROR_KEY]) {
+      proxyAlert = asProxyAlert(changes[ERROR_KEY].newValue);
+      updateAlertButton();
+    }
   });
 }
 
@@ -949,17 +964,71 @@ function thisTab(profile: Profile | undefined): (Node | null)[] {
 
 /* ---- render: two-pane window (switcher left, this-tab right) ---- */
 
+/**
+ * The proxy-failure indicator: an icon in the topbar, never a banner. A banner
+ * here would push the two panes down inside a fixed 520px window — shifting
+ * whatever the user was about to click, and squeezing the right-hand card. The
+ * detail lives on the options page, which has room for it.
+ */
+function alertButton(): HTMLElement | null {
+  if (!proxyAlert) return null;
+  const n = proxyAlert.streak;
+  const label =
+    n > 1
+      ? `${n} proxy errors — ${errorSummaryLine(proxyAlert)}`
+      : `Proxy error — ${errorSummaryLine(proxyAlert)}`;
+  const btn = el(
+    'button',
+    {
+      class: 'btn ghost icon alert-btn',
+      title: `${label}. Click for details.`,
+      onclick: () => void openErrorPage(),
+    },
+    el('span', { class: 'alert-ico', innerHTML: ALERT_ICON }),
+    // The count appears only once it adds information; a lone "!" case stays a
+    // plain icon, matching the toolbar badge.
+    n > 1 ? el('span', { class: 'alert-count' }, n > 9 ? '9+' : String(n)) : null
+  );
+  btn.setAttribute('aria-label', `${label}. Opens the proxy error log.`);
+  return btn;
+}
+
+/** Open the options page on its Proxy errors panel (see OPEN_PAGE_KEY). */
+async function openErrorPage(): Promise<void> {
+  await chrome.storage.session
+    .set({ [OPEN_PAGE_KEY]: { page: 'errors', at: Date.now() } })
+    .catch(() => undefined);
+  chrome.runtime.openOptionsPage();
+}
+
+/**
+ * Swap the indicator in place. A full render() would land while the user is in
+ * a dropdown — failures arrive at their own pace, not the user's.
+ */
+function updateAlertButton(): void {
+  const actions = document.querySelector('.topbar-actions');
+  if (!actions) return;
+  actions.querySelector(':scope > .alert-btn')?.remove();
+  const btn = alertButton();
+  if (btn) actions.prepend(btn);
+}
+
 function topBar(): HTMLElement {
   return el(
     'div',
     { class: 'topbar' },
     el('span', { class: 'brand' }, el('img', { class: 'mark', src: 'img/logo-mark.png', alt: '' }), 'Sockitt'),
-    el('button', {
-      class: 'btn ghost icon cog',
-      title: 'Options',
-      innerHTML: SETTINGS_ICON,
-      onclick: () => chrome.runtime.openOptionsPage(),
-    })
+    el(
+      'div',
+      { class: 'topbar-actions' },
+      alertButton(),
+      el('button', {
+        class: 'btn ghost icon cog',
+        title: 'Options',
+        innerHTML: SETTINGS_ICON,
+        onclick: () => chrome.runtime.openOptionsPage(),
+      })
+    )
   );
 }
 
@@ -1075,11 +1144,7 @@ function render(): void {
     ['Aliases', config.profiles.filter((p) => p.kind === 'virtual')],
   ];
 
-  const children: Node[] = [topBar()];
-  if (proxyError) children.push(el('div', { class: 'banner pop-banner' }, `Proxy error: ${proxyError.message}`));
-  children.push(el('div', { class: 'body' }, leftPane(groups), rightPane(activeProfile)));
-
-  app.replaceChildren(...children);
+  app.replaceChildren(topBar(), el('div', { class: 'body' }, leftPane(groups), rightPane(activeProfile)));
 
   // Re-apply any active filter, then keep the active profile visible.
   applyFilter();

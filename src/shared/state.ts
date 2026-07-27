@@ -17,9 +17,9 @@ import {
 const KEY = 'sockitt';
 const TEMP_KEY = 'sockitt-temp';
 
-/* Session-storage channels shared between the worker and the UI pages. */
-/** Last proxy error, set by the worker, shown by the popup. */
-export const ERROR_KEY = 'sockitt-error';
+/* Session-storage channels shared between the worker and the UI pages.
+   The proxy-failure channels (`sockitt-error`, `sockitt-error-log`) live in
+   shared/errors.ts alongside the type and the helpers that read them. */
 /** Written by the worker after each proxy application (popup exit-IP re-check). */
 export const APPLIED_KEY = 'sockitt-applied';
 /** Proxy-test request (options page → worker). */
@@ -35,6 +35,15 @@ export const TAB_EXIT_RESULT_KEY = 'sockitt-tab-exit-result';
 export const RELOAD_KEY = 'sockitt-reload';
 /** A reload the worker held back because the popup was open, run once it closes. */
 export const PENDING_RELOAD_KEY = 'sockitt-pending-reload';
+/**
+ * Navigation hand-off (popup → options). The popup cannot pass a target to
+ * chrome.runtime.openOptionsPage, and that call may focus an options tab that
+ * is ALREADY open — so the destination rides storage instead, which both a
+ * cold-booting page and a live one can act on.
+ */
+export const OPEN_PAGE_KEY = 'sockitt-open-page';
+/** Pages the popup can ask the options page to open. */
+export type OptionsPageRequest = 'errors';
 
 /**
  * Name of the popup's lifetime port. The popup connects it for as long as it is

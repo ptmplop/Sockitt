@@ -74,9 +74,12 @@ script.
 - **Sync and control.** Optional configuration sync across machines via your
   browser account, a startup profile, and a guard that re-takes proxy control
   if another extension grabs it.
-- **Honest failure states.** A red `!` badge appears if the proxy errors or
-  another extension controls proxy settings. When a proxy is down, requests
-  fail closed rather than silently leaking direct.
+- **Honest failure states.** When a proxy is down, requests fail closed rather
+  than silently leaking direct. A red mark on the toolbar icon says so — with a
+  count (`!`, `!4`, `!9+`) once the failure repeats — and a **Proxy errors**
+  page names the error, explains it, says which proxy was carrying traffic, and
+  keeps a log. The mark clears itself after 30 seconds without a new failure,
+  because a proxy coming back is something the browser never announces.
 
 ## Install
 
@@ -137,6 +140,10 @@ Extra capabilities are strictly opt-in and requested only when you use them:
 - **Sync** stores your configuration in your own browser account
   (`chrome.storage.sync`). Proxy credentials are never synced; enter them on
   each machine.
+
+The proxy error log lives in `chrome.storage.session` alone: it is gone when the
+browser restarts, is never written to your saved configuration, and is never
+synced. It records proxy addresses and ports, never credentials.
 
 ## Limitations
 

@@ -4,6 +4,23 @@ import { EXIT_IP_PERMS, flagSrc } from '../shared/exitip';
 import { TraceEdge, pacRequestUrl, patternError, resolveRoute } from '../shared/match';
 import { parseRuleList } from '../shared/rulelist';
 import {
+  ERROR_KEY,
+  ERROR_LOG_KEY,
+  ProxyAlert,
+  ProxyErrorEntry,
+  ProxyRef,
+  clearErrorLog,
+  clearProxyAlert,
+  describeCarrier,
+  errorAdvice,
+  errorHeadline,
+  formatErrorReport,
+  loadErrorLog,
+  loadProxyAlert,
+  viaIsSelf,
+} from '../shared/errors';
+import {
+  OPEN_PAGE_KEY,
   TEST_KEY,
   TEST_RESULT_KEY,
   loadConfig,
@@ -45,6 +62,13 @@ const app = document.getElementById('app')!;
 const SETTINGS_ID = '@settings';
 const DOCS_ID = '@docs';
 const INSPECT_ID = '@inspect';
+const ERRORS_ID = '@errors';
+/**
+ * The nav entries that are pages rather than profiles. Kept as one set so a new
+ * page cannot be forgotten by the "selected profile was deleted" check below —
+ * forgetting it there silently bounces the user off the page on any config change.
+ */
+const PAGE_IDS = new Set<string>([SETTINGS_ID, DOCS_ID, INSPECT_ID, ERRORS_ID]);
 
 /**
  * Feather-style icons for the "Extension" nav items. Crisp, uniformly sized
@@ -63,6 +87,8 @@ const NAV_ICON = {
     '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="6" x2="9" y2="6"/><line x1="15" y1="6" x2="15" y2="6"/><line x1="9" y1="12" x2="9" y2="12"/><line x1="15" y1="12" x2="15" y2="12"/><line x1="9" y1="18" x2="9" y2="18"/><line x1="15" y1="18" x2="15" y2="18"/></svg>',
   plus:
     '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+  alert:
+    '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
 };
 
 /** Neutral tile holding a nav-icon SVG — same tile as builtinTile, crisp glyph. */
@@ -99,6 +125,9 @@ let config: Config;
 let selectedId: string | null = null;
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 let syncError: string | null = null;
+/** Proxy-failure state, mirrored from session storage (see shared/errors.ts). */
+let proxyAlert: ProxyAlert | null = null;
+let errorLog: ProxyErrorEntry[] = [];
 /** Route-inspector state, module-level so it survives re-renders. */
 let inspectUrl = '';
 let inspectStartId = ''; // '' = the active profile
@@ -196,6 +225,23 @@ function sidebar(): HTMLElement {
         },
         iconTile(NAV_ICON.settings, 22),
         el('span', { class: 'name' }, 'Settings')
+      ),
+      el(
+        'button',
+        {
+          class: `nav-item${selectedId === ERRORS_ID ? ' selected' : ''}`,
+          onclick: () => {
+            selectedId = ERRORS_ID;
+            render();
+          },
+        },
+        iconTile(NAV_ICON.alert, 22),
+        el('span', { class: 'name' }, 'Proxy errors'),
+        // The count only rides the nav while failures are live; the page itself
+        // is always reachable, because the log outlives the incident.
+        proxyAlert
+          ? el('span', { class: 'badge alert' }, proxyAlert.streak > 9 ? '9+' : String(proxyAlert.streak))
+          : null
       ),
       el(
         'button',
@@ -1560,6 +1606,353 @@ function inspectorPanel(): HTMLElement {
   );
 }
 
+/* ---------- proxy errors page ---------- */
+
+/** "just now" / "4 min ago" — precision a failure log actually benefits from. */
+function relativeTime(at: number, now = Date.now()): string {
+  const seconds = Math.max(0, Math.round((now - at) / 1000));
+  if (seconds < 45) return 'just now';
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  return hours < 24 ? `${hours} h ago` : `${Math.round(hours / 24)} d ago`;
+}
+
+/** The profile that was active, linking to its editor when it still exists. */
+function errorProfileChip(entry: ProxyErrorEntry): HTMLElement {
+  if (entry.profileId === DIRECT) {
+    return el('span', { class: 'chain-chip' }, builtinTile('D', 18), 'Direct');
+  }
+  const profile = config.profiles.find((p) => p.id === entry.profileId);
+  if (!profile) {
+    // System, or a profile deleted since. Either way the recorded name is the
+    // truthful answer — resolving it against today's config would rewrite history.
+    return el('span', { class: 'chain-chip' }, builtinTile('S', 18), entry.profileName);
+  }
+  return el(
+    'button',
+    {
+      class: 'chain-chip link',
+      title: `Open ${profile.name}`,
+      onclick: () => {
+        selectedId = profile.id;
+        render();
+      },
+    },
+    avatarEl(profile, 18),
+    profile.name
+  );
+}
+
+/** A proxy server named in an entry; clicking it opens that proxy's editor. */
+function errorProxyChip(ref: ProxyRef): HTMLElement {
+  const profile = config.profiles.find((p) => p.id === ref.id);
+  const inner = [
+    profile ? avatarEl(profile, 18) : builtinTile('P', 18),
+    el('span', {}, ref.name),
+    el('span', { class: 'err-endpoint mono' }, ref.endpoint),
+  ];
+  if (!profile) return el('span', { class: 'chain-chip' }, ...inner);
+  return el(
+    'button',
+    {
+      class: 'chain-chip link',
+      title: `Open ${profile.name} — check the address, or run a connection test`,
+      onclick: () => {
+        selectedId = profile.id;
+        render();
+      },
+    },
+    ...inner
+  );
+}
+
+/**
+ * Which proxy was carrying traffic. For a profile that routes everything the
+ * same way this is exact; for one that decides per request it is a shortlist,
+ * because Chrome's error event genuinely does not name the server — saying so
+ * is more useful than picking one and being wrong.
+ */
+function errorCarrier(entry: ProxyErrorEntry): HTMLElement {
+  if (entry.via) {
+    return el(
+      'div',
+      { class: 'err-carrier' },
+      viaIsSelf(entry)
+        ? el('div', { class: 'chain' }, errorProxyChip(entry.via))
+        : el(
+            'div',
+            { class: 'chain' },
+            errorProfileChip(entry),
+            el('span', { class: 'chain-step' }, el('span', { class: 'chain-why' }, 'routes everything via')),
+            errorProxyChip(entry.via)
+          )
+    );
+  }
+  if (entry.candidates?.length) {
+    return el(
+      'div',
+      { class: 'err-carrier' },
+      el('div', { class: 'chain' }, errorProfileChip(entry)),
+      el(
+        'span',
+        { class: 'note' },
+        `${entry.profileName} picks a server per request, and the browser does not report which one failed. It can route to:`
+      ),
+      el('div', { class: 'chain' }, ...entry.candidates.map(errorProxyChip))
+    );
+  }
+  return el('div', { class: 'err-carrier' }, el('div', { class: 'chain' }, errorProfileChip(entry)));
+}
+
+function errorStatusCard(): HTMLElement {
+  if (proxyAlert) {
+    const alert = proxyAlert;
+    const heading =
+      alert.streak > 1
+        ? `${alert.streak} proxy errors, the last one ${relativeTime(alert.lastAt)}`
+        : `A proxy error, ${relativeTime(alert.lastAt)}`;
+    return el(
+      'div',
+      { class: 'card panel err-status failing' },
+      el('div', { class: 'err-status-head' }, el('span', { class: 'err-live-dot' }), el('span', { class: 'err-status-title' }, heading)),
+      el('p', { class: 'err-code mono' }, errorHeadline(alert)),
+      alert.details ? el('p', { class: 'err-detail' }, alert.details) : null,
+      errorCarrier(alert),
+      el(
+        'p',
+        { class: 'note' },
+        `Started ${relativeTime(alert.at)}. This clears itself — count and all — once 30 seconds go by with no further error. The browser reports failures but never recoveries, so a quiet spell is what “working again” looks like from here.`
+      ),
+      el(
+        'div',
+        { class: 'err-actions' },
+        el('button', { class: 'btn', dataset: { errAction: 'dismiss' }, onclick: () => void clearProxyAlert() }, 'Dismiss'),
+        el('button', { class: 'btn', dataset: { errAction: 'copy' }, onclick: () => void copyErrorReport() }, 'Copy report')
+      )
+    );
+  }
+
+  const last = errorLog[0];
+  if (!last) {
+    return el(
+      'div',
+      { class: 'card panel err-status clear' },
+      el('div', { class: 'err-status-head' }, el('span', { class: 'err-ok-dot' }), el('span', { class: 'err-status-title' }, 'No proxy errors')),
+      el(
+        'p',
+        { class: 'doc-p' },
+        'Nothing has failed since this browser started. If a proxy does go down, Sockitt fails the request rather than quietly sending it direct — so you will see the page error, a red mark on the toolbar icon, and the details here.'
+      )
+    );
+  }
+  return el(
+    'div',
+    { class: 'card panel err-status clear' },
+    el('div', { class: 'err-status-head' }, el('span', { class: 'err-ok-dot' }), el('span', { class: 'err-status-title' }, 'No errors right now')),
+    el(
+      'p',
+      { class: 'doc-p' },
+      `The last failure was ${relativeTime(last.lastAt)} and nothing has failed since. The log below is kept so you can still see what happened.`
+    ),
+    el(
+      'div',
+      { class: 'err-actions' },
+      el('button', { class: 'btn', dataset: { errAction: 'copy' }, onclick: () => void copyErrorReport() }, 'Copy report')
+    )
+  );
+}
+
+/** Plain-English meaning of the most recent failure, when we have one to give. */
+function errorMeaningCard(entry: ProxyErrorEntry): HTMLElement | null {
+  const advice = errorAdvice(entry);
+  if (!advice) return null;
+  return el(
+    'div',
+    { class: 'card panel' },
+    el('h3', {}, 'What this means'),
+    el('p', { class: 'doc-p' }, advice),
+    el(
+      'p',
+      { class: 'note' },
+      'Route inspector shows where a URL lands; a proxy profile’s Test connection says whether that server is reachable at all.'
+    )
+  );
+}
+
+function errorRow(entry: ProxyErrorEntry): HTMLElement {
+  return el(
+    'div',
+    { class: `err-row${entry.fatal ? '' : ' warn'}` },
+    el(
+      'div',
+      { class: 'err-when' },
+      el('span', { class: 'err-time mono', title: new Date(entry.at).toLocaleString() }, new Date(entry.at).toLocaleTimeString()),
+      entry.count > 1
+        ? el(
+            'span',
+            { class: 'err-count', title: `Last repeat ${new Date(entry.lastAt).toLocaleTimeString()}` },
+            `×${entry.count}`
+          )
+        : null
+    ),
+    el(
+      'div',
+      { class: 'err-body' },
+      el('div', { class: 'err-code mono' }, errorHeadline(entry)),
+      entry.details ? el('div', { class: 'err-detail' }, entry.details) : null,
+      el('div', { class: 'err-route' }, describeCarrier(entry))
+    ),
+    el('span', { class: `err-tag${entry.fatal ? ' fatal' : ''}` }, entry.fatal ? 'fatal' : 'warning')
+  );
+}
+
+async function copyErrorReport(): Promise<void> {
+  let version = '';
+  try {
+    version = chrome.runtime.getManifest().version;
+  } catch {
+    // not running as an extension (a preview build) — the report still stands
+  }
+  try {
+    await navigator.clipboard.writeText(formatErrorReport(errorLog, proxyAlert, version));
+    toast('Report copied');
+  } catch {
+    toast('Could not copy — the browser blocked clipboard access', 3000);
+  }
+}
+
+function errorsPanel(): HTMLElement {
+  const newest = proxyAlert ?? errorLog[0] ?? null;
+  return el(
+    'div',
+    { class: 'pane' },
+    errorStatusCard(),
+    newest ? errorMeaningCard(newest) : null,
+    el(
+      'div',
+      { class: 'card panel' },
+      el('h3', {}, 'Error log'),
+      el(
+        'p',
+        { class: 'note' },
+        'Newest first. Repeats of the same failure collapse into one line with a count, so a proxy that has been down for an hour reads as one entry rather than a thousand. Kept for this browser session only — never written to your saved configuration, and never synced.'
+      ),
+      errorLog.length
+        ? el('div', { class: 'err-log' }, ...errorLog.map(errorRow))
+        : el('p', { class: 'note' }, 'Nothing logged yet.'),
+      el(
+        'div',
+        { class: 'err-actions' },
+        el(
+          'button',
+          {
+            class: 'btn danger',
+            dataset: { errAction: 'clear' },
+            disabled: !errorLog.length,
+            onclick: () => {
+              if (!confirmMaybe('Clear the proxy error log?')) return;
+              void clearErrorLog();
+            },
+          },
+          'Clear log'
+        ),
+        // Only alongside something to copy — the Copy report button lives in
+        // the status card above, and vanishes with the log.
+        errorLog.length
+          ? el(
+              'span',
+              { class: 'note' },
+              'A copied report includes your proxy addresses and ports — but never a username or password, which the log does not record.'
+            )
+          : null
+      )
+    )
+  );
+}
+
+/**
+ * Repaint the errors page without losing the reader's place. A proxy that is
+ * down reports on every failed request, and this page is precisely where
+ * someone sits while that happens — a full render() would rebuild the log
+ * several times a second, snapping its scroll back to the top and dropping
+ * keyboard focus to the body each time. So swap only the pane, and put the
+ * scroll position and the focused action back afterwards.
+ */
+function repaintErrorsPage(): void {
+  const pane = app.querySelector('.content > .pane');
+  if (!pane) {
+    render(); // first paint, or some other page is up — nothing to preserve
+    return;
+  }
+  const scrollTop = pane.querySelector('.err-log')?.scrollTop ?? 0;
+  // Focus goes back by role, not by node: the whole subtree is replaced, so the
+  // element the user was on no longer exists to re-focus.
+  const focused =
+    document.activeElement instanceof HTMLElement ? document.activeElement.dataset.errAction : undefined;
+
+  const fresh = errorsPanel();
+  pane.replaceWith(fresh);
+  const log = fresh.querySelector('.err-log');
+  if (log) log.scrollTop = scrollTop;
+  if (focused) fresh.querySelector<HTMLElement>(`[data-err-action="${focused}"]`)?.focus();
+  refreshSidebar(); // the nav count moves with the alert
+}
+
+/** Mirror the worker's failure state into this page and keep it current. */
+function watchProxyErrors(): void {
+  // Monotonic guard: a burst of failures fires a burst of change events, each
+  // starting an async read. Without this an earlier read can resolve last and
+  // paint older state, which then sits there until the next event.
+  let seq = 0;
+  const refresh = async (): Promise<void> => {
+    const mine = ++seq;
+    const [alert, log] = await Promise.all([loadProxyAlert(), loadErrorLog()]);
+    if (mine !== seq) return;
+    proxyAlert = alert;
+    errorLog = log;
+    // Never a full render: it would eat unsaved text in an open editor. The
+    // page that shows this data repaints in place; everywhere else only the nav
+    // badge moves.
+    if (selectedId === ERRORS_ID) repaintErrorsPage();
+    else refreshSidebar();
+  };
+  void refresh();
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'session') return;
+    if (changes[ERROR_KEY] || changes[ERROR_LOG_KEY]) void refresh();
+  });
+}
+
+/** A request older than this is stale — see watchPageRequests. */
+const PAGE_REQUEST_TTL_MS = 15_000;
+
+/**
+ * Honour "open Options on the errors page" from the popup. Handled both at boot
+ * and live, because chrome.runtime.openOptionsPage may create a page or focus
+ * one that is already open, and the popup cannot tell which.
+ */
+function watchPageRequests(): void {
+  const open = (raw: unknown): void => {
+    const request = raw as { page?: unknown; at?: unknown } | undefined;
+    if (request?.page !== 'errors') return;
+    // Consume it either way, so a request that never reached a page cannot
+    // hijack some unrelated visit to Options later on.
+    void chrome.storage.session.remove(OPEN_PAGE_KEY).catch(() => undefined);
+    if (typeof request.at === 'number' && Date.now() - request.at > PAGE_REQUEST_TTL_MS) return;
+    if (selectedId === ERRORS_ID) return;
+    selectedId = ERRORS_ID;
+    render();
+  };
+  void chrome.storage.session
+    .get(OPEN_PAGE_KEY)
+    .then((stored) => open(stored[OPEN_PAGE_KEY]))
+    .catch(() => undefined);
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'session' && changes[OPEN_PAGE_KEY]) open(changes[OPEN_PAGE_KEY].newValue);
+  });
+}
+
 /* ---------- render ---------- */
 
 function emptyPane(): HTMLElement {
@@ -1603,11 +1996,13 @@ function render(): void {
       ? docsPanel()
       : selectedId === INSPECT_ID
         ? inspectorPanel()
-        : selectedId === SETTINGS_ID
-          ? settingsPanel()
-          : profile
-            ? editorFor(profile)
-            : emptyPane();
+        : selectedId === ERRORS_ID
+          ? errorsPanel()
+          : selectedId === SETTINGS_ID
+            ? settingsPanel()
+            : profile
+              ? editorFor(profile)
+              : emptyPane();
   app.replaceChildren(
     el(
       'div',
@@ -1649,13 +2044,7 @@ onConfigChanged((incoming) => {
     return;
   }
   config = incoming;
-  if (
-    selectedId &&
-    selectedId !== SETTINGS_ID &&
-    selectedId !== DOCS_ID &&
-    selectedId !== INSPECT_ID &&
-    !config.profiles.some((p) => p.id === selectedId)
-  ) {
+  if (selectedId && !PAGE_IDS.has(selectedId) && !config.profiles.some((p) => p.id === selectedId)) {
     selectedId = config.profiles[0]?.id ?? null;
   }
   render();
@@ -1728,8 +2117,12 @@ void loadConfig().then((c) => {
   watchSyncError();
   watchProxyTests();
   render();
-  // After first paint: flag credentials that arrived without their permission
-  // (imported configs, or profiles created before auth support).
+  // After first paint — these can re-render, and refreshSidebar() needs the
+  // sidebar node that render() has just installed.
+  watchProxyErrors();
+  watchPageRequests();
+  // Flag credentials that arrived without their permission (imported configs,
+  // or profiles created before auth support).
   void refreshAuthPermState();
   chrome.permissions.onAdded.addListener(() => void refreshAuthPermState());
   chrome.permissions.onRemoved.addListener(() => void refreshAuthPermState());

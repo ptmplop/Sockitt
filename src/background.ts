@@ -3,7 +3,6 @@ import { pacRequestUrl, resolveRoute } from './shared/match';
 import { compilePac, fixedServersValue, pacDirective, staticTerminal } from './shared/pac';
 import {
   APPLIED_KEY,
-  ERROR_KEY,
   PENDING_RELOAD_KEY,
   POPUP_PORT,
   RELOAD_KEY,
@@ -18,21 +17,35 @@ import {
   saveConfig,
   saveConfigRaw,
 } from './shared/state';
+import {
+  ERROR_KEY,
+  ProxyErrorSource,
+  ProxyRef,
+  badgeTextFor,
+  clearProxyAlert,
+  errorSummaryLine,
+  loadProxyAlert,
+  recordProxyError,
+} from './shared/errors';
 import { EXIT_IP_URL, checkExitIp } from './shared/exitip';
 import { applyFromSync, onSyncChanged, pullFromSync, pushToSync } from './shared/sync';
 import {
   Config,
   DIRECT,
   Profile,
+  ProxyProfile,
   ProxyScheme,
+  SCHEME_LABELS,
   SYSTEM,
   SwitchRule,
   profileById,
   proxyProfiles,
+  reachableFrom,
   schemeSupportsAuth,
 } from './shared/types';
 
 const NEUTRAL = '#8b93a7';
+const DANGER = '#f5576c';
 const REVERT_COOLDOWN_MS = 30_000;
 const ALARM_PREFIX = 'rl:';
 
@@ -107,18 +120,18 @@ function applyActiveGuarded(): void {
  * Without this, a throw in settingsValueFor/compilePac (e.g. a malformed host
  * or rule) or a rejected settings.set would leave chrome.proxy on the previous
  * route while the popup still shows the newly-selected profile as active.
- * Mirrors onProxyError's fatal treatment: red "!" badge + ERROR_KEY, which the
- * popup renders.
+ * Recorded exactly like a proxy error, so it lands in the same log and the same
+ * badge — a route that never applied and a route that fails are, to the user,
+ * the same problem.
  */
 async function recordApplyError(e: unknown): Promise<void> {
   const message = e instanceof Error ? e.message : String(e);
   console.error('Sockitt: could not apply proxy settings —', e);
-  await Promise.allSettled([
-    chrome.storage.session.set({ [ERROR_KEY]: { message, at: Date.now(), fatal: true } }),
-    chrome.action.setBadgeBackgroundColor({ color: '#f5576c' }),
-    chrome.action.setBadgeText({ text: '!' }),
-    chrome.action.setTitle({ title: `Sockitt — proxy not applied (${message})` }),
-  ]);
+  // The message goes in BOTH fields on purpose: `error` is the collapse key, so
+  // two different throws stay two entries, and `details` is what every surface
+  // actually renders under the headline. Without the second the thrown reason —
+  // often the only thing naming the bad field — would be stored and shown nowhere.
+  await raiseProxyError({ source: 'apply', error: message, details: message, fatal: true });
 }
 
 /**
@@ -160,7 +173,7 @@ async function applyActiveInner(signal = true): Promise<void> {
 
   const current = await chrome.proxy.settings.get({});
   if (current.levelOfControl === 'controlled_by_other_extensions') {
-    await chrome.action.setBadgeBackgroundColor({ color: '#f5576c' });
+    await chrome.action.setBadgeBackgroundColor({ color: DANGER });
     await chrome.action.setBadgeText({ text: '!' });
     await chrome.action.setTitle({
       title: `Sockitt — ${label} (another extension is controlling the proxy)`,
@@ -189,6 +202,156 @@ async function applyActiveInner(signal = true): Promise<void> {
   await refreshActiveTabBadge(config);
   await scheduleRuleListUpdates(config);
   if (config.settings.syncEnabled) await pushToSync(config);
+}
+
+/* ---------------- proxy failure reporting ---------------- */
+
+/**
+ * One-shot timer that ends an incident. Named (not prefixed with ALARM_PREFIX)
+ * so scheduleRuleListUpdates, which only manages "rl:" alarms, leaves it alone.
+ */
+const ERROR_DECAY_ALARM = 'sockitt-error-decay';
+/**
+ * No further failure for this long and the alert — badge count included — is
+ * dropped. Nothing else tells us a proxy started working again: Chrome reports
+ * failures, never recoveries. So "the failures stopped" is the signal, and a
+ * still-broken proxy simply re-raises on its next request.
+ */
+const ERROR_QUIET_MS = 30_000;
+/** Precise, worker-lifetime half of the decay pair — see armErrorDecay. */
+let decayTimer: ReturnType<typeof setTimeout> | undefined;
+
+function proxyRef(p: ProxyProfile): ProxyRef {
+  return { id: p.id, name: p.name, endpoint: `${SCHEME_LABELS[p.scheme]} ${p.host}:${p.port}` };
+}
+
+/** The active profile's display name, without compiling a PAC just to get it. */
+function activeLabel(config: Config): string {
+  if (config.activeId === DIRECT) return 'Direct';
+  return profileById(config, config.activeId)?.name ?? 'System';
+}
+
+/**
+ * Who was carrying traffic when a failure happened. Chrome's proxy error event
+ * names no server at all, so this is the honest best answer: the active
+ * profile, plus EITHER the single server it sends everything through, OR the
+ * set of servers it could have picked for that particular request. Guessing one
+ * of the latter would be worse than saying there are several.
+ */
+function describeRoute(config: Config): {
+  profileId: string;
+  profileName: string;
+  via?: ProxyRef;
+  candidates?: ProxyRef[];
+} {
+  const { activeId } = config;
+  if (activeId === DIRECT) return { profileId: DIRECT, profileName: 'Direct' };
+  const profile = profileById(config, activeId);
+  if (activeId === SYSTEM || !profile) return { profileId: SYSTEM, profileName: 'System' };
+
+  const base = { profileId: profile.id, profileName: profile.name };
+  const terminal = staticTerminal(config, profile);
+  if (terminal && terminal !== 'direct') return { ...base, via: proxyRef(terminal) };
+  if (terminal === 'direct') return base; // unconditionally direct — no server involved
+
+  const reachable = reachableFrom(config, profile.id);
+  const candidates = proxyProfiles(config)
+    .filter((p) => reachable.has(p.id))
+    .map(proxyRef);
+  return candidates.length ? { ...base, candidates } : base;
+}
+
+/** Record a failure, extend the incident, and paint the toolbar. */
+async function raiseProxyError(input: {
+  source: ProxyErrorSource;
+  error: string;
+  details: string;
+  fatal: boolean;
+}): Promise<void> {
+  try {
+    // cachedConfig is null on a worker woken BY this very event; fall back to a
+    // read, and to an unnamed route if even that fails — a failure must be
+    // reported whether or not we can say what was carrying it.
+    const config = cachedConfig ?? (await loadConfig().catch(() => null));
+    const route = config ? describeRoute(config) : { profileId: '', profileName: 'Unknown' };
+    const alert = await recordProxyError({ ...input, ...route, at: Date.now() });
+    if (!alert) return;
+    // Re-arm before painting: if the paint throws, the incident must still be
+    // able to end on its own.
+    await armErrorDecay();
+    // Non-fatal proxy errors are recoverable warnings; they belong in the log
+    // and the popup, but they do not earn a red toolbar badge on their own.
+    if (!alert.fatalStreak) return;
+    const suffix = alert.streak > 1 ? ` ×${alert.streak}` : '';
+    await Promise.allSettled([
+      chrome.action.setBadgeBackgroundColor({ color: DANGER }),
+      chrome.action.setBadgeText({ text: badgeTextFor(alert.streak) }),
+      chrome.action.setTitle({ title: `Sockitt — proxy error${suffix}: ${errorSummaryLine(alert)}` }),
+    ]);
+  } catch {
+    // Reporting a failure must never itself become a failure path.
+  }
+}
+
+/**
+ * Push the end-of-incident deadline out. Two timers, deliberately:
+ *   - the ALARM survives the worker being suspended. A lone setTimeout would
+ *     die with it and leave the badge stuck on forever, which is the bug this
+ *     whole path exists to fix.
+ *   - the TIMEOUT is the exact one. chrome.alarms clamps a short delay to 30s
+ *     on Chrome 120+ and to a full minute on older builds, and a count that
+ *     lingers a minute after the proxy recovered is its own kind of confusion.
+ * Whichever fires first wins; decayProxyAlert is idempotent, so the loser is a
+ * no-op. create() with the same name replaces any pending alarm.
+ */
+function armErrorDecay(): Promise<void> {
+  clearTimeout(decayTimer);
+  decayTimer = setTimeout(() => void decayProxyAlert(), ERROR_QUIET_MS);
+  return chrome.alarms.create(ERROR_DECAY_ALARM, {
+    delayInMinutes: ERROR_QUIET_MS / 60_000,
+  });
+}
+
+/** The quiet period elapsed: if nothing failed meanwhile, the incident is over. */
+async function decayProxyAlert(): Promise<void> {
+  const alert = await loadProxyAlert();
+  if (!alert) return; // already cleared by a re-apply, or dismissed
+  if (Date.now() - alert.lastAt < ERROR_QUIET_MS) {
+    await armErrorDecay(); // a newer failure landed — start the wait again
+    return;
+  }
+  clearTimeout(decayTimer);
+  // The storage listener below repaints the toolbar, so every path that clears
+  // the alert (here, a re-apply, or Dismiss on the options page) converges.
+  await clearProxyAlert();
+}
+
+/**
+ * Repaint the toolbar once the alert is gone. Derives the badge from the live
+ * state rather than blindly clearing it, so it cannot race a concurrent apply
+ * into showing "all fine" when another extension has taken proxy control, or
+ * when a fresh failure arrived while this was in flight.
+ */
+async function restoreBadgeAfterAlert(): Promise<void> {
+  try {
+    const config = cachedConfig ?? (await loadConfig());
+    const label = activeLabel(config);
+    const current = await chrome.proxy.settings.get({});
+    if (current.levelOfControl === 'controlled_by_other_extensions') {
+      await chrome.action.setBadgeBackgroundColor({ color: DANGER });
+      await chrome.action.setBadgeText({ text: '!' });
+      await chrome.action.setTitle({
+        title: `Sockitt — ${label} (another extension is controlling the proxy)`,
+      });
+      return;
+    }
+    if (await loadProxyAlert()) return; // a new failure landed; it owns the badge
+    await chrome.action.setBadgeText({ text: '' });
+    await chrome.action.setTitle({ title: `Sockitt — ${label}` });
+    await refreshActiveTabBadge(config);
+  } catch {
+    // Storage or the action API unavailable — the next apply repaints anyway.
+  }
 }
 
 /* ---------------- proxy authentication (http/https, optional perms) ---------------- */
@@ -808,9 +971,24 @@ chrome.commands.onCommand.addListener((command) => {
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name.startsWith(ALARM_PREFIX)) {
+  if (alarm.name === ERROR_DECAY_ALARM) {
+    void decayProxyAlert();
+  } else if (alarm.name.startsWith(ALARM_PREFIX)) {
     void updateRuleList(alarm.name.slice(ALARM_PREFIX.length));
   }
+});
+
+/**
+ * The toolbar belongs to the worker, but the alert can be cleared from several
+ * places — a re-apply, the quiet-period alarm, or Dismiss on the options page.
+ * Watching the key itself means every one of them repaints, instead of each
+ * having to remember to.
+ */
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'session' || !changes[ERROR_KEY]) return;
+  const { oldValue, newValue } = changes[ERROR_KEY];
+  if (oldValue === undefined || newValue !== undefined) return; // only the cleared edge
+  void restoreBadgeAfterAlert();
 });
 
 chrome.proxy.settings.onChange.addListener((details) => {
@@ -841,17 +1019,12 @@ chrome.proxy.onProxyError.addListener((details) => {
   // through the candidate proxy — otherwise a late event paints a false
   // failure over the already-restored working configuration.
   if (testInFlight || Date.now() < suppressProxyErrorsUntil) return;
-  void (async () => {
-    await chrome.storage.session.set({
-      [ERROR_KEY]: {
-        message: details.details || details.error,
-        at: Date.now(),
-        fatal: details.fatal,
-      },
-    });
-    if (details.fatal) {
-      await chrome.action.setBadgeBackgroundColor({ color: '#f5576c' });
-      await chrome.action.setBadgeText({ text: '!' });
-    }
-  })();
+  // error and details are kept apart, not concatenated: the code is what the
+  // options page explains and groups on, the detail is the PAC message beneath.
+  void raiseProxyError({
+    source: 'proxy',
+    error: details.error || 'Proxy error',
+    details: details.details ?? '',
+    fatal: details.fatal,
+  });
 });

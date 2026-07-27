@@ -232,6 +232,7 @@ function buildDocsPanel(): HTMLElement {
         ['Override', ['With an Auto switch profile active: a single, always-temporary rule for the current site. It takes priority over permanent rules and is cleared when the browser restarts (or when you remove it). While an override is set for the site you are on, its matching rule is greyed out.']],
         ['Send this site direct', ['With a plain proxy active: adds ', code('*.host'), ' to that proxy’s bypass list, so this one site skips the proxy while everything else keeps using it. The button is replaced by a note if a broader entry (', code('<local>'), ', a parent wildcard, a CIDR block) already sends the host direct, and by a removable chip once added.']],
         ['Exit IP', ['A small line under the active profile showing where the current tab actually exits — flag, IP, and lookup latency, with the country name spelled out in the tooltip. Uses ', code('ipconfig.is'), ' and is off by default; turn on IP address lookups in Settings to use it. The first time, the line offers a ', code('Show where this tab exits…'), ' button to grant the network access it needs.']],
+        ['Proxy error indicator', ['A warning triangle appears in the top bar, beside the settings button, while requests are failing — with a count once the failure repeats. Clicking it opens the Proxy errors page. It sits in the top bar rather than above the panes so a failure never shifts what you were about to click. See ', el('em', {}, 'When a proxy fails'), '.']],
       ]),
       p('For System, or for a page that is not http(s), the popup says so rather than guessing — Sockitt cannot inspect an OS PAC’s per-site rules. The footer’s ', code('Manage profiles & rules'), ' opens this options page.')
     ),
@@ -242,6 +243,29 @@ function buildDocsPanel(): HTMLElement {
         ['Route inspector', ['The sidebar’s ', code('Route inspector'), ' page traces any URL through your configuration with the same resolver real routing uses: which rule fired (including the popup override), the chain it walked through aliases and rule lists, and the proxy it landed on. It starts from the active profile, or from any profile you pick — so you can check one before switching to it.']],
         ['Connection test', ['Every proxy editor has a ', code('Test connection'), ' button. It briefly routes your browsing through that proxy, fetches ', code('ipconfig.is'), ' to capture the exit IP, country, and latency, then restores your configuration — auth included, so wrong credentials show up here too. The result appears beside the button, and is not kept once you leave the page. It’s an ', code('ipconfig.is'), ' lookup, so it needs IP address lookups turned on in Settings (off by default).']],
       ])
+    ),
+
+    card(
+      'When a proxy fails',
+      p(
+        'Routes are mandatory, so a proxy that stops answering makes its requests fail rather than quietly fall back to a direct connection. That is deliberate — it is what stops a dead proxy leaking the traffic you meant to route through it — but it means a failure should be easy to see and easy to read. Three places show it, in increasing detail.'
+      ),
+      terms([
+        ['The toolbar icon', [
+          'A red mark on the icon while requests are failing. It carries a count once the same run of failures repeats — ', code('!'), ' for one, ', code('!4'), ' for four, ', code('!9+'), ' beyond nine — so a single blip and a proxy that is comprehensively down do not look alike.',
+        ]],
+        ['The popup', [
+          'A warning triangle beside the settings button, with the same count. It replaces nothing and moves nothing: the switcher keeps the exact layout it had, and clicking the triangle opens the page below.',
+        ]],
+        ['Proxy errors', [
+          'The sidebar page here. It names the error, what it means in plain English, and which proxy was carrying traffic at the time — the exact server when the active profile routes everything the same way, or the shortlist it chooses between when it decides per request (Chrome reports that a proxy failed but never says which one, so a shortlist is the honest answer). Below that is the log: newest first, repeats of the same failure collapsed into one line with a count. ', code('Copy report'), ' puts the whole thing on the clipboard for a bug report — proxy addresses included, credentials never, because the log does not record them.',
+        ]],
+      ]),
+      p(
+        'The mark clears itself. Chrome reports failures but never recoveries, so “the proxy works again” has to be inferred from the failures stopping: 30 seconds without a new one and the mark and its count disappear. Applying settings — switching profile, editing a rule, running a connection test — clears it immediately too. A proxy that is still down simply re-raises on its next request, so nothing is hidden. The log itself is kept until the browser restarts, and is never written to your saved configuration or synced.'
+      ),
+      el('p', { class: 'doc-note' },
+        'A failure Sockitt catches before the browser sees it — a profile that cannot be applied at all, say an empty proxy host — is logged the same way, marked “Could not apply the proxy settings”. In that case the previous route is still in force, so what you are browsing through is not what the popup says is active.')
     ),
 
     card(
@@ -274,7 +298,7 @@ function buildDocsPanel(): HTMLElement {
         ['Initials', ['1 to 3 characters, drawn on the toolbar icon while the profile is active and on the profile’s avatar everywhere else. Left blank, they’re derived from the name.']],
         ['Colour', ['Tints the profile’s avatar and its toolbar icon, so you can tell at a glance which profile is live.']],
       ]),
-      p('The toolbar icon always reflects the active profile; a red ', code('!'), ' badge appears if the proxy reports an error or another extension is controlling proxy settings.')
+      p('The toolbar icon always reflects the active profile; a red ', code('!'), ' badge appears if the proxy reports an error (with a count, once it repeats) or another extension is controlling proxy settings.')
     ),
 
     card(
@@ -298,9 +322,10 @@ function buildDocsPanel(): HTMLElement {
     card(
       'Troubleshooting',
       terms([
-        ['A red ! on the toolbar icon', ['Either the proxy reported an error, or another extension has taken over the browser’s proxy settings. Hover the icon — the tooltip says which, and the popup shows the message.']],
+        ['A red ! on the toolbar icon', ['Either the proxy reported an error, or another extension has taken over the browser’s proxy settings. Hover the icon — the tooltip says which. For a proxy error, the ', code('Proxy errors'), ' page has the code, what it means, which proxy was carrying traffic, and the log.']],
+        ['The red mark will not go away', ['It should: 30 seconds with no new failure clears it, and so does applying settings. If it keeps coming back, requests are still failing — open ', code('Proxy errors'), ' and check the timestamps, which say whether this is one old incident or a live one.']],
         ['“Another extension is controlling the proxy”', ['Only one extension can own Chrome’s proxy settings, and the last one to set them wins. Turn on ', code('Guard proxy control'), ' to have Sockitt take them back, or disable the other extension.']],
-        ['Sites fail instead of loading', ['Routes are mandatory, so an unreachable proxy fails closed rather than leaking direct — that error is Sockitt working as intended. Use ', code('Test connection'), ' on the proxy to confirm it is up, and ', code('Route inspector'), ' to confirm the site lands where you expect.']],
+        ['Sites fail instead of loading', ['Routes are mandatory, so an unreachable proxy fails closed rather than leaking direct — that error is Sockitt working as intended. The ', code('Proxy errors'), ' page names the failure; ', code('Test connection'), ' on the proxy confirms whether it is up, and ', code('Route inspector'), ' confirms the site lands where you expect.']],
         ['“Exit check failed” in the popup', ['The ', code('ipconfig.is'), ' lookup did not come back: the route is down, ', code('ipconfig.is'), ' is unreachable through it, or the request timed out. Hover the line for the underlying error; a connection test narrows it down.']],
         ['A rule never matches', ['Check the pattern field for a red outline — an invalid or over-complex pattern is kept but inert, and hovering it shows why. Otherwise check rule order (first match wins), and remember that on https the browser hides the path, so URL-path rules behave as host rules.']],
         ['Proxy auth never prompts', ['SOCKS proxies cannot be authenticated at all. For HTTP/HTTPS, look for the ', code('Enable authentication'), ' notice at the top of the options page — without that permission the challenge goes unanswered.']],
