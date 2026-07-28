@@ -28,9 +28,11 @@ interface Release {
 const RELEASES: Release[] = [
   {
     from: '1.19.0',
+    to: '1.19.1',
     date: '29 July 2026',
     title: 'The network monitor',
     notes: [
+      'The list could not be scrolled while requests were arriving — it was rebuilt on every one of them, and a rebuilt list has no memory of where you had scrolled to. It keeps its place now, and new rows arriving above do not drag the rows you are reading out from under you.',
       'A new page in the sidebar: every request the browser makes while you have it open, and which profile your rules route each one through. Where the Route inspector answers for one URL you type, this answers for everything a page actually asks for — including the subresources that never reach the address bar.',
       'It records only while the page is open, and only in that page. Nothing is written to disk, closing the tab discards the log, and leaving the page stops the recording. It asks for permission to observe requests the first time you open it, and nothing else in Sockitt uses that permission.',
     ],

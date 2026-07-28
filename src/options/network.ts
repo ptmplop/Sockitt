@@ -87,6 +87,19 @@ export function networkPanel(host: NetworkHost): HTMLElement {
   const body = el('div', { class: 'net-body' });
   const countLabel = el('span', { class: 'net-count' });
   const panel = el('div', { class: 'pane net' });
+  /**
+   * The scrolling element, built once and never replaced.
+   *
+   * This is the whole reason painting is incremental. Rebuilding the list on
+   * each paint threw away the node the user had scrolled, and a removed node
+   * takes its scrollTop with it — so with traffic arriving the list snapped
+   * back to the top on every frame and could not be scrolled at all.
+   */
+  const listNode = el('div', { class: 'net-list' });
+  /** Rendered rows by request id, with a signature of what they were drawn from. */
+  const drawn = new Map<string, { node: HTMLElement; sig: string }>();
+  /** Changing the filter reorders everything; that alone justifies a full rebuild. */
+  let drawnFilterKey = '';
 
   /* ---------------- routing attribution ---------------- */
 
@@ -317,14 +330,100 @@ export function networkPanel(host: NetworkHost): HTMLElement {
     }
     if (!shown.length) {
       body.replaceChildren(el('p', { class: 'net-empty' }, 'No request matches that filter.'));
+      drawn.clear();
+      listNode.replaceChildren();
+      drawnFilterKey = '';
       return;
     }
+
+    // Mount the list once. Re-mounting is what destroyed the scroll position,
+    // so anything below here mutates the node in place rather than swapping it.
+    if (listNode.parentNode !== body) {
+      body.replaceChildren(header(), listNode);
+      // Coming back from an empty state, nothing on screen is reusable.
+      drawn.clear();
+      listNode.replaceChildren();
+      drawnFilterKey = '';
+    }
+
     // Newest first: on a busy page the interesting request is the one that just
     // happened, and a list that grows downward puts it off the bottom.
-    const list = el('div', { class: 'net-list' });
-    for (let i = shown.length - 1; i >= 0; i--) list.append(rowNode(shown[i]!));
-    body.replaceChildren(header(), list);
+    const order: Row[] = [];
+    for (let i = shown.length - 1; i >= 0; i--) order.push(shown[i]!);
+
+    const filterKey = `${filter.trim().toLowerCase()}|${failedOnly}`;
+    if (filterKey !== drawnFilterKey) {
+      // A different set in a different order — rebuild, and let it start at the
+      // top, which is where someone who has just typed a filter expects to be.
+      drawn.clear();
+      listNode.replaceChildren(
+        ...order.map((r) => {
+          const node = rowNode(r);
+          drawn.set(r.id, { node, sig: signature(r) });
+          return node;
+        })
+      );
+      drawnFilterKey = filterKey;
+      listNode.scrollTop = 0;
+      return;
+    }
+
+    // Rows the filter no longer admits, or that the cap dropped off the end.
+    const live = new Set(order.map((r) => r.id));
+    for (const [id, entry] of drawn) {
+      if (live.has(id)) continue;
+      entry.node.remove();
+      drawn.delete(id);
+    }
+
+    // Anything already on screen whose state moved on — a pending request that
+    // completed, mostly. Replaced in place so the row keeps its position.
+    for (const r of order) {
+      const entry = drawn.get(r.id);
+      if (!entry) continue;
+      const sig = signature(r);
+      if (sig === entry.sig) continue;
+      const node = rowNode(r);
+      entry.node.replaceWith(node);
+      drawn.set(r.id, { node, sig });
+    }
+
+    // Walk the wanted order against the DOM, inserting what is missing where it
+    // belongs. Keyed rather than "prepend the new ones": with Failed only on, a
+    // request that was pending and then failed becomes newly visible but sorts
+    // into the middle, and prepending would file it above rows newer than it.
+    const scrollBefore = listNode.scrollTop;
+    const heightBefore = listNode.scrollHeight;
+    let inserted = false;
+
+    let cursor: ChildNode | null = listNode.firstChild;
+    for (const r of order) {
+      let entry = drawn.get(r.id);
+      if (!entry) {
+        entry = { node: rowNode(r), sig: signature(r) };
+        drawn.set(r.id, entry);
+        inserted = true;
+      }
+      if (entry.node === cursor) {
+        cursor = cursor.nextSibling;
+      } else {
+        listNode.insertBefore(entry.node, cursor);
+      }
+    }
+
+    // New rows go in above whatever is being read, pushing it down by exactly
+    // their height. Give that height back to scrollTop so the rows under the
+    // pointer stay put — the other half of making the list scrollable while
+    // traffic is flowing. Only when already scrolled: at rest at the top, the
+    // newest arriving in view is the point.
+    if (inserted && scrollBefore > 0) {
+      listNode.scrollTop = scrollBefore + (listNode.scrollHeight - heightBefore);
+    }
   };
+
+  /** What a row was drawn from — cheaper than diffing the node it produced. */
+  const signature = (r: Row): string =>
+    `${r.status}|${r.statusCode ?? ''}|${r.error ?? ''}|${r.bytes ?? ''}|${r.ms ?? ''}|${r.targetId}`;
 
   const header = (): HTMLElement =>
     el(
