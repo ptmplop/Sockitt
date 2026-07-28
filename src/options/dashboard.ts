@@ -1707,6 +1707,23 @@ export function dashboardMounted(): boolean {
   return Boolean(root?.isConnected);
 }
 
+/**
+ * Adopt an auth-permission change.
+ *
+ * The health card's "credentials but cannot use them" check is the only thing
+ * on this page that depends on a permission the user can revoke from
+ * chrome://extensions at any moment — including while this page is open. The
+ * options page already recomputes that answer on permissions.onAdded /
+ * onRemoved for its own banner; this is how the dashboard hears about it.
+ * Without it the card kept whatever it read when the panel was built, so a
+ * revoked grant raised no finding and a fresh grant left a stale one.
+ */
+export function setAuthGranted(granted: boolean): void {
+  if (granted === authGranted) return;
+  authGranted = granted;
+  repaintDashboard();
+}
+
 /** Adopt a control-level change pushed by the worker. */
 export function setControlLevel(level: string): void {
   if (level === controlLevel) return;

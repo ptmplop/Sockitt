@@ -4,6 +4,7 @@ import {
   dashboardPanel,
   repaintDashboard,
   setApplied,
+  setAuthGranted,
   setControlLevel,
   setHistory,
 } from './dashboard';
@@ -604,6 +605,11 @@ async function refreshPermState(): Promise<void> {
     chrome.permissions.contains(AUTH_PERMS).catch(() => false),
     chrome.permissions.contains(TABS_PERMS).catch(() => false),
   ]);
+  // Told BEFORE the change gate below, not after: this page tracks the answer
+  // for its own banner and returns early when nothing moved, so gating the
+  // dashboard on that would starve it of the very first answer. setAuthGranted
+  // does its own no-op check.
+  setAuthGranted(auth);
   if (auth === authPermGranted && tabs === tabsPermGranted) return;
   authPermGranted = auth;
   tabsPermGranted = tabs;
@@ -2395,6 +2401,13 @@ const dashboardHost = {
     render();
   },
   save: () => {
+    // Repaint FIRST, synchronously. The caller has already mutated the
+    // in-memory config, so every card is correct right now — and the storage
+    // echo cannot do this for us: saveConfig bumps rev on this very object, so
+    // onConfigChanged sees an unchanged rev, takes its rule-list-merge branch
+    // and returns without rendering. Without this the finding the user just
+    // fixed sat on the health card until the 30-second tick swept it away.
+    if (dashboardMounted()) repaintDashboard();
     void saveConfig(config).then(() => toast('Saved'));
   },
   requestAuth: () => requestAuthPermission(),
