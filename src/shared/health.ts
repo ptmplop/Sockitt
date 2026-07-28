@@ -42,7 +42,11 @@ export type IssueFix =
   /** Refetch a rule list now. */
   | { kind: 'update-list'; label: string }
   /** Request the optional proxy-authentication permissions. */
-  | { kind: 'grant-auth'; label: string };
+  | { kind: 'grant-auth'; label: string }
+  /** Create a proxy profile and open it. Its own kind, not 'open' with no id:
+   *  that fell through to the settings page, so a button reading "Add one"
+   *  landed somewhere that adds nothing. */
+  | { kind: 'add-proxy'; label: string };
 
 export interface HealthIssue {
   /**
@@ -332,7 +336,7 @@ function auditShape(config: Config, out: HealthIssue[]): void {
       level: 'info',
       title: 'No proxy servers are configured',
       detail: 'Switch, rule-list and alias profiles can only send traffic to a proxy that exists.',
-      fix: { kind: 'open', label: 'Add one' },
+      fix: { kind: 'add-proxy', label: 'Add one' },
     });
   }
 }

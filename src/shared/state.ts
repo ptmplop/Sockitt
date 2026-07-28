@@ -200,6 +200,17 @@ export async function loadHistory(): Promise<ActivationEntry[]> {
 }
 
 /**
+ * Serialize history writes, exactly as the error log serializes its own (see
+ * the writeChain note in errors.ts). Each append is a read-modify-write on
+ * session storage, and nothing stops two applies from overlapping — a config
+ * change and a temp-rule change both call applyActive, and neither waits for
+ * the other — so interleaved appends would silently drop a segment and, worse,
+ * defeat the same-profile skip below by reading a log that does not yet have
+ * the entry the other write is about to add.
+ */
+let historyChain: Promise<unknown> = Promise.resolve();
+
+/**
  * Append an activation, unless the newest entry already names this profile.
  *
  * The skip is what makes this safe to call from every apply: the worker
@@ -207,7 +218,13 @@ export async function loadHistory(): Promise<ActivationEntry[]> {
  * which are a switch. Without it the timeline would be a wall of zero-width
  * segments instead of a record of what the user did.
  */
-export async function recordActivation(id: string, at: number): Promise<void> {
+export function recordActivation(id: string, at: number): Promise<void> {
+  const next = historyChain.then(() => writeActivation(id, at)).catch(() => undefined);
+  historyChain = next;
+  return next;
+}
+
+async function writeActivation(id: string, at: number): Promise<void> {
   try {
     const log = await loadHistory();
     if (log[log.length - 1]?.id === id) return;

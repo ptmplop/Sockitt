@@ -143,6 +143,22 @@ export interface RuleListProfile extends ProfileBase {
 
 export type Profile = ProxyProfile | SwitchProfile | VirtualProfile | RuleListProfile;
 
+/**
+ * Profile kinds in the order every surface lists them, and what each group of
+ * them is called. Here rather than in a UI file because more than one surface
+ * groups by kind — the options sidebar's sections and the dashboard switcher's
+ * optgroups — and two copies of a display order is two chances to drift, the
+ * same reason SCHEME_LABELS lives here.
+ */
+export const PROFILE_KINDS = ['proxy', 'switch', 'rulelist', 'virtual'] as const;
+
+export const KIND_LABEL: Record<Profile['kind'], string> = {
+  proxy: 'Proxies',
+  switch: 'Auto switch',
+  rulelist: 'Rule lists',
+  virtual: 'Aliases',
+};
+
 export interface Settings {
   /** Toolbar click cycles through quickSwitchIds instead of opening the popup. */
   quickSwitch: boolean;

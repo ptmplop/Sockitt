@@ -50,6 +50,7 @@ import {
   proxyHostError,
   sanitizeConfig,
   saveConfig,
+  saveConfigRaw,
   saveUiPrefs,
 } from '../shared/state';
 import { INLINE_TEXT_MAX, SYNC_ERROR_KEY, applyFromSync, clearSync, pullFromSync, remoteSyncState } from '../shared/sync';
@@ -58,7 +59,9 @@ import {
   CONFIG_VERSION,
   Config,
   DIRECT,
+  KIND_LABEL,
   PALETTE,
+  PROFILE_KINDS,
   Profile,
   ProxyProfile,
   ProxyScheme,
@@ -170,13 +173,6 @@ const RULE_TYPES: Record<RuleType, string> = {
   time: 'Time of day',
 };
 
-const KIND_LABEL: Record<Profile['kind'], string> = {
-  proxy: 'Proxies',
-  switch: 'Auto switch',
-  rulelist: 'Rule lists',
-  virtual: 'Aliases',
-};
-
 let savePending = false;
 
 function scheduleSave(): void {
@@ -227,7 +223,7 @@ function sidebar(): HTMLElement {
       config.activeId === p.id ? el('span', { class: 'badge' }, 'ACTIVE') : null
     );
 
-  const groups = (['proxy', 'switch', 'rulelist', 'virtual'] as const).flatMap((kind) => {
+  const groups = PROFILE_KINDS.flatMap((kind) => {
     const items = config.profiles.filter((p) => p.kind === kind);
     return items.length
       ? [el('div', { class: 'section-label' }, KIND_LABEL[kind]), ...items.map(item)]
@@ -2410,6 +2406,14 @@ const dashboardHost = {
     if (dashboardMounted()) repaintDashboard();
     void saveConfig(config).then(() => toast('Saved'));
   },
+  reapply: () => {
+    // saveConfigRaw, not saveConfig: the worker re-applies on any write to the
+    // config key, and this one is not an edit. Bumping rev would push a
+    // revision to every synced device to fix which extension owns the proxy on
+    // this machine — the same reasoning that keeps the startup profile raw.
+    void saveConfigRaw(config);
+  },
+  createProxy: () => addProfile(newProxyProfile),
   requestAuth: () => requestAuthPermission(),
   requestExitIp: () => ensureExitIpPermission(),
   refetchRuleList,

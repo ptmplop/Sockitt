@@ -258,9 +258,33 @@ test('a diamond is not a cycle', () => {
 
 /* ---------------- shape, scoring, ordering ---------------- */
 
-test('routers with no proxy to route to is a note', () => {
+test('routers with no proxy to route to is a note that offers to create one', () => {
   const report = lib.auditConfig(config([sw({ rules: [rule({ targetId: 'direct' })] })]), CTX);
-  assert.ok(ids(report).includes('no-proxies'));
+  const issue = report.issues.find((i) => i.id === 'no-proxies');
+  assert.ok(issue);
+  // Not 'open': that kind needs a profileId to open, and this finding has none,
+  // so a button reading "Add one" used to land on the settings page.
+  assert.equal(issue.fix.kind, 'add-proxy');
+  assert.equal(issue.profileId, undefined);
+});
+
+test('every fix that navigates to a profile actually names one', () => {
+  // 'open' resolves through issue.profileId; an issue that offers it without an
+  // id has nowhere to go.
+  const messy = config([
+    proxy({ host: '' }),
+    sw({ rules: [rule({ type: 'ipCidr', pattern: 'nope' })] }),
+    list({ text: '' }),
+    alias('a', 'a', 'Loop'),
+  ]);
+  for (const issue of lib.auditConfig(messy, CTX).issues) {
+    if (issue.fix.kind === 'open') {
+      assert.ok(issue.profileId, `"${issue.title}" offers Open with no profile to open`);
+    }
+    if (issue.fix.kind === 'add-local-bypass' || issue.fix.kind === 'update-list') {
+      assert.ok(issue.profileId, `"${issue.title}" needs a profile to act on`);
+    }
+  }
 });
 
 test('errors sort above warnings, which sort above notes', () => {

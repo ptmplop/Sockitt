@@ -1,5 +1,5 @@
 import { avatarEl, builtinTile, initialsFor, textColorFor } from '../shared/avatar';
-import { ExitInfo, checkExitIp, flagSrc } from '../shared/exitip';
+import { EXIT_IP_PERMS, ExitInfo, checkExitIp, flagSrc } from '../shared/exitip';
 import {
   HealthIssue,
   auditConfig,
@@ -23,6 +23,8 @@ import {
   AUTH_PERMS,
   Config,
   DIRECT,
+  KIND_LABEL,
+  PROFILE_KINDS,
   Profile,
   ProxyProfile,
   SCHEME_LABELS,
@@ -54,6 +56,14 @@ export interface DashboardHost {
   activate: (id: string) => void;
   /** Persist a config mutation made from here. */
   save: () => void;
+  /**
+   * Re-hand the current configuration to the browser WITHOUT marking it edited.
+   * Reclaiming proxy control is a local act; a revision bump would push it to
+   * every synced device for a problem that concerns this machine alone.
+   */
+  reapply: () => void;
+  /** Create a proxy profile and open its editor. */
+  createProxy: () => void;
   /** Request the optional proxy-auth permissions; resolves true when granted. */
   requestAuth: () => Promise<boolean>;
   /** Request the ipconfig.is origin; resolves true when granted. */
@@ -348,9 +358,11 @@ async function runExitCheck(force = false): Promise<void> {
   // Re-measuring on every repaint would put a network request behind every
   // error event; a fresh-enough answer stands.
   if (!force && exitInfo && Date.now() - exitAt < 60_000) return;
-  if (!(await chrome.permissions.contains({ origins: ['https://ipconfig.is/*'] }).catch(() => false))) {
-    return;
-  }
+  // EXIT_IP_PERMS, never a copy of the pattern: the options page requests
+  // exactly this object, and a divergent literal here would make a granted
+  // permission stop satisfying the check (the same single-source rule the
+  // AUTH_PERMS / TABS_PERMS notes in types.ts spell out).
+  if (!(await chrome.permissions.contains(EXIT_IP_PERMS).catch(() => false))) return;
   exitBusy = true;
   exitError = null;
   exitForId = config.activeId;
@@ -367,13 +379,17 @@ async function runExitCheck(force = false): Promise<void> {
   }
 }
 
-/** Headings for the switcher's option groups, in the order the sidebar uses. */
-const SWITCH_GROUPS: Array<[Profile['kind'], string]> = [
-  ['proxy', 'Proxies'],
-  ['switch', 'Auto switch'],
-  ['rulelist', 'Rule lists'],
-  ['virtual', 'Aliases'],
-];
+const SWITCH_SELECT_ID = 'dash-switch';
+/**
+ * A run of changes inside this window collapses into one activation.
+ *
+ * Not cosmetic: a focused closed <select> steps its value on every arrow key,
+ * and each step here would be a config write, a proxy re-apply, a sync push and
+ * possibly a tab reload — plus a full re-render that destroys the very control
+ * the user is still arrowing through. One apply when they settle.
+ */
+const SWITCH_DEBOUNCE_MS = 260;
+let switchTimer: ReturnType<typeof setTimeout> | undefined;
 
 /**
  * Inline profile switcher — the fastest path from "landed" to "switched".
@@ -393,23 +409,33 @@ function switcherRow(): HTMLElement {
   const config = host.config();
 
   const select = el('select', { class: 'hero-select' }) as HTMLSelectElement;
-  select.id = 'dash-switch';
+  select.id = SWITCH_SELECT_ID;
   // Names only. The optgroup already says what kind a profile is, and the
   // closed select shows its chosen option verbatim — appending the subtitle put
   // "Work — 6 rules · default Direct" here, word for word what the card's own
   // heading says two inches away.
   select.append(el('option', { value: DIRECT }, 'Direct'));
   select.append(el('option', { value: SYSTEM }, 'System'));
-  for (const [kind, label] of SWITCH_GROUPS) {
+  for (const kind of PROFILE_KINDS) {
     const members = config.profiles.filter((p) => p.kind === kind);
     if (!members.length) continue;
     const group = el('optgroup', {}) as HTMLOptGroupElement;
-    group.label = label;
+    group.label = KIND_LABEL[kind];
     for (const p of members) group.append(el('option', { value: p.id }, p.name));
     select.append(group);
   }
   select.value = config.activeId;
-  select.onchange = () => host.activate(select.value);
+  select.onchange = () => {
+    const id = select.value;
+    const hadFocus = document.activeElement === select;
+    clearTimeout(switchTimer);
+    switchTimer = setTimeout(() => {
+      host.activate(id);
+      // activate() re-renders, which destroys this select — put the caret on its
+      // replacement so a keyboard user is not dropped to the body mid-task.
+      if (hadFocus) document.getElementById(SWITCH_SELECT_ID)?.focus();
+    }, SWITCH_DEBOUNCE_MS);
+  };
 
   const active = nodeInfo(config, config.activeId);
   return el(
@@ -452,9 +478,9 @@ function controlPill(): HTMLElement | null {
           {
             class: 'hero-btn',
             onclick: () => {
-              // Re-applying is what takes control back; the worker does it on
-              // any config write, and a rev bump is the cheapest honest one.
-              host.save();
+              // Re-applying is what takes control back — the worker does it on
+              // any config write, edited or not.
+              host.reapply();
               toast('Reclaiming proxy control…');
             },
           },
@@ -1080,6 +1106,9 @@ async function applyFix(issue: HealthIssue): Promise<void> {
       await host.refetchRuleList(issue.profileId);
       return;
     }
+    case 'add-proxy':
+      host.createProxy();
+      return;
   }
 }
 
