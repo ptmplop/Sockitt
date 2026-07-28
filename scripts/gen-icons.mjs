@@ -31,13 +31,19 @@ const side = Math.round(Math.max(w, h) * 1.22);
 magick('img/mark-raw.png', '-background', BG, '-gravity', 'center', '-extent', `${side}x${side}`,
   '-resize', '256x256', '-strip', 'img/logo-mark.png');
 
-// Transparent sock for the toolbar/store icons (adapts to light or dark chrome).
-magick('img/mark-raw.png', '-background', 'none', '-gravity', 'center',
-  '-extent', `${side}x${side}`, '-resize', '256x256', '-strip', 'img/mark-t.png');
+// Toolbar / extensions-page / store icons: the SAME light tile as the in-app
+// mark, with the corners rounded to match .mark and .avatar in theme.css (26%).
+// A tile rather than a transparent sock, so the icon reads as one solid mark on
+// a dark toolbar as well as a light one instead of dissolving into it.
+const RADIUS = Math.round(256 * 0.26);
+magick('img/logo-mark.png', '-alpha', 'set',
+  '(', '+clone', '-alpha', 'transparent', '-background', 'none', '-fill', 'white',
+  '-draw', `roundrectangle 0,0,255,255,${RADIUS},${RADIUS}`, ')',
+  '-compose', 'DstIn', '-composite', '-strip', 'img/mark-tile.png');
 for (const size of [16, 32, 48, 128]) {
-  magick('img/mark-t.png', '-resize', `${size}x${size}`, '-strip', `img/icon-${size}.png`);
+  magick('img/mark-tile.png', '-resize', `${size}x${size}`, '-strip', `img/icon-${size}.png`);
   console.log(`img/icon-${size}.png`);
 }
 rmSync('img/mark-raw.png');
-rmSync('img/mark-t.png');
+rmSync('img/mark-tile.png');
 console.log('img/logo-banner.png, img/logo-mark.png done');

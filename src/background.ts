@@ -759,37 +759,31 @@ async function flushPendingReload(): Promise<void> {
 
 /* ---------------- toolbar icon ---------------- */
 
+/** The manifest's own icons — the Sockitt mark, shown when no profile is active. */
+const DEFAULT_ICON = { 16: 'img/icon-16.png', 32: 'img/icon-32.png' };
+
 async function paintIcon(profile: Profile | null): Promise<void> {
   try {
+    // System/Direct: hand the toolbar back to the manifest icon. setIcon
+    // overrides it for the rest of the session, so "no profile" has to restore
+    // the mark explicitly — it does not fall back on its own.
+    if (!profile) return void (await chrome.action.setIcon({ path: DEFAULT_ICON }));
+
     const imageData: Record<number, ImageData> = {};
     for (const size of [16, 32]) {
       const canvas = new OffscreenCanvas(size, size);
       const ctx = canvas.getContext('2d')!;
-      if (profile) {
-        ctx.beginPath();
-        ctx.roundRect(0, 0, size, size, size * 0.26);
-        ctx.fillStyle = profile.color;
-        ctx.fill();
-        const initials = initialsFor(profile);
-        ctx.fillStyle = textColorFor(profile.color);
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        const fontSize = Math.round(size * (initials.length > 2 ? 0.42 : 0.52));
-        ctx.font = `700 ${fontSize}px system-ui, -apple-system, sans-serif`;
-        ctx.fillText(initials, size / 2, size / 2 + size * 0.04, size * 0.9);
-      } else {
-        const mid = size / 2;
-        const stroke = Math.max(1.5, size * 0.14);
-        ctx.strokeStyle = NEUTRAL;
-        ctx.lineWidth = stroke;
-        ctx.beginPath();
-        ctx.arc(mid, mid, mid - stroke / 2 - 0.5, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.fillStyle = NEUTRAL;
-        ctx.beginPath();
-        ctx.arc(mid, mid, size * 0.2, 0, Math.PI * 2);
-        ctx.fill();
-      }
+      ctx.beginPath();
+      ctx.roundRect(0, 0, size, size, size * 0.26);
+      ctx.fillStyle = profile.color;
+      ctx.fill();
+      const initials = initialsFor(profile);
+      ctx.fillStyle = textColorFor(profile.color);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const fontSize = Math.round(size * (initials.length > 2 ? 0.42 : 0.52));
+      ctx.font = `700 ${fontSize}px system-ui, -apple-system, sans-serif`;
+      ctx.fillText(initials, size / 2, size / 2 + size * 0.04, size * 0.9);
       imageData[size] = ctx.getImageData(0, 0, size, size);
     }
     await chrome.action.setIcon({ imageData });
