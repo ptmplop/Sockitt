@@ -1079,20 +1079,6 @@ textarea.input { resize: vertical; min-height: 88px; line-height: 1.6; }
 .dash-edge { fill: none; stroke-width: 1.6; stroke-linecap: round; transition: opacity .15s; }
 .dash-edge.live { stroke-width: 2.6; }
 .dash-edge.muted { opacity: .12; }
-/* A label sits ON its own curve. paint-order draws the white stroke first and
-   the glyphs over it, knocking a halo out of whatever passes underneath —
-   without it the edges run straight through the type. */
-.dash-edge-label {
-  font-size: 9px;
-  font-weight: 650;
-  fill: var(--text-dim);
-  opacity: .6;
-  paint-order: stroke;
-  stroke: var(--bg-elev);
-  stroke-width: 3.5px;
-  stroke-linejoin: round;
-}
-.dash-edge-label.live { opacity: 1; }
 .dash-map-legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 11px; color: var(--text-dim); }
 .dash-map-legend b { font-weight: 700; color: var(--text); }
 

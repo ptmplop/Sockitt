@@ -682,7 +682,14 @@ function depthOf(config: Config, id: string, visiting = new Set<string>()): numb
 
 function routingMap(): { node: HTMLElement; refresh: () => void } {
   const holder = el('div', { class: 'dash-map-wrap' });
-  const node = card('dash-c7', cardHead('Routing map'), holder, el('div', { class: 'dash-map-legend' }));
+  // The hover hint rides the eyebrow, not the legend: as a fourth legend item
+  // it wrapped to a line of its own on every width the card actually gets.
+  const node = card(
+    'dash-c7',
+    cardHead('Routing map', 'hover a line or a profile'),
+    holder,
+    el('div', { class: 'dash-map-legend' })
+  );
 
   const refresh = (): void => {
     const config = host.config();
@@ -775,10 +782,9 @@ function routingMap(): { node: HTMLElement; refresh: () => void } {
         tally.set(p.targetId, 0);
       }
 
-      const fan = [...tally.entries()].filter(([targetId]) => pos.has(targetId));
-      fan.forEach(([targetId, count], fanIndex) => {
+      for (const [targetId, count] of tally) {
         const to = pos.get(targetId);
-        if (!to) return;
+        if (!to) continue;
         const x1 = from.x + NODE_W;
         const y1 = from.y + NODE_H / 2;
         const x2 = to.x;
@@ -797,37 +803,26 @@ function routingMap(): { node: HTMLElement; refresh: () => void } {
         }
         path.dataset.from = p.id;
         path.dataset.to = targetId;
-        sheet.append(path);
-        edgeNodes.push(path);
 
+        // What this edge is, on the edge itself rather than beside it. Drawn
+        // labels were tried and removed: a profile's edges fan out to targets
+        // that other profiles also point at, so the text stacked no matter
+        // where along the curve it was anchored, and the map — whose whole job
+        // is to be read at a glance — became the busiest thing on the page.
+        // The shape already carries the important half (solid vs dashed), and
+        // the count is a hover away.
         const parts: string[] = [];
         if (p.kind === 'virtual') parts.push('alias');
         if (count > 0) parts.push(`${count} rule${count === 1 ? '' : 's'}`);
         if (p.kind === 'rulelist' && conditional.has(targetId)) parts.push('match');
         if (fallback.has(targetId)) parts.push('default');
-        if (parts.length) {
-          // Each label rides its OWN curve, at a point that walks along the fan.
-          // Anchoring them all to the midpoint stacked labels from different
-          // profiles on top of each other whenever two of them shared a target,
-          // which is the common case rather than the exotic one.
-          const t = fan.length > 1 ? 0.3 + (0.44 * fanIndex) / (fan.length - 1) : 0.5;
-          const u = 1 - t;
-          const lx = x1 * u ** 3 + 3 * mx * u * u * t + 3 * mx * u * t * t + x2 * t ** 3;
-          const ly = y1 * u * u * (1 + 2 * t) + y2 * t * t * (3 - 2 * t);
-          const text = svg(
-            'text',
-            {
-              class: `dash-edge-label${isLive ? ' live' : ''}`,
-              x: lx.toFixed(1),
-              y: (ly - 5).toFixed(1),
-              'text-anchor': 'middle',
-            },
-            parts.join(' · ')
-          );
-          text.dataset.from = p.id;
-          sheet.append(text);
-        }
-      });
+        path.append(
+          svg('title', {}, `${p.name} → ${nameOf(config, targetId)}${parts.length ? ` (${parts.join(' · ')})` : ''}`)
+        );
+
+        sheet.append(path);
+        edgeNodes.push(path);
+      }
     }
 
     const nodeGroups: SVGGElement[] = [];
