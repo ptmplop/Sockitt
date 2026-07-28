@@ -197,7 +197,7 @@ function buildDocsPanel(onReleases: () => void): HTMLElement {
       el(
         'ol',
         { class: 'doc-list' },
-        el('li', {}, 'In the sidebar under ', code('Create'), ', click ', code('Proxy'), ', choose the protocol, and enter the host and port (for example a SOCKS5 ', code('ssh -D 1080 myserver'), ' tunnel on ', code('127.0.0.1:1080'), ', or an HTTP proxy with a username and password).'),
+        el('li', {}, 'In the sidebar, open ', code('Create'), ' and choose ', code('Proxy'), '. Pick the protocol, and enter the host and port (for example a SOCKS5 ', code('ssh -D 1080 myserver'), ' tunnel on ', code('127.0.0.1:1080'), ', or an HTTP proxy with a username and password).'),
         el('li', {}, 'Open the toolbar popup and select the profile; all traffic now goes through it.'),
         el('li', {}, 'For per-site routing, create an ', code('Auto switch'), ' profile, activate it, and add rules (or add them straight from the popup while browsing).')
       )
@@ -312,7 +312,7 @@ function buildDocsPanel(onReleases: () => void): HTMLElement {
       el(
         'ol',
         { class: 'doc-list' },
-        el('li', {}, 'In the sidebar under ', code('Create'), ', click ', code('Rule list'), '.'),
+        el('li', {}, 'In the sidebar, open ', code('Create'), ' and choose ', code('Rule list'), '.'),
         el('li', {}, 'Set ', code('Format'), ' to ', code('Domain list (one per line)'), '.'),
         el('li', {}, 'Either paste the list into ', code('List content'), ', or put a ', code('URL'), ' in and press ', code('Update now'), ' to fetch it.'),
         el('li', {}, 'Under ', code('Routing'), ', choose where matching sites go (', code('Matching entries route via'), ') and where everything else goes (', code('Everything else'), ').'),

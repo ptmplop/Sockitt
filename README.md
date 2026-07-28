@@ -120,8 +120,8 @@ Opera, Vivaldi, and other Chromium browsers (Chrome 110+).
 
 ## Quick start
 
-1. Click the Sockitt icon, then **Manage profiles & rules** > **Create** >
-   **Proxy**. Pick the protocol
+1. Click the Sockitt icon, then **Manage profiles & rules**, open **Create** in
+   the sidebar and choose **Proxy**. Pick the protocol
    and enter the host and port - for example a SOCKS5 `ssh -D 1080 myserver`
    tunnel on `127.0.0.1:1080`, or an HTTP proxy with a username and password.
 2. Pick the profile in the popup. Everything now routes through it.

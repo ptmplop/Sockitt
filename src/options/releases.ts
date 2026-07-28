@@ -27,6 +27,14 @@ interface Release {
 
 const RELEASES: Release[] = [
   {
+    from: '1.20.0',
+    date: '29 July 2026',
+    title: 'A lighter sidebar',
+    notes: [
+      'Create is one row that opens when you want it, sitting under Overview — it used to be a heading and four permanent rows at the foot of the sidebar, most of a screen of navigation spent on something you do rarely and placed as far from where you start as the sidebar allows.',
+    ],
+  },
+  {
     from: '1.19.0',
     to: '1.19.2',
     date: '29 July 2026',

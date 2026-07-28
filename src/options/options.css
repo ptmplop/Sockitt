@@ -122,6 +122,44 @@ body {
   color: color-mix(in srgb, var(--accent) 14%, #ffffff);
 }
 .nav-item .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---- the Create disclosure ----
+   A container rather than loose rows so the responsive grid below can keep the
+   group whole; see the 820px block. */
+.nav-create { display: flex; flex-direction: column; gap: 3px; }
+.nav-chevron {
+  display: flex;
+  flex: none;
+  color: var(--text-dim);
+  transition: transform 0.14s ease, color 0.12s;
+}
+.nav-create-toggle.open .nav-chevron { transform: rotate(90deg); color: var(--text); }
+.nav-create-list { display: flex; flex-direction: column; gap: 3px; }
+/* No tile on the options: the row above them already says Create, and four
+   identical + marks stacked were most of what made the old block heavy. The
+   indent is the tile's 22px plus the row gap, so their text starts exactly
+   where the labels of the tiled rows above do. */
+.nav-sub { padding-left: 41px; font-weight: 550; color: var(--text-dim); }
+.nav-sub:hover { color: var(--text); }
+/* A rail down the group, so four indented rows read as one thing hanging off
+   the row above rather than as four orphans. */
+.nav-create-list { position: relative; }
+.nav-create-list::before {
+  content: "";
+  position: absolute;
+  left: 20px;
+  top: 4px;
+  bottom: 4px;
+  width: 1px;
+  background: var(--border-strong);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .nav-create-list { animation: nav-create-in 0.14s ease-out; }
+  @keyframes nav-create-in {
+    from { opacity: 0; transform: translateY(-3px); }
+    to { opacity: 1; transform: none; }
+  }
+}
 .nav-item .badge {
   font-size: 10px;
   font-weight: 700;
@@ -711,6 +749,21 @@ textarea.input { resize: vertical; min-height: 88px; line-height: 1.6; }
     align-content: start;
   }
   .nav .section-label { grid-column: 1 / -1; margin-top: 6px; }
+  /* display:contents so the toggle becomes a grid item of .nav proper and sits
+     in a column like every other row — as a wrapper it spanned the full width
+     and read as a heavier thing than its neighbours. Its options still need to
+     stay together, so the list itself takes every column. */
+  .nav-create { display: contents; }
+  .nav-create-list {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: 3px 12px;
+  }
+  /* The rail and the indent both belong to a stacked list; neither survives
+     being laid out in columns. */
+  .nav-create-list::before { display: none; }
+  .nav-sub { padding-left: 10px; }
   .side .tools { margin-top: 4px; }
   .side-footer { flex-direction: row; align-items: center; gap: 10px; margin-top: 0; padding-top: 8px; }
   /* The footer is a row here, so the support button sits beside the links

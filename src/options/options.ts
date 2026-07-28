@@ -123,6 +123,9 @@ const NAV_ICON = {
     '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
   search:
     '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+  // Points down when the disclosure it sits in is open; CSS does the turning.
+  chevron:
+    '<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>',
   // A trace, the way a monitor draws one.
   activity:
     '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 12 7 12 10 5 14 19 17 12 21 12"/></svg>',
@@ -168,6 +171,15 @@ function field(
 
 let config: Config;
 let selectedId: string | null = null;
+/**
+ * Whether the sidebar's Create disclosure is open.
+ *
+ * Module scope because sidebar() is rebuilt on every render(), so a flag held
+ * inside it would close the list under anyone whose click caused a repaint.
+ * Not persisted: it is transient, and it resets itself — addProfile() closes it,
+ * since creating the thing is what the list was open for.
+ */
+let createOpen = false;
 /** Per-device page preferences — deliberately not part of Config; see state.ts. */
 let uiPrefs: UiPrefs = defaultUiPrefs();
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
@@ -238,6 +250,65 @@ function confirmMaybe(message: string): boolean {
 
 /* ---------- sidebar ---------- */
 
+/**
+ * The four things you can make, behind one row.
+ *
+ * They used to be four permanent rows under a CREATE label at the foot of the
+ * nav: five rows and most of a screen-height of sidebar spent on an action
+ * taken rarely, as far from where a new install starts as the nav allows. The
+ * four identical + tiles were most of the weight, so the options here carry no
+ * tile at all — the row above them says Create, and their text lines up with
+ * the labels of the tiled rows so the indent reads as belonging rather than as
+ * a mistake.
+ *
+ * A disclosure rather than a popup menu: the sidebar has no floating surface
+ * anywhere, and one would need anchoring, outside-click and escape handling to
+ * behave. This is a row that opens.
+ */
+function createDisclosure(): HTMLElement {
+  const option = (label: string, factory: (existing: Profile[]) => Profile) =>
+    el(
+      'button',
+      { class: 'nav-item nav-sub', onclick: () => addProfile(factory) },
+      el('span', { class: 'name' }, label)
+    );
+
+  const toggle = el(
+    'button',
+    {
+      class: `nav-item nav-create-toggle${createOpen ? ' open' : ''}`,
+      ariaExpanded: String(createOpen),
+      onclick: () => {
+        createOpen = !createOpen;
+        render();
+      },
+    },
+    iconTile(NAV_ICON.plus, 22),
+    el('span', { class: 'name' }, 'Create'),
+    el('span', { class: 'nav-chevron', innerHTML: NAV_ICON.chevron })
+  );
+
+  // Wrapped, not appended as siblings: under 820px .nav becomes a multi-column
+  // grid, and loose rows would be dealt into its columns with an indent that
+  // then means nothing. The container spans every column instead — the same
+  // move .nav .section-label already makes there.
+  return el(
+    'div',
+    { class: 'nav-create' },
+    toggle,
+    createOpen
+      ? el(
+          'div',
+          { class: 'nav-create-list', role: 'group', ariaLabel: 'Create a profile' },
+          option('Proxy', newProxyProfile),
+          option('Auto switch', newSwitchProfile),
+          option('Rule list', newRuleListProfile),
+          option('Alias', newVirtualProfile)
+        )
+      : null
+  );
+}
+
 function sidebar(): HTMLElement {
   const item = (p: Profile) =>
     el(
@@ -292,6 +363,7 @@ function sidebar(): HTMLElement {
         iconTile(NAV_ICON.overview, 22),
         el('span', { class: 'name' }, 'Overview')
       ),
+      createDisclosure(),
       ...groups,
       el('div', { class: 'section-label' }, 'Extension'),
       el(
@@ -361,31 +433,6 @@ function sidebar(): HTMLElement {
         },
         iconTile(NAV_ICON.help, 22),
         el('span', { class: 'name' }, 'Docs')
-      ),
-      el('div', { class: 'section-label' }, 'Create'),
-      el(
-        'button',
-        { class: 'nav-item', onclick: () => addProfile(newProxyProfile) },
-        iconTile(NAV_ICON.plus, 22),
-        el('span', { class: 'name' }, 'Proxy')
-      ),
-      el(
-        'button',
-        { class: 'nav-item', onclick: () => addProfile(newSwitchProfile) },
-        iconTile(NAV_ICON.plus, 22),
-        el('span', { class: 'name' }, 'Auto switch')
-      ),
-      el(
-        'button',
-        { class: 'nav-item', onclick: () => addProfile(newRuleListProfile) },
-        iconTile(NAV_ICON.plus, 22),
-        el('span', { class: 'name' }, 'Rule list')
-      ),
-      el(
-        'button',
-        { class: 'nav-item', onclick: () => addProfile(newVirtualProfile) },
-        iconTile(NAV_ICON.plus, 22),
-        el('span', { class: 'name' }, 'Alias')
       )
     ),
     el(
@@ -454,6 +501,9 @@ function addProfile(factory: (existing: Profile[]) => Profile): void {
   const profile = factory(config.profiles);
   config.profiles.push(profile);
   selectedId = profile.id;
+  // The list was open to do this; leaving it open would push the profile groups
+  // down on a page that has just navigated away to the new profile's editor.
+  createOpen = false;
   scheduleSave();
   render();
   // The very first proxy is a small occasion.
