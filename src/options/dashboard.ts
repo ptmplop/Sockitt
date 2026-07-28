@@ -87,6 +87,10 @@ let exitInfo: ExitInfo | null = null;
 let exitError: string | null = null;
 let exitAt = 0;
 let exitBusy = false;
+/** Identifies the newest lookup, so an overtaken one cannot become the answer. */
+let exitSeq = 0;
+/** When the in-flight lookup left — compared against the apply it must postdate. */
+let exitStartedAt = 0;
 /** The profile the cached measurement belongs to — see invalidateExit. */
 let exitForId = '';
 
@@ -394,7 +398,13 @@ function groupedIp(ip: string): Node[] {
  */
 async function runExitCheck(force = false): Promise<void> {
   const config = host.config();
-  if (!config.settings.exitIpCheck || exitBusy) return;
+  if (!config.settings.exitIpCheck) return;
+  // A check already in flight is no reason to drop a FORCED one. Forced means
+  // the route just changed, so the answer on its way describes a proxy that is
+  // no longer live — the lookup rides whatever the browser was set to at the
+  // moment it left. Dropping ours and keeping that one is how the readout came
+  // to print the previous proxy's exit under the new profile's name.
+  if (exitBusy && !force) return;
   // Re-measuring on every repaint would put a network request behind every
   // error event; a fresh-enough answer stands.
   if (!force && exitInfo && Date.now() - exitAt < 60_000) return;
@@ -403,19 +413,31 @@ async function runExitCheck(force = false): Promise<void> {
   // permission stop satisfying the check (the same single-source rule the
   // AUTH_PERMS / TABS_PERMS notes in types.ts spell out).
   if (!(await chrome.permissions.contains(EXIT_IP_PERMS).catch(() => false))) return;
+  const mine = ++exitSeq;
   exitBusy = true;
+  exitStartedAt = Date.now();
   exitError = null;
   exitForId = config.activeId;
   repaintDashboard();
   try {
-    exitInfo = await checkExitIp(8000);
+    const info = await checkExitIp(8000);
+    // Assigned through a local, so a superseded answer cannot land: checkExitIp
+    // has no external abort, so an overtaken lookup runs to completion and
+    // resolves whenever it resolves. It just no longer gets to be the answer.
+    if (mine !== exitSeq) return;
+    exitInfo = info;
     exitAt = Date.now();
   } catch (e) {
+    if (mine !== exitSeq) return;
     exitInfo = null;
     exitError = e instanceof Error ? e.message : 'lookup failed';
   } finally {
-    exitBusy = false;
-    repaintDashboard();
+    // Only the newest check owns the busy flag. An older one landing late must
+    // not clear it and paint a finished state over a measurement still running.
+    if (mine === exitSeq) {
+      exitBusy = false;
+      repaintDashboard();
+    }
   }
 }
 
@@ -1479,7 +1501,7 @@ function donut(config: Config, tally: Map<string, number>, total: number): HTMLE
 let history: ActivationEntry[] = [];
 
 function timelineCard(): { node: HTMLElement; refresh: () => void } {
-  const node = card('dash-c12', cardHead('This session'));
+  const node = card('dash-c12', cardHead('Profile timeline'));
 
   const refresh = (): void => {
     const config = host.config();
@@ -1488,7 +1510,7 @@ function timelineCard(): { node: HTMLElement; refresh: () => void } {
 
     if (history.length === 0) {
       node.replaceChildren(
-        cardHead('This session'),
+        cardHead('Profile timeline', 'this browser session'),
         el(
           'p',
           { class: 'dash-empty' },
@@ -1523,7 +1545,7 @@ function timelineCard(): { node: HTMLElement; refresh: () => void } {
     }
 
     node.replaceChildren(
-      cardHead('This session', `since ${new Date(start).toLocaleTimeString()}`),
+      cardHead('Profile timeline', `this session · since ${new Date(start).toLocaleTimeString()}`),
       bar,
       marks,
       el(
@@ -1859,7 +1881,17 @@ export function setHistory(entries: ActivationEntry[]): void {
  */
 export function setApplied(activeId: string, at: number): void {
   appliedAt = at;
-  if (activeId === exitForId && (exitInfo || exitBusy)) {
+  // A settled answer for this same profile still describes it — this is the
+  // rule-edit and permission-grant case the note above is about.
+  if (activeId === exitForId && exitInfo) {
+    repaintDashboard();
+    return;
+  }
+  // One still in flight only counts if it left AFTER this apply landed.
+  // Started before it, it was measuring the route that has just been replaced,
+  // and treating it as covering the new one is what let the old proxy's exit
+  // be printed under the new profile's name.
+  if (activeId === exitForId && exitBusy && exitStartedAt >= at) {
     repaintDashboard();
     return;
   }

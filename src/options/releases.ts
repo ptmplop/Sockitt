@@ -28,12 +28,14 @@ interface Release {
 const RELEASES: Release[] = [
   {
     from: '1.18.0',
-    to: '1.18.1',
+    to: '1.18.2',
     date: '28 July 2026',
     title: 'This page',
     notes: [
       'What you are reading: every release since the first, grouped by series rather than listed patch by patch. One click from the top of the Documentation page.',
       'The route on the Overview was losing its space to the exit IP beside it — an IPv6 address pushed two of the three chips off the end of the console entirely. The route keeps its width now, and a long address wraps at a group boundary instead of over its neighbour.',
+      'Switching profile while the exit IP was still being measured left the previous proxy’s address on screen under the new profile’s name. A switch now supersedes the measurement in flight rather than waiting behind it.',
+      'The Overview’s session card is called Profile timeline, which is what it draws.',
     ],
   },
   {
