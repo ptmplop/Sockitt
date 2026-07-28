@@ -177,9 +177,17 @@ function buildDocsPanel(onReleases: () => void): HTMLElement {
           ],
         ],
         [
-          'This session',
+          'Profile timeline',
           [
             'Which profile was active over the course of this browser session, with failures marked on the same time base. Session-scoped, like the error log: it starts fresh with the browser and is never written to your saved configuration.',
+          ],
+        ],
+        [
+          'Try a URL',
+          [
+            'The Route inspector in miniature, at the foot of the page: paste a URL and see where it lands without leaving the Overview. The sidebar’s ',
+            code('Route inspector'),
+            ' shows the full chain and lets you resolve against a profile other than the active one.',
           ],
         ],
       ]),
@@ -367,7 +375,7 @@ function buildDocsPanel(onReleases: () => void): HTMLElement {
           'Where the Route inspector answers for one URL you type, the ', code('Network monitor'), ' page answers for everything the browser actually asks for: each request as it happens, and which profile your rules route it through. Useful for the question a single lookup cannot settle — whether a rule is firing on the subresources a page pulls in, not just on its address bar.',
           el('br'),
           el('br'),
-          'It records only while the page is open, and only in that page. Nothing is written to disk, closing the tab discards the log, and leaving the page stops the recording — so it can never become a browsing history that Sockitt keeps. ', code('Stop'), ' ends it on demand, and detaches the listeners rather than quietly ignoring them; that choice is remembered, so a monitor you stopped stays stopped when you come back. It needs permission to observe requests, asked for the first time you open it and never used anywhere else in the extension.',
+          'It records only while the page is open, and only in that page. Nothing is written to disk, closing the tab discards the log, and leaving the page stops the recording — so it can never become a browsing history that Sockitt keeps. ', code('Stop'), ' ends it on demand, and detaches the listeners rather than quietly ignoring them; that choice is remembered, so a monitor you stopped stays stopped when you come back. It needs permission to observe requests, asked for the first time you open it. That request is the same pair the extension uses for proxy authentication, because Chromium ties the two together; the monitor itself only ever observes.',
           el('br'),
           el('br'),
           'Two columns deserve a note. ', el('b', {}, 'Routed via'), ' is computed, not observed: Chrome tells an extension that a request happened but never which proxy carried it, so this is the same resolver the Route inspector uses, applied to every request. ', el('b', {}, 'Size'), ' is the response’s declared ', code('Content-Length'), ' — streamed and chunked responses do not carry one and show ', code('—'), ', so it is not a measure of how much data a proxy has carried.',
@@ -411,7 +419,7 @@ function buildDocsPanel(onReleases: () => void): HTMLElement {
       terms([
         ['Guard proxy control', ['If another extension takes over the browser’s proxy settings, Sockitt re-applies its own (at most once every 30 seconds).']],
         ['Per-tab route badge', ['Shows which profile the current tab routes through as a small badge on the toolbar icon. It appears only where the route depends on the request — an Auto switch or rule-list profile; with a plain proxy or an alias the icon already names the destination, so the badge stays clear. Requires the optional ', code('tabs'), ' permission, which is requested when you enable it. A permission cannot travel inside a config, so importing a backup (or syncing from another browser) with the setting already on asks for it again — until it is granted, a banner on this page says the badge is inactive.']],
-        ['IP address lookups', ['The master switch for everything that contacts ', code('ipconfig.is'), ' — the popup’s exit-IP readout and the connection test. Off by default: Sockitt never reaches ', code('ipconfig.is'), ' until you turn it on (which requests access to it), and turning it off disables both. With it off, the only network requests Sockitt makes on its own are fetches of the rule-list URLs you configure.']],
+        ['IP address lookups', ['The master switch for everything that contacts ', code('ipconfig.is'), ' — the popup’s exit-IP readout, the Overview’s exit reading, and the connection test. Off by default: Sockitt never reaches ', code('ipconfig.is'), ' until you turn it on (which requests access to it), and turning it off disables both. With it off, the only network requests Sockitt makes on its own are fetches of the rule-list URLs you configure.']],
         ['Quick-added rules go to the bottom', ['Rules added from the popup are appended below existing rules. Turn off to give them top priority instead.']],
         ['Confirm before deleting', ['Ask for confirmation before a profile is deleted or everything is reset.']],
       ]),

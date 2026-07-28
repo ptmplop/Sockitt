@@ -214,9 +214,14 @@ body {
      enough to clear AA once the hover state fills it. */
   --bmc-ink: #a92eff;
   justify-content: center;
-  gap: 8px;
-  margin-top: 8px;
-  padding: 7px 10px;
+  /* Hugs its label rather than spanning the sidebar. Full width it was the
+     largest object in the footer — a support link out-weighing the navigation
+     above it, which is the wrong way round. */
+  align-self: center;
+  gap: 7px;
+  margin-top: 10px;
+  padding: 5px 12px;
+  font-size: 11.5px;
   color: var(--text);
   background: color-mix(in srgb, var(--bmc) 18%, transparent);
   /* 75%, not 45%: the tinted fill is only 1.3:1 against the sidebar, so the
@@ -225,6 +230,7 @@ body {
   border: 1px solid color-mix(in srgb, var(--bmc) 75%, transparent);
   transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
+.side-link.bmc svg { width: 13px; height: 13px; }
 .side-link.bmc .bmc-cup { color: #ffdd00; }
 .side-link.bmc:hover {
   background: var(--bmc-ink);

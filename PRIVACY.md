@@ -1,6 +1,6 @@
 # Sockitt Privacy Policy
 
-**Effective date:** 24 July 2026
+**Effective date:** 29 July 2026
 
 Sockitt is a browser extension that switches your browser between proxy
 servers. This policy explains what data the extension handles and what it does
@@ -45,6 +45,17 @@ ever sent to the developer or to any third party.
   never written to your saved configuration, and never synced. It records no
   credential and no page address, and nothing in it is transmitted anywhere —
   the "Copy report" button puts it on your own clipboard and nowhere else.
+- **The network monitor (optional, off until you open it)** - the Network
+  monitor page shows each request your browser makes while that page is open,
+  and which of your profiles routes it. To do that it observes request URLs.
+  Nothing is written to disk: the list lives in that page only, closing or
+  leaving the page discards it and stops the recording, and `Stop` detaches the
+  observers outright. Nothing from it is stored, synced, or transmitted
+  anywhere. The permission it needs is requested the first time you open the
+  page, and an install that never opens it never grants it. (The request
+  includes `webRequestAuthProvider`, which the monitor never uses: it is
+  requested with `webRequest` as a pair so that proxy authentication keeps
+  working, and it grants no access to anything on its own.)
 - **The active tab's address** - when you open the popup (or enable the
   optional per-tab route badge), Sockitt reads the current tab's URL to show
   which proxy that page will use and to let you add or override a rule for it.
@@ -83,7 +94,9 @@ ever sent to the developer or to any third party.
 
 ## What the extension does not do
 
-- It does not collect or transmit your browsing history.
+- It does not collect or transmit your browsing history. The Network monitor
+  shows requests as they happen on its own page, but records nothing to disk,
+  sends nothing anywhere, and stops when you leave the page.
 - It does not read, record, or modify the content of the pages you visit.
 - It does not contain analytics, telemetry, crash reporting, or advertising.
 - With IP address lookups off (the default), it sends no data to the developer
@@ -107,9 +120,10 @@ Sockitt requests only the permissions its features need. By default:
 `activeTab` (read the current tab's URL in the popup), and `alarms` (schedule
 rule-list refreshes). Optional permissions are requested only when you turn on
 the feature that needs them: `tabs` (per-tab route badge, and the Overview's
-tab breakdown), `webRequest` +
-`webRequestAuthProvider` + host access (only to answer HTTP/HTTPS proxy
-authentication challenges with your saved credentials), and access to
+tab breakdown), `webRequest` + `webRequestAuthProvider` + host access (to
+answer HTTP/HTTPS proxy authentication challenges with your saved credentials,
+and — separately — for the Network monitor to observe requests while its page
+is open), and access to
 `ipconfig.is` (only for IP address lookups — the exit-IP line and connection
 test — which are off by default). Sockitt requests no host permissions by
 default.

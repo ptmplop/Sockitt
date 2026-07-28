@@ -27,9 +27,24 @@ import { loadTempRules } from '../shared/state';
 /** Rows kept. Old ones fall off the top; the newest request always survives. */
 const MAX_ROWS = 500;
 
-/** webRequest sees nothing without host access, and it is optional here. */
+/**
+ * webRequest sees nothing without host access, and it is optional here.
+ *
+ * webRequestAuthProvider rides along even though the monitor never answers an
+ * auth challenge. The worker registers its onAuthRequired listener with
+ * asyncBlocking in its first synchronous turn — it has to, or Chrome will not
+ * wake it for a proxy 407 — and it can only test for the API being there, not
+ * for the permission behind it. Granting webRequest alone therefore made that
+ * registration fail on every worker start with "You do not have permission to
+ * use blocking webRequest listeners".
+ *
+ * The two have always been requested as a pair (AUTH_PERMS); this keeps that
+ * true. It costs nothing: the provider grants no access to anything, it only
+ * allows a challenge to be answered, and it adds no warning to the prompt that
+ * the host access has not already made.
+ */
 const MONITOR_PERMS: chrome.permissions.Permissions = {
-  permissions: ['webRequest'],
+  permissions: ['webRequest', 'webRequestAuthProvider'],
   origins: ['<all_urls>'],
 };
 

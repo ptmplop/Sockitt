@@ -45,7 +45,9 @@ src/
   shared/ui.ts           el() DOM helper and toast
   background.ts          service worker: the only chrome.proxy caller
   popup/                 popup.html / .ts / .css
-  options/               options UI, settings, and docs.ts (in-app docs)
+  options/               options UI: dashboard.ts (Overview), network.ts
+                         (network monitor), docs.ts (in-app docs),
+                         releases.ts (release history), settings, editors
   theme.css              design tokens shared by both pages
 scripts/gen-icons.mjs    logo-source.png to PNG icon set (ImageMagick)
 scripts/gen-store-shots.mjs  README + Web Store screenshots, captured from the built UI

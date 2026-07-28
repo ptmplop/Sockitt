@@ -28,9 +28,12 @@ interface Release {
 const RELEASES: Release[] = [
   {
     from: '1.20.0',
+    to: '1.20.1',
     date: '29 July 2026',
     title: 'A lighter sidebar',
     notes: [
+      'Turning the network monitor on made the worker log a permission error on every start. It asks for one more permission now — one it never uses — because Chromium ties it to the one that answers proxy authentication, and granting them apart broke that.',
+      'The documentation, the README and the privacy policy have caught up with the last few releases: the network monitor is described in all three, and the policy no longer says request-observing access is only ever used for proxy authentication.',
       'Create is one row that opens when you want it, sitting under Overview — it used to be a heading and four permanent rows at the foot of the sidebar, most of a screen of navigation spent on something you do rarely and placed as far from where you start as the sidebar allows.',
     ],
   },

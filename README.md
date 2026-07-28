@@ -51,7 +51,7 @@ script.
   active path picked out, a **config health** audit with one-click fixes
   (patterns that will not compile, rules buried under a catch-all, credentials
   without their permission, stale rule lists, reference loops), per-server
-  reachability, a session timeline, and an inline URL resolver. Everything on it
+  reachability, a profile timeline, and an inline URL resolver. Everything on it
   is derived from your own configuration — nothing watches your browsing.
 - **Proxy profiles.** SOCKS5, SOCKS4, HTTP, or HTTPS servers with a host, port,
   and per-profile bypass list, plus optional username/password authentication
@@ -77,6 +77,14 @@ script.
 - **Route inspector.** Trace any URL through your configuration with the same
   resolver real routing uses — which rule fired, the chain it walked, where it
   landed.
+- **Network monitor.** Where the inspector answers for one URL you type, this
+  answers for everything the browser actually asks for: each request as it
+  happens and the profile your rules route it through — including the
+  subresources a page pulls in, which is where a rule quietly not firing hides.
+  It records only while its page is open and only in that page: nothing is
+  written to disk, and closing or leaving the page discards the log and stops
+  the recording. Off until you open it, and it asks for the access it needs
+  then.
 - **Connection tests.** One click routes briefly through a proxy, measures the
   exit IP/country/latency (auth included), and restores your configuration. Like
   the exit-IP line, this uses the opt-in IP address lookups (off by default).
@@ -121,9 +129,9 @@ Opera, Vivaldi, and other Chromium browsers (Chrome 110+).
 ## Quick start
 
 1. Click the Sockitt icon, then **Manage profiles & rules**, open **Create** in
-   the sidebar and choose **Proxy**. Pick the protocol
-   and enter the host and port - for example a SOCKS5 `ssh -D 1080 myserver`
-   tunnel on `127.0.0.1:1080`, or an HTTP proxy with a username and password.
+   the sidebar and choose **Proxy**. Pick the protocol and enter the host and
+   port - for example a SOCKS5 `ssh -D 1080 myserver` tunnel on
+   `127.0.0.1:1080`, or an HTTP proxy with a username and password.
 2. Pick the profile in the popup. Everything now routes through it.
 3. For per-site routing, create an **Auto Switch** profile and activate it. As
    you browse, the popup shows where the current tab routes and lets you add or
@@ -152,6 +160,12 @@ Extra capabilities are strictly opt-in and requested only when you use them:
 - **HTTP/HTTPS proxy authentication** requests `webRequest`,
   `webRequestAuthProvider`, and all-sites access, which Chromium needs to answer
   proxy auth challenges. Sockitt asks when you set credentials.
+- **The Network monitor** requests the same grant for a different purpose:
+  observing requests so it can list them. It asks the first time you open the
+  page, records only in that page, and writes nothing to disk. An install that
+  never opens it never grants it. (It asks for `webRequestAuthProvider` too,
+  which it never uses — the two are requested as a pair so the worker's proxy
+  auth listener keeps working; the provider grants no access on its own.)
 - **IP address lookups** - the popup's exit-IP line and connection tests -
   request access to `ipconfig.is`, the IP-echo service they query. Off by
   default; enable them with one setting, which asks for access the first time.
