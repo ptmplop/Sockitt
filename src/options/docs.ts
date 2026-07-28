@@ -88,12 +88,17 @@ function version(): string {
 /** The docs never change within a session; build the tree once per page. */
 let cachedPanel: HTMLElement | null = null;
 
-export function docsPanel(): HTMLElement {
-  cachedPanel ??= buildDocsPanel();
+/**
+ * @param onReleases Opens the release history. Passed in rather than imported:
+ *   navigation belongs to the options shell, and this module knows nothing
+ *   about page ids.
+ */
+export function docsPanel(onReleases: () => void): HTMLElement {
+  cachedPanel ??= buildDocsPanel(onReleases);
   return cachedPanel;
 }
 
-function buildDocsPanel(): HTMLElement {
+function buildDocsPanel(onReleases: () => void): HTMLElement {
   const v = version();
 
   const cards = [
@@ -465,7 +470,21 @@ function buildDocsPanel(): HTMLElement {
       'div',
       { class: 'doc-head' },
       el('h2', { class: 'doc-title' }, 'Documentation'),
-      v ? el('span', { class: 'doc-version' }, v) : null
+      v ? el('span', { class: 'doc-version' }, v) : null,
+      // The one way in to the release history — it has no sidebar entry, and
+      // the version badge it sits beside is what prompts the question.
+      el(
+        'button',
+        {
+          class: 'doc-link',
+          type: 'button',
+          onclick: (e: Event) => {
+            e.preventDefault();
+            onReleases();
+          },
+        },
+        'Release notes →'
+      )
     ),
     toc(cards),
     ...cards

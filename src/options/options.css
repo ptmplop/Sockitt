@@ -536,6 +536,62 @@ textarea.input { resize: vertical; min-height: 88px; line-height: 1.6; }
   padding: 2px 8px;
   border-radius: var(--radius-pill);
 }
+/* The way between Documentation and the release history, both directions.
+   margin-left:auto puts it at the far end of the head, away from the title it
+   is not a subtitle of. */
+.doc-link {
+  margin-left: auto;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--accent-ink);
+  background: none;
+  border: 0;
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.doc-link:hover { text-decoration: underline; }
+.doc-link:focus-visible { outline: none; box-shadow: var(--ring); }
+
+/* ---- release notes ---- */
+.rel-intro { padding: 0 4px; font-size: 13px; color: var(--text-dim); }
+.rel-card { gap: 9px; }
+/* The series you are running, called out rather than left to be counted. */
+.rel-card.current { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.rel-head { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
+.rel-ver {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+}
+.rel-now {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+}
+.rel-date { margin-left: auto; font-size: 12px; color: var(--text-dim); }
+/* The title is a plain panel h3 on purpose — the same eyebrow every other card
+   on this page uses, so the history reads as part of the app and not a feed. */
+.rel-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  line-height: 1.6;
+  max-width: var(--measure);
+}
+.rel-list li::marker { color: var(--text-dim); }
+
 .doc-toc { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 4px 6px; }
 .doc-toc a {
   font-size: 12px;

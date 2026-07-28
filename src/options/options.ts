@@ -12,6 +12,7 @@ import { docsPanel } from './docs';
 import { EXIT_IP_PERMS, flagSrc } from '../shared/exitip';
 import { TraceEdge, pacRequestUrl, patternError, resolveRoute } from '../shared/match';
 import { RULE_LIST_MAX_BYTES, looksLikeSwitchyOmega, parseRuleList } from '../shared/rulelist';
+import { releasesPanel } from './releases';
 import {
   ERROR_KEY,
   ERROR_LOG_KEY,
@@ -87,12 +88,23 @@ const SETTINGS_ID = '@settings';
 const DOCS_ID = '@docs';
 const INSPECT_ID = '@inspect';
 const ERRORS_ID = '@errors';
+/** Reached from the Documentation page; deliberately not in the sidebar. */
+const RELEASES_ID = '@releases';
 /**
  * The nav entries that are pages rather than profiles. Kept as one set so a new
  * page cannot be forgotten by the "selected profile was deleted" check below —
  * forgetting it there silently bounces the user off the page on any config change.
+ * A page with no sidebar entry belongs here too: it is still somewhere the user
+ * can be standing when the config changes under them.
  */
-const PAGE_IDS = new Set<string>([DASH_ID, SETTINGS_ID, DOCS_ID, INSPECT_ID, ERRORS_ID]);
+const PAGE_IDS = new Set<string>([
+  DASH_ID,
+  SETTINGS_ID,
+  DOCS_ID,
+  INSPECT_ID,
+  ERRORS_ID,
+  RELEASES_ID,
+]);
 
 /**
  * Feather-style icons for the "Extension" nav items. Crisp, uniformly sized
@@ -182,6 +194,19 @@ function scheduleSave(): void {
     savePending = false;
     void saveConfig(config).then(() => toast('Saved'));
   }, 300);
+}
+
+/**
+ * Move to a page and paint it, from the top.
+ *
+ * The scroll reset is the point: these are separate pages sharing one scroll
+ * position, so stepping from the foot of a long Documentation page into the
+ * release history landed you halfway down it, past the newest entry.
+ */
+function goTo(id: string): void {
+  selectedId = id;
+  render();
+  window.scrollTo({ top: 0 });
 }
 
 /**
@@ -307,7 +332,10 @@ function sidebar(): HTMLElement {
       el(
         'button',
         {
-          class: `nav-item${selectedId === DOCS_ID ? ' selected' : ''}`,
+          // Lit for the release history too. It has no entry of its own and is
+          // only reachable from Docs, so leaving the whole sidebar unlit there
+          // reads as having fallen off the page rather than gone a level down.
+          class: `nav-item${selectedId === DOCS_ID || selectedId === RELEASES_ID ? ' selected' : ''}`,
           onclick: () => {
             selectedId = DOCS_ID;
             render();
@@ -2419,16 +2447,18 @@ function render(): void {
         ? dashboardPanel(dashboardHost)
         : emptyPane()
       : selectedId === DOCS_ID
-        ? docsPanel()
-        : selectedId === INSPECT_ID
-          ? inspectorPanel()
-          : selectedId === ERRORS_ID
-            ? errorsPanel()
-            : selectedId === SETTINGS_ID
-              ? settingsPanel()
-              : profile
-                ? editorFor(profile)
-                : emptyPane();
+        ? docsPanel(() => goTo(RELEASES_ID))
+        : selectedId === RELEASES_ID
+          ? releasesPanel(() => goTo(DOCS_ID))
+          : selectedId === INSPECT_ID
+            ? inspectorPanel()
+            : selectedId === ERRORS_ID
+              ? errorsPanel()
+              : selectedId === SETTINGS_ID
+                ? settingsPanel()
+                  : profile
+                    ? editorFor(profile)
+                    : emptyPane();
   app.replaceChildren(
     el(
       'div',
