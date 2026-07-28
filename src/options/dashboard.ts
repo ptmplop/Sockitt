@@ -349,11 +349,16 @@ function exitBlock(): HTMLElement {
   }
 
   const src = flagSrc(exitInfo.iso);
+  // An IPv4 address is at most 15 characters, so anything longer is v6 — two
+  // and a half times the width at the same size, for a figure that is read
+  // once and copied, not scanned. It steps down a size rather than demanding
+  // the room from the flow beside it.
+  const wide = exitInfo.ip.length > 15;
   box.append(
     el(
       'div',
-      { class: 'hero-ip' },
-      el('span', {}, exitInfo.ip),
+      { class: `hero-ip${wide ? ' wide' : ''}` },
+      el('span', {}, ...(wide ? groupedIp(exitInfo.ip) : [exitInfo.ip])),
       src ? el('img', { class: 'hero-flag', src, alt: '', width: 20, height: 15 }) : null
     ),
     el(
@@ -363,6 +368,23 @@ function exitBlock(): HTMLElement {
     )
   );
   return box;
+}
+
+/**
+ * An address broken into its groups, with a wrap opportunity after each colon.
+ *
+ * <wbr> rather than a zero-width space: it is an element, so it adds nothing to
+ * the text and an address copied out of here is still the address. Allowed to
+ * break anywhere instead, a wrapped v6 splits mid-group — "…8a2e:03 / 70:7344…"
+ * — which at a glance reads as a different address than the one it is.
+ */
+function groupedIp(ip: string): Node[] {
+  const groups = ip.split(':');
+  return groups.flatMap((group, i) =>
+    i === groups.length - 1
+      ? [document.createTextNode(group)]
+      : [document.createTextNode(`${group}:`), document.createElement('wbr')]
+  );
 }
 
 /**

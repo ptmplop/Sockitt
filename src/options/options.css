@@ -927,7 +927,14 @@ textarea.input { resize: vertical; min-height: 88px; line-height: 1.6; }
     0 20px 44px -22px rgba(15, 19, 27, .85);
   color: #e8ebf3;
   display: grid;
-  grid-template-columns: minmax(200px, 280px) minmax(0, 1fr) auto;
+  /* The flow takes what it needs and no more; the exit readout gets the rest.
+     It used to be the other way round — the flow claimed the free space with
+     1fr and the readout was sized to its content, which works right up until
+     the content is an IPv6 address. Then the auto track grew to swallow 397 of
+     the 852 available pixels, the flow was left with 173, and .flow's
+     overflow:hidden quietly clipped two of its three chips off the end. Sizing
+     it this way round means a long address eats slack instead of chips. */
+  grid-template-columns: minmax(200px, 280px) auto minmax(0, 1fr);
   gap: 22px;
   align-items: center;
 }
@@ -986,8 +993,11 @@ textarea.input { resize: vertical; min-height: 88px; line-height: 1.6; }
 .hop svg { display: block; color: #98a0b4; flex: none; }
 .hop-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wire {
+  /* grow when the flow has a row to itself (narrow windows), but the min is
+     what sets the resting length now that the track is sized to content — 22px
+     read as three chips crowding each other rather than a route. */
   flex: 1;
-  min-width: 22px;
+  min-width: 34px;
   height: 2px;
   position: relative;
   background: rgba(255, 255, 255, .16);
@@ -1035,6 +1045,17 @@ textarea.input { resize: vertical; min-height: 88px; line-height: 1.6; }
   font-weight: 700;
   letter-spacing: -.01em;
 }
+/* A v6 address at the headline size is wider than the console can spare. Still
+   the same weight and family, so it reads as the same figure — just set to fit
+   the space it has rather than taking it from the flow.
+   The wrap matters as much as the size: an address has no spaces to break at,
+   and this box is right-aligned, so with no break opportunity the text runs
+   LEFT out of its column and straight over the flow — an overflow scrollWidth
+   cannot see, because it only ever reports the other end. Second line instead.
+   anywhere, not break-all: it also lets the flex item shrink below the text,
+   which is what stops the overflow happening in the first place. */
+.hero-ip.wide { font-size: 12.5px; letter-spacing: 0; line-height: 1.35; }
+.hero-ip.wide > span { min-width: 0; overflow-wrap: anywhere; }
 .hero-flag { border-radius: 2px; object-fit: cover; box-shadow: 0 0 0 1px rgba(0, 0, 0, .25); display: block; }
 .hero-exit-sub { font-size: 11.5px; color: #98a0b4; margin-top: 2px; font-variant-numeric: tabular-nums; }
 .hero-exit-off { font-size: 12px; color: #98a0b4; margin: 4px 0 6px; }
