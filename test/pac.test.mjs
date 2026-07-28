@@ -329,7 +329,7 @@ test('domain list accepts a trailing comment after whitespace', () => {
       '# a whole-line comment',
       'ads.example.com          # this host only',
       '*.tracker.example        # the host and every subdomain',
-      'https://cdn.example/px   # a URL prefix; trailing * is implied',
+      'http://cdn.example/px    # a URL prefix; trailing * is implied',
       '@@safe.example.com       # never match this one',
       'plain.example',
     ].join('\n')
@@ -345,7 +345,7 @@ test('domain list accepts a trailing comment after whitespace', () => {
 });
 
 test('a # inside a URL is not a comment, and a marker needs whitespace before it', () => {
-  const parsed = lib.parseDomainList(['https://x.example/p#frag', 'a.example#b'].join('\n'));
+  const parsed = lib.parseDomainList(['http://x.example/p#frag', 'a.example#b'].join('\n'));
   assert.equal(parsed.count, 1, 'the URL keeps its fragment');
   assert.equal(parsed.ignored, 1, 'a bare # in a hostname is still not a hostname');
 });
@@ -362,6 +362,95 @@ test('domain list rejects entries a hostname cannot hold', () => {
   const parsed = lib.parseDomainList(['a.example/path', 'b.example:8080', '10.0.0.0/8', 'c.example'].join('\n'));
   assert.equal(parsed.count, 1);
   assert.equal(parsed.ignored, 3);
+});
+
+test('; is a trailing-comment marker too, and both markers survive a tab', () => {
+  const parsed = lib.parseDomainList(['a.example ; why', 'b.example\t# why', 'c.example;nospace'].join('\n'));
+  assert.equal(parsed.count, 2);
+  assert.equal(parsed.ignored, 1, 'no whitespace before the marker, so it stays part of the entry');
+  assert.deepEqual(parsed.blacklist[0], { op: 'hostEq', host: 'a.example' });
+  assert.deepEqual(parsed.blacklist[1], { op: 'hostEq', host: 'b.example' });
+});
+
+test('parseAutoProxy counts the lines it could not read', () => {
+  const parsed = lib.parseAutoProxy(['[AutoProxy 0.2.9]', '! c', '||a.example', '||', '/(x+)+y/', '@@'].join('\n'));
+  assert.equal(parsed.count, 1, 'only ||a.example is usable');
+  assert.equal(parsed.ignored, 2, 'a bare || and the ReDoS regex are reported; a bare @@ is skipped');
+});
+
+test('a dot-prefixed entry means the domain and its subdomains, not a dead rule', () => {
+  // `.doubleclick.net` is how hosts-file and adblock lists spell it, and it used
+  // to compile to a hostEq no host can equal — counted, and silently inert.
+  const parsed = lib.parseDomainList(['.doubleclick.net', 'trailing.example.', '.'].join('\n'));
+  assert.equal(parsed.ignored, 1, 'a lone dot is not a hostname');
+  assert.deepEqual(parsed.blacklist[0], {
+    op: 'suffix', suffix: '.doubleclick.net', alsoBare: 'doubleclick.net',
+  });
+  assert.deepEqual(parsed.blacklist[1], { op: 'hostEq', host: 'trailing.example' }, 'FQDN root dot');
+  const hit = (c, host) => lib.testCondition(c, `http://${host}/`, host);
+  assert.ok(hit(parsed.blacklist[0], 'doubleclick.net'));
+  assert.ok(hit(parsed.blacklist[0], 'ad.g.doubleclick.net'));
+  assert.ok(!hit(parsed.blacklist[0], 'notdoubleclick.net'));
+});
+
+test('a URL entry Chrome could never hand the PAC is reported, not compiled', () => {
+  // Chrome strips the path from every scheme but http, so an https entry with a
+  // path is only ever tested against `https://host/` and can never fire.
+  const parsed = lib.parseDomainList(
+    ['https://cdn.example/px', 'https://ok.example/', 'https://ok2.example', 'http://cdn.example/px'].join('\n')
+  );
+  assert.equal(parsed.ignored, 1, 'only the https-with-a-path entry is unreachable');
+  assert.equal(parsed.count, 3);
+  const matches = (c, url, host) => lib.testCondition(c, lib.pacRequestUrl(url), host);
+  assert.ok(matches(parsed.blacklist[0], 'https://ok.example/a', 'ok.example'));
+  assert.ok(matches(parsed.blacklist[2], 'http://cdn.example/px/a.gif', 'cdn.example'), 'http keeps its path');
+});
+
+test('a domain list compiles to a PAC that agrees with resolveRoute', () => {
+  // The PAC leg of the domain-list parser: every rulelist fixture used to be
+  // AutoProxy, so a divergence here would have gone unnoticed.
+  const rl = {
+    kind: 'rulelist', id: 'rl2', name: 'Domains', color: '#f5576c',
+    format: 'switchy', url: '', updateIntervalH: 0,
+    matchTargetId: 'p1', defaultTargetId: 'direct',
+    text: ['.ads.example', '*.tracker.example', 'exact.example', 'me*.example', '@@safe.tracker.example'].join('\n'),
+  };
+  const config = makeConfig([P1, rl], 'rl2');
+  const pac = lib.compilePac(config, rl);
+
+  const cases = [
+    ['ads.example', SOCKS_P1],           // dot-prefixed entry, bare domain
+    ['x.ads.example', SOCKS_P1],         // dot-prefixed entry, subdomain
+    ['tracker.example', SOCKS_P1],       // *. matches the bare host too
+    ['a.tracker.example', SOCKS_P1],
+    ['safe.tracker.example', 'DIRECT'],  // whitelist wins
+    ['exact.example', SOCKS_P1],
+    ['metrics.example', SOCKS_P1],       // host wildcard
+    ['other.example', 'DIRECT'],
+  ];
+  for (const [host, expected] of cases) {
+    const url = `http://${host}/`;
+    assert.equal(runPac(pac, url, host), expected, `PAC for ${host}`);
+    const route = lib.resolveRoute(config, rl, url, host);
+    const ts = route.targetId === 'direct' || route.bypassed ? 'DIRECT' : SOCKS_P1;
+    assert.equal(ts, expected, `resolveRoute parity for ${host}`);
+  }
+});
+
+test('a long whitespace run in a list line stays linear', () => {
+  // The trailing-comment marker must not be quantified: `\s+[#;]` retries from
+  // every offset of a run with no marker after it, and list bodies come off the
+  // network. 23s for a 117 KB list, before.
+  const body = 'ads.example.com\nx' + ' '.repeat(400000) + 'y\n';
+  const started = Date.now();
+  const parsed = lib.parseDomainList(body);
+  assert.ok(Date.now() - started < 1000, `parse took ${Date.now() - started}ms`);
+  assert.equal(parsed.count, 1);
+  assert.equal(parsed.ignored, 1);
+  const blanks = '\n'.repeat(200000) + 'a.example';
+  const t2 = Date.now();
+  lib.looksLikeSwitchyOmega(blanks);
+  assert.ok(Date.now() - t2 < 1000, `sniff took ${Date.now() - t2}ms`);
 });
 
 /* ---------------- structural guarantees ---------------- */

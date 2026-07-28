@@ -1,6 +1,7 @@
 import { initialsFor, textColorFor } from './shared/avatar';
 import { pacRequestUrl, resolveRoute } from './shared/match';
 import { compilePac, fixedServersValue, pacDirective, staticTerminal } from './shared/pac';
+import { RULE_LIST_MAX_BYTES } from './shared/rulelist';
 import {
   APPLIED_KEY,
   PENDING_RELOAD_KEY,
@@ -840,6 +841,10 @@ async function updateRuleList(profileId: string): Promise<void> {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const text = await response.text();
     if (!text.trim()) throw new Error('empty response');
+    // This runs unattended off an alarm, and the body it stores is parsed
+    // synchronously inside compilePac before the next chrome.proxy.settings.set.
+    // Keep the previous list rather than let a remote host pick that cost.
+    if (text.length > RULE_LIST_MAX_BYTES) throw new Error('list too large');
     profile.text = text;
     profile.lastUpdated = Date.now();
     // saveConfigRaw (no rev bump): an unattended fetch must not masquerade as a

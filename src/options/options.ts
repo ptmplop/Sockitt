@@ -2,7 +2,7 @@ import { avatarEl, builtinTile, initialsFor } from '../shared/avatar';
 import { docsPanel } from './docs';
 import { EXIT_IP_PERMS, flagSrc } from '../shared/exitip';
 import { TraceEdge, pacRequestUrl, patternError, resolveRoute } from '../shared/match';
-import { looksLikeSwitchyOmega, parseRuleList } from '../shared/rulelist';
+import { RULE_LIST_MAX_BYTES, looksLikeSwitchyOmega, parseRuleList } from '../shared/rulelist';
 import {
   ERROR_KEY,
   ERROR_LOG_KEY,
@@ -742,11 +742,6 @@ function proxyEditor(profile: ProxyProfile): HTMLElement {
     },
   }) as HTMLTextAreaElement;
 
-  const authPanel = schemeSupportsAuth(profile.scheme)
-    ? authSection(profile)
-    : el('div', { class: 'field' }, el('span', { class: 'note' },
-        'Chromium cannot authenticate SOCKS proxies — secure the proxy by IP allow-list or a local tunnel (e.g. ssh -D).'));
-
   const testResult = el('span', {
     class: 'note test-result',
     dataset: { profile: profile.id },
@@ -757,13 +752,28 @@ function proxyEditor(profile: ProxyProfile): HTMLElement {
    * it — so a green "Connection successful · 203.0.113.9 · 45 ms" would sit
    * under a host the user had since retyped, which is a claim about a server
    * that is no longer configured.
+   *
+   * A test already in flight is the same claim arriving late: the worker will
+   * still answer, and watchProxyTests keys only on the profile id, so its
+   * verdict would land under the edited address. Mark the line instead, and let
+   * watchProxyTests drop that answer.
    */
   const invalidateTest = (): void => {
     if (!testResult.textContent) return;
+    if ((testBtn as HTMLButtonElement).disabled) testResult.dataset.stale = '1';
     testResult.replaceChildren();
     testResult.removeAttribute('title');
     testResult.classList.remove('ok', 'bad');
   };
+
+  const authPanel = schemeSupportsAuth(profile.scheme)
+    ? // Credentials decide the verdict as much as the address does — the test
+      // refuses to run without the auth grant precisely so a 407 cannot be
+      // misread as a dead proxy.
+      authSection(profile, invalidateTest)
+    : el('div', { class: 'field' }, el('span', { class: 'note' },
+        'Chromium cannot authenticate SOCKS proxies — secure the proxy by IP allow-list or a local tunnel (e.g. ssh -D).'));
+
   const ipLookupsOn = config.settings.exitIpCheck;
   const testBtn = el(
     'button',
@@ -794,6 +804,7 @@ function proxyEditor(profile: ProxyProfile): HTMLElement {
         (testBtn as HTMLButtonElement).disabled = true;
         testResult.textContent = 'Testing — briefly routing through this proxy…';
         testResult.removeAttribute('title');
+        delete testResult.dataset.stale; // this verdict will be about what is on screen now
         // The worker owns chrome.proxy; hand it the request — with the editor's
         // current (possibly unsaved) values — over session storage, so the
         // test needs no save and triggers no racing re-apply.
@@ -856,7 +867,7 @@ function proxyEditor(profile: ProxyProfile): HTMLElement {
   );
 }
 
-function authSection(profile: ProxyProfile): HTMLElement {
+function authSection(profile: ProxyProfile, invalidateTest: () => void): HTMLElement {
   const username = el('input', {
     class: 'input',
     value: profile.username ?? '',
@@ -864,6 +875,7 @@ function authSection(profile: ProxyProfile): HTMLElement {
     autocomplete: 'off',
     spellcheck: false,
     onchange: () => {
+      invalidateTest();
       profile.username = username.value.trim() || undefined;
       scheduleSave();
       if (hasCredentials(profile)) void requestAuthPermission();
@@ -878,6 +890,7 @@ function authSection(profile: ProxyProfile): HTMLElement {
     placeholder: 'password',
     autocomplete: 'off',
     onchange: () => {
+      invalidateTest();
       profile.password = password.value || undefined;
       scheduleSave();
       if (hasCredentials(profile)) void requestAuthPermission();
@@ -1137,7 +1150,7 @@ function ruleListEditor(profile: RuleListProfile): HTMLElement {
     // answers "2 lines ignored".
     placeholder:
       profile.format === 'autoproxy'
-        ? '! Paste list content here, or set a URL and press Update now.\n||example.com\n|https://example.org/api\n@@||allowed.example.com'
+        ? '! Paste list content here, or set a URL and press Update now.\n||example.com\n|http://example.org/api\n@@||allowed.example.com'
         : '# Paste list content here, or set a URL and press Update now.\nexample.com\n*.ads.example.net\n@@safe.example.com',
     spellcheck: false,
     oninput: () => {
@@ -1220,6 +1233,12 @@ function ruleListEditor(profile: RuleListProfile): HTMLElement {
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           const text = await response.text();
           if (!text.trim()) throw new Error('Empty response');
+          // Parsing is synchronous and sits on the PAC-compile path, so an
+          // unbounded body is an unbounded stall — refuse it here rather than
+          // store something the worker will choke on later.
+          if (text.length > RULE_LIST_MAX_BYTES) {
+            throw new Error(`List is too large (over ${RULE_LIST_MAX_BYTES / 1048576} MB)`);
+          }
           // The page's snapshot can be swapped out across that await — a popup
           // write, a second options tab or a sync pull all reassign `config` —
           // which orphans the `profile` captured when this editor was built.
@@ -2317,6 +2336,13 @@ function watchProxyTests(): void {
     if (btn) btn.disabled = false;
     const span = document.querySelector<HTMLElement>(`.test-result${sel}`);
     if (!span) return;
+    if (span.dataset.stale) {
+      // The address or the credentials changed while this test was running, so
+      // its verdict describes a server that is no longer configured. The button
+      // is re-enabled above; say nothing rather than something untrue.
+      delete span.dataset.stale;
+      return;
+    }
     span.classList.remove('ok', 'bad');
     if (r.ok) {
       const src = flagSrc(r.iso);

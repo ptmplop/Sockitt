@@ -123,14 +123,22 @@ chosen target. Two formats:
   keywords, `@@` whitelist entries, and `!` comments. Base64-encoded payloads
   (GFWList's distribution format) are decoded automatically.
 - **Domain list**: one host or URL pattern per line. `example.com` matches that
-  host exactly, `*.example.com` the host or any subdomain, `ad*.example.com` is a
+  host exactly, `*.example.com` the host or any subdomain — `.example.com`, the
+  hosts-file and adblock spelling, means the same — `ad*.example.com` is a
   host wildcard, and an entry containing `://` matches the start of the URL (a
   trailing `*` is implied). `@@` prefixes whitelist entries. A line starting with
   `#`, `;`, `!` or `[` is a comment, and `#` or `;` **after whitespace** starts a
   trailing one — a `#` with no space before it is left alone, so a URL fragment
-  survives. A line that cannot be a hostname — one with spaces, a path,
-  a port or a CIDR — is counted as ignored and reported under the editor rather
+  survives. A line that cannot be a hostname — one with spaces, a path, a port, a
+  CIDR, or a non-ASCII character (use punycode: `xn--bcher-kva.example`, not
+  `bücher.example`) — is counted as ignored and reported under the editor rather
   than compiled into a rule that could never match.
+
+  **A path only discriminates on `http://`.** Chrome hands a PAC script the full
+  URL for `http://`, but only `scheme://host/` for `https://` and everything
+  else — it strips the path and query for privacy. So `https://cdn.example/px`
+  can never match and is reported as ignored: match the host instead
+  (`cdn.example`), or write `http://cdn.example/px` if the path is the point.
 
   This format is **not** SwitchyOmega's. Its conditions list (`[SwitchyOmega
   Conditions]`, `UrlRegex:`/`Keyword:`/`Ip:` prefixes, `!` bypass lines) is not
@@ -152,14 +160,15 @@ One entry per line; the common case needs no punctuation at all:
 ads.example.com          # this host only
 *.tracker.example        # the host and every subdomain
 metrics*.example.net     # * and ? are wildcards
-https://cdn.example/px   # a URL prefix; trailing * is implied
+.hosts-file.example      # leading dot: the host and its subdomains
+http://cdn.example/px    # a URL prefix; trailing * is implied
 @@safe.example.com       # never match this one
 ```
 
 The count under the field reports how it was read — `42 entries parsed`, plus
-`3 lines ignored` if any line could not be a hostname. Ignored lines are never
-compiled into a rule, so a list showing 0 ignored is one where every line does
-something.
+`3 lines ignored` if any line could not become a rule that can ever match.
+Ignored lines are never compiled, so on a list showing 0 ignored every entry is
+doing something.
 
 Whitelist entries always win, sending the URL to the profile's default target.
 Lists auto-refresh on the interval you set; the URL's host must allow

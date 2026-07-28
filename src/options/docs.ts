@@ -176,7 +176,7 @@ function buildDocsPanel(): HTMLElement {
       p(
         'Both regex conditions run on every request, so each pattern is checked for catastrophic backtracking before it is used. One whose quantifiers nest — ',
         code('(a+)+'),
-        ' — is refused with “Pattern is too complex”; the same guard silently drops such entries from a subscribed rule list. An invalid pattern is inert rather than dangerous: the field is outlined in red and the rule simply never matches.'
+        ' — is refused with “Pattern is too complex”; the same guard drops such entries from a subscribed rule list, where they are counted in the editor’s “N lines ignored”. An invalid pattern is inert rather than dangerous: the field is outlined in red and the rule simply never matches.'
       ),
       el('p', { class: 'doc-note' },
         'For https pages the browser only exposes the scheme and host to the proxy resolver, so URL-path rules effectively behave as host-level rules on https. Time and weekday decisions may take a moment to apply on already-visited sites because the browser briefly caches proxy decisions.')
@@ -223,11 +223,19 @@ function buildDocsPanel(): HTMLElement {
         ]],
         ['Domain list', [
           'One host or URL pattern per line. ', code('example.com'), ' matches that host exactly, ',
-          code('*.example.com'), ' the host or any subdomain, and ', code('ad*.example.com'),
+          code('*.example.com'), ' the host or any subdomain — ', code('.example.com'),
+          ', the hosts-file and adblock spelling, means the same — and ', code('ad*.example.com'),
           ' is a host wildcard. An entry containing ', code('://'), ' matches the start of the URL, with a trailing ',
           code('*'), ' implied. ', code('@@'), ' whitelists. A line starting with ', code('#'), ' / ', code(';'),
           ' / ', code('!'), ' / ', code('['), ' is a comment, and ', code('#'), ' or ', code(';'),
-          ' after whitespace starts a trailing one — a ', code('#'), ' with no space before it is left alone, so a URL fragment survives. A line that cannot be a hostname — one with spaces, a path, a port or a CIDR — is counted as ignored under the editor instead of becoming a rule that could never match.',
+          ' after whitespace starts a trailing one — a ', code('#'), ' with no space before it is left alone, so a URL fragment survives. A line that cannot be a hostname — one with spaces, a path, a port, a CIDR, or a non-ASCII character (use punycode: ',
+          code('xn--bcher-kva.example'), ') — is counted as ignored under the editor instead of becoming a rule that could never match.',
+        ]],
+        ['Paths only work on http://', [
+          'Chrome hands a PAC script the full URL for ', code('http://'), ', but only ',
+          code('scheme://host/'), ' for ', code('https://'), ' and everything else — it strips the path and query for privacy. So ',
+          code('https://cdn.example/px'), ' can never match, and is reported as ignored: match the host instead (',
+          code('cdn.example'), '), or write ', code('http://cdn.example/px'), ' if the path is the point.',
         ]],
         ['Not SwitchyOmega', [
           'This is not SwitchyOmega’s conditions format. Its ', code('[SwitchyOmega Conditions]'),
@@ -252,13 +260,14 @@ function buildDocsPanel(): HTMLElement {
           'ads.example.com          # this host only',
           '*.tracker.example        # the host and every subdomain',
           'metrics*.example.net     # * and ? are wildcards',
-          'https://cdn.example/px   # a URL prefix; trailing * is implied',
+          '.hosts-file.example      # leading dot: the host and its subdomains',
+          'http://cdn.example/px    # a URL prefix; trailing * is implied',
           '@@safe.example.com       # never match this one',
         ].join('\n')
       ),
       p(
         'The count under the field tells you how it was read — ', code('42 entries parsed'),
-        ', and ', code('3 lines ignored'), ' if any line could not be a hostname (a space, a path, a port, a CIDR). Ignored lines are never compiled into a rule, so a list that says 0 ignored is one where every line does something.'
+        ', and ', code('3 lines ignored'), ' if any line could not become a rule that can ever match (a space, a path, a port, a CIDR, a non-ASCII character, or an https entry with a path). Ignored lines are never compiled, so on a list that says 0 ignored every entry is doing something.'
       ),
       p(
         'Set an ', code('Auto-update'), ' interval to refresh from the URL automatically — in hours, up to 720 (30 days), or 0 to disable; new lists start at 24. You can also press ',
