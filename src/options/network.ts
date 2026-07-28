@@ -37,6 +37,9 @@ export interface NetworkHost {
   config: () => Config;
   /** Opens a profile's editor — the profile column links to what it names. */
   open: (id: string) => void;
+  /** Whether recording is wanted. Outlives the panel, which is rebuilt on nav. */
+  recording: () => boolean;
+  setRecording: (on: boolean) => void;
 }
 
 interface Row {
@@ -78,7 +81,6 @@ export function networkPanel(host: NetworkHost): HTMLElement {
   const byRequestId = new Map<string, Row>();
   let recording = false;
   let granted = false;
-  let paused = false;
   let filter = '';
   let failedOnly = false;
   /** Temp rules are a session override the popup writes; read once, not per request. */
@@ -147,7 +149,6 @@ export function networkPanel(host: NetworkHost): HTMLElement {
   // Declared to return undefined, not void: the listener type still carries the
   // blocking-response shape even though we never pass 'blocking'.
   const onBeforeRequest = (d: chrome.webRequest.OnBeforeRequestDetails): undefined => {
-    if (paused) return;
     // Our own pages' requests are noise: opening this panel would log itself.
     if (d.url.startsWith('chrome-extension://')) return;
     let hostname = '';
@@ -308,9 +309,12 @@ export function networkPanel(host: NetworkHost): HTMLElement {
 
   const paint = (): void => {
     const shown = visible();
-    countLabel.textContent = recording
+    countLabel.textContent = rows.length
       ? `${shown.length} of ${rows.length} request${rows.length === 1 ? '' : 's'}`
       : '';
+    recordBtn.textContent = recording ? 'Stop' : 'Record';
+    recordBtn.classList.toggle('on', recording);
+    panel.classList.toggle('stopped', granted && !recording);
 
     if (!granted) {
       body.replaceChildren(permissionGate());
@@ -321,9 +325,9 @@ export function networkPanel(host: NetworkHost): HTMLElement {
         el(
           'p',
           { class: 'net-empty' },
-          paused
-            ? 'Paused. Nothing is being recorded.'
-            : 'Recording. Reload a page, or browse — requests appear here as they are made.'
+          recording
+            ? 'Recording. Reload a page, or browse — requests appear here as they are made.'
+            : 'Stopped. Nothing is being observed: the listeners are detached, not just ignored. Press Record to start.'
         )
       );
       return;
@@ -462,6 +466,7 @@ export function networkPanel(host: NetworkHost): HTMLElement {
               return;
             }
             granted = true;
+            host.setRecording(true);
             await start();
           },
         },
@@ -481,17 +486,32 @@ export function networkPanel(host: NetworkHost): HTMLElement {
     },
   }) as HTMLInputElement;
 
-  const pauseBtn = el(
+  /**
+   * Record / Stop — one control, and stopping really stops.
+   *
+   * There is no separate pause: a pause that left the listeners attached and
+   * dropped what they reported would be observing your browsing to no purpose,
+   * which is not a state this feature should have. Stop detaches them.
+   *
+   * The choice is remembered outside the panel, because the panel is thrown
+   * away on every navigation — stopping the monitor and stepping over to the
+   * Overview used to bring it back recording.
+   */
+  const recordBtn = el(
     'button',
     {
-      class: 'btn',
+      class: 'btn net-rec',
       onclick: () => {
-        paused = !paused;
-        pauseBtn.textContent = paused ? 'Resume' : 'Pause';
-        paint();
+        const next = !recording;
+        host.setRecording(next);
+        if (next) void start();
+        else {
+          stop();
+          paint();
+        }
       },
     },
-    'Pause'
+    'Stop'
   );
 
   const failedBtn = el(
@@ -525,7 +545,7 @@ export function networkPanel(host: NetworkHost): HTMLElement {
       { class: 'net-bar' },
       filterInput,
       failedBtn,
-      pauseBtn,
+      recordBtn,
       el(
         'button',
         {
@@ -533,6 +553,9 @@ export function networkPanel(host: NetworkHost): HTMLElement {
           onclick: () => {
             rows.length = 0;
             byRequestId.clear();
+            drawn.clear();
+            listNode.replaceChildren();
+            drawnFilterKey = '';
             paint();
           },
         },
@@ -546,7 +569,9 @@ export function networkPanel(host: NetworkHost): HTMLElement {
   // paints its gate first and swaps itself out when the answer lands.
   void (async () => {
     granted = await chrome.permissions.contains(MONITOR_PERMS).catch(() => false);
-    if (granted) await start();
+    // Only start if recording is still wanted — the remembered answer, not a
+    // fresh default, or leaving the page would restart what was just stopped.
+    if (granted && host.recording()) await start();
     else paint();
     observer.observe(document.body, { childList: true, subtree: true });
   })();

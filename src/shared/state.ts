@@ -256,10 +256,19 @@ export interface UiPrefs {
   landing: LandingPage;
   /** Nav id that was selected when the page was last used. */
   lastPage: string;
+  /**
+   * Whether the network monitor records when its page is open.
+   *
+   * Kept here rather than in the panel because the panel is rebuilt on every
+   * navigation: state held there means stopping the monitor and stepping away
+   * silently starts it again on the way back. Defaults to on — someone who has
+   * granted it the permission and opened the page wants to see traffic.
+   */
+  monitorRecording: boolean;
 }
 
 export function defaultUiPrefs(): UiPrefs {
-  return { landing: 'overview', lastPage: '' };
+  return { landing: 'overview', lastPage: '', monitorRecording: true };
 }
 
 export async function loadUiPrefs(): Promise<UiPrefs> {
@@ -269,6 +278,9 @@ export async function loadUiPrefs(): Promise<UiPrefs> {
     return {
       landing: o?.landing === 'last' ? 'last' : 'overview',
       lastPage: typeof o?.lastPage === 'string' ? o.lastPage : '',
+      // Absent means a config written before the monitor existed, which should
+      // land on the default rather than reading as "stopped".
+      monitorRecording: o?.monitorRecording !== false,
     };
   } catch {
     return defaultUiPrefs();

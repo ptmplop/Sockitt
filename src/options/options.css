@@ -1485,7 +1485,7 @@ textarea.input { resize: vertical; min-height: 88px; line-height: 1.6; }
   display: grid;
   /* Result is generous on purpose: on a failed row the net:: code is the
      single most useful thing in the line, and it is what gets truncated. */
-  grid-template-columns: 78px 58px minmax(0, 1fr) 150px 82px 148px 72px 64px;
+  grid-template-columns: 78px 58px minmax(0, 1fr) 150px 82px 182px 72px 64px;
   gap: 10px;
   align-items: center;
   padding: 6px 11px;
@@ -1557,3 +1557,10 @@ textarea.input { resize: vertical; min-height: 88px; line-height: 1.6; }
   .net-row { grid-template-columns: 70px 52px minmax(0, 1fr) 130px 88px 60px; }
   .net-type, .net-size { display: none; }
 }
+
+/* Recording is a state, not a filter, so it does not borrow the accent the
+   Failed-only toggle uses — a red dot, the way every recorder marks it. */
+.net-bar .btn.net-rec.on { color: var(--danger-ink); border-color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
+.net-bar .btn.net-rec.on::before { content: "●"; margin-right: 6px; font-size: 9px; vertical-align: 1px; }
+/* Captured rows stay readable while stopped — they are the reason you stopped. */
+.net.stopped .net-list { opacity: .9; }

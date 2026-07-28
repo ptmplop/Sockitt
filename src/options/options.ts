@@ -2508,6 +2508,14 @@ const networkHost = {
     selectedId = id;
     render();
   },
+  // Held in prefs, not in the panel: the panel is rebuilt on every navigation,
+  // so a flag living there means stopping the monitor and stepping away starts
+  // it again on the way back.
+  recording: () => uiPrefs.monitorRecording,
+  setRecording: (on: boolean) => {
+    uiPrefs = { ...uiPrefs, monitorRecording: on };
+    void saveUiPrefs(uiPrefs);
+  },
 };
 
 /**
