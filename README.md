@@ -41,6 +41,10 @@ script.
   <img src="img/store/screenshot-2-rules.png" width="720" alt="Sockitt options - Auto Switch rules"><br>
   <sub>Options: an ordered, first-match-wins rule table, compiled to a PAC script</sub>
 </p>
+<p align="center">
+  <img src="img/store/screenshot-7-monitor.png" width="720" alt="Sockitt network monitor - each request and the profile routing it"><br>
+  <sub>Network monitor: every request while the page is open, and the profile your rules send it through</sub>
+</p>
 
 ## Features
 

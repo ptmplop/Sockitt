@@ -43,7 +43,7 @@ SEE WHERE YOUR TRAFFIC GOES
 • A routing map draws how your profiles feed into each other, with the path your traffic takes right now picked out, so an orphaned profile or an accidental route to Direct is something you can see rather than something you have to work out.
 • A configuration health check finds what a rule table hides: patterns that will not compile, rules buried under a catch all so they can never run, duplicates with conflicting targets, credentials without the permission that answers the challenge, rule lists that have stopped updating, and reference loops. Each finding carries the action that fixes it.
 • Optionally, a breakdown of where every open tab routes, resolved locally through your own rules.
-• Everything on the page is read back from your own configuration. Nothing here watches your browsing.
+• Everything on this page is read back from your own configuration. Nothing on it watches your browsing; the Network monitor, which does observe requests, is a separate page you have to open and switch on.
 
 
 BUILT FOR TRUST
@@ -58,6 +58,7 @@ BUILT FOR TRUST
 POWER FEATURES
 
 • Route inspector: trace any URL through your configuration using the same resolver real routing uses, and see which rule fired, the chain it walked, and where it landed.
+• Network monitor: where the inspector answers for one URL you type, this answers for every request the browser actually makes while the page is open, and the profile your rules send each one through, including the subresources that never reach the address bar. It records only in that page, writes nothing to disk, and stops the moment you leave or press Stop. Off until you open it.
 • Connection tests: confirm a proxy works and see its exit IP, country, and latency, authentication included. Uses the same opt in lookup as the exit IP readout.
 • Aliases: point many rules at one alias, then retarget them all by editing the alias once.
 • Quick switch: cycle a chosen set of profiles from the toolbar button or a keyboard shortcut.

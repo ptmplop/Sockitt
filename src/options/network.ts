@@ -444,18 +444,21 @@ export function networkPanel(host: NetworkHost): HTMLElement {
   const signature = (r: Row): string =>
     `${r.status}|${r.statusCode ?? ''}|${r.error ?? ''}|${r.bytes ?? ''}|${r.ms ?? ''}|${r.targetId}`;
 
+  // The header wears the same classes as the cells it labels. Without them the
+  // rules that drop a column at narrow widths hid the data but not its heading,
+  // and the leftover headings wrapped onto a second row of their own.
   const header = (): HTMLElement =>
     el(
       'div',
       { class: 'net-row net-head' },
-      el('span', {}, 'Time'),
-      el('span', {}, 'Method'),
-      el('span', {}, 'URL'),
+      el('span', { class: 'net-time' }, 'Time'),
+      el('span', { class: 'net-method' }, 'Method'),
+      el('span', { class: 'net-url' }, 'URL'),
       el('span', { title: 'Where Sockitt’s rules send this request' }, 'Routed via'),
-      el('span', {}, 'Kind'),
-      el('span', {}, 'Result'),
-      el('span', { title: 'Declared Content-Length. Streamed responses do not carry one.' }, 'Size'),
-      el('span', {}, 'Took')
+      el('span', { class: 'net-type' }, 'Kind'),
+      el('span', { class: 'net-status' }, 'Result'),
+      el('span', { class: 'net-size', title: 'Declared Content-Length. Streamed responses do not carry one.' }, 'Size'),
+      el('span', { class: 'net-ms' }, 'Took')
     );
 
   const permissionGate = (): HTMLElement =>

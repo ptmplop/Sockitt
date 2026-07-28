@@ -1526,7 +1526,7 @@ textarea.input { resize: vertical; min-height: 88px; line-height: 1.6; }
 .net-bar .input { flex: 1; min-width: 0; }
 .net-bar .btn.on { color: var(--accent-ink); border-color: var(--accent); background: var(--accent-soft); }
 
-.net-body { min-width: 0; }
+.net-body { min-width: 0; container-type: inline-size; }
 .net-list {
   display: flex;
   flex-direction: column;
@@ -1544,13 +1544,17 @@ textarea.input { resize: vertical; min-height: 88px; line-height: 1.6; }
   display: grid;
   /* Result is generous on purpose: on a failed row the net:: code is the
      single most useful thing in the line, and it is what gets truncated. */
-  grid-template-columns: 78px 58px minmax(0, 1fr) 150px 82px 182px 72px 64px;
+  /* The URL gets a floor as well as the remainder: it is what you read the log
+     for, and with only a 1fr it was the first column the other seven squeezed
+     out — down to about 100px inside a windowed frame. */
+  grid-template-columns: 78px 58px minmax(200px, 1fr) 150px 82px 182px 72px 64px;
   gap: 10px;
   align-items: center;
   padding: 6px 11px;
   font-size: 12px;
 }
 .net-row + .net-row { border-top: 1px solid var(--border); }
+.net-head span { font: inherit; color: inherit; text-align: inherit; }
 .net-head {
   position: sticky;
   top: 0;
@@ -1610,12 +1614,6 @@ textarea.input { resize: vertical; min-height: 88px; line-height: 1.6; }
 .net-gate { display: flex; flex-direction: column; align-items: center; gap: 12px; }
 .net-gate p { margin: 0; max-width: 56ch; line-height: 1.6; }
 
-@media (max-width: 1080px) {
-  /* Kind and size are the first things worth losing when the row cannot hold
-     everything — the route and whether it worked are the point of the panel. */
-  .net-row { grid-template-columns: 70px 52px minmax(0, 1fr) 130px 88px 60px; }
-  .net-type, .net-size { display: none; }
-}
 
 /* Recording is a state, not a filter, so it does not borrow the accent the
    Failed-only toggle uses — a red dot, the way every recorder marks it. */
@@ -1623,3 +1621,17 @@ textarea.input { resize: vertical; min-height: 88px; line-height: 1.6; }
 .net-bar .btn.net-rec.on::before { content: "●"; margin-right: 6px; font-size: 9px; vertical-align: 1px; }
 /* Captured rows stay readable while stopped — they are the reason you stopped. */
 .net.stopped .net-list { opacity: .9; }
+
+/* Kind and size are the first things worth losing when the row cannot hold
+   everything — the route and whether it worked are the point of the panel.
+   Keyed to the pane, not the window: a 1200px window with a sidebar and a
+   max-width content column leaves the log far less room than the window
+   suggests, so a viewport query fired at the wrong times entirely. */
+@container (max-width: 880px) {
+  .net-row { grid-template-columns: 78px 52px minmax(160px, 1fr) 140px 186px 58px; }
+  .net-type, .net-size { display: none; }
+}
+@container (max-width: 620px) {
+  .net-row { grid-template-columns: minmax(140px, 1fr) 132px 150px; }
+  .net-time, .net-method, .net-ms { display: none; }
+}

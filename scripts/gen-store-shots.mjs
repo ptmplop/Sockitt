@@ -177,6 +177,27 @@ const SCENES = [
   },
   {
     ...OPTIONS_FRAME,
+    file: 'screenshot-7-monitor.png',
+    clickNav: 'Network monitor',
+    title: 'Watch the rules do their work',
+    subtitle:
+      'Every request the browser makes while the page is open, and the profile your rules send it through — including the subresources that never reach the address bar.',
+    // Chosen to show the panel earning its place: a rule firing on an API
+    // subdomain, a keyword rule catching an intranet host, the default sending
+    // the rest direct, and one failure — which is the row you open this for.
+    traffic: [
+      { url: 'https://api.github.com/repos/ptmplop/Sockitt', type: 'xmlhttprequest', status: 200, bytes: 34211, ms: 142 },
+      { url: 'https://github.githubassets.com/assets/app.js', type: 'script', status: 200, bytes: 128944, ms: 96 },
+      { url: 'https://wiki.internal.corp/handbook', type: 'main_frame', error: 'net::ERR_PROXY_CONNECTION_FAILED', ms: 210 },
+      { url: 'https://app.slack.com/api/rtm.connect', type: 'xmlhttprequest', status: 200, bytes: 1820, ms: 61 },
+      { url: 'https://news.example.com/story/12', type: 'main_frame', status: 200, bytes: 48230, ms: 174 },
+      { url: 'https://cdn.example.com/img/hero.webp', type: 'image', status: 200, ms: 88 },
+      { url: 'https://fonts.gstatic.com/s/inter/v13.woff2', type: 'font', status: 200, bytes: 21504, ms: 33 },
+    ],
+  },
+
+  {
+    ...OPTIONS_FRAME,
     file: 'screenshot-6-overview.png',
     clickNav: 'Overview',
     // Everything below is arranged so the page has something true to SAY. An
@@ -259,6 +280,15 @@ function mockSource() {
 
   const noop = () => {};
   const evt = () => ({ addListener: noop, removeListener: noop, hasListener: () => false });
+  const mkEvent = () => {
+    const fns = [];
+    return {
+      addListener: (fn) => fns.push(fn),
+      removeListener: (fn) => { const i = fns.indexOf(fn); if (i >= 0) fns.splice(i, 1); },
+      hasListener: (fn) => fns.includes(fn),
+      _fire: (d) => fns.slice().forEach((fn) => fn(d)),
+    };
+  };
 
   globalThis.chrome = {
     storage: {
@@ -285,6 +315,14 @@ function mockSource() {
     extension: { isAllowedIncognitoAccess: async () => true },
     action: { setBadgeText: noop, setTitle: noop, setIcon: noop },
     alarms: { create: noop, clear: noop, onAlarm: evt() },
+    // Dispatchable, so the network-monitor scene can play traffic through the
+    // real panel rather than being handed a table of rows to draw.
+    webRequest: {
+      onBeforeRequest: mkEvent(),
+      onCompleted: mkEvent(),
+      onErrorOccurred: mkEvent(),
+      onAuthRequired: evt(),
+    },
   };
 
   // A listing shot must never depend on the internet. A scene that shows the
@@ -310,6 +348,42 @@ function mockSource() {
         if (!hit) throw new Error('no sidebar entry named ' + S.clickNav);
         hit.click();
       }
+      // Deliberately a second turn: the monitor attaches its listeners behind a
+      // permission check and a storage read, so traffic fired in the same tick
+      // as the nav click arrives before anything is listening.
+      if (S.traffic) setTimeout(() => {
+        const wr = globalThis.chrome.webRequest;
+        S.traffic.forEach((t, i) => {
+          const id = String(i + 1);
+          wr.onBeforeRequest._fire({
+            requestId: id, url: t.url, method: 'GET', type: t.type, tabId: 1,
+            frameId: 0, parentFrameId: -1, timeStamp: Date.now(),
+          });
+          // Finish in a later turn, at a time of the scene's choosing: completing
+          // in the tick the request started in makes every row read 0 ms, which
+          // is the one duration a reader knows cannot be true.
+          setTimeout(() => {
+            if (t.error) {
+              wr.onErrorOccurred._fire({
+                requestId: id, url: t.url, method: 'GET', type: t.type, tabId: 1,
+                error: t.error, fromCache: false, timeStamp: Date.now(),
+              });
+            } else if (t.status) {
+              wr.onCompleted._fire({
+                requestId: id, url: t.url, method: 'GET', type: t.type, tabId: 1,
+                statusCode: t.status, fromCache: false, timeStamp: Date.now(),
+                responseHeaders: t.bytes ? [{ name: 'Content-Length', value: String(t.bytes) }] : [],
+              });
+            }
+            document.querySelector('.net-bar .input')?.dispatchEvent(new Event('input', { bubbles: true }));
+            document.activeElement?.blur?.();
+          }, t.ms || 40);
+        });
+        // The panel batches paints on requestAnimationFrame, which headless
+        // virtual time does not run; nudge one synchronous repaint instead.
+        document.querySelector('.net-bar .input')?.dispatchEvent(new Event('input', { bubbles: true }));
+        document.activeElement?.blur?.();
+      }, 350);
       if (S.inspect) {
         const field = document.querySelector('.inspect-form .input.mono');
         if (!field) throw new Error('route inspector field not found');
@@ -438,7 +512,7 @@ async function capture(url, out) {
     '--no-sandbox',
     '--hide-scrollbars',
     '--window-size=1280,800',
-    '--virtual-time-budget=1200',
+    '--virtual-time-budget=2200',
     `--screenshot=${out}`,
     url,
   ];
@@ -497,6 +571,7 @@ async function main() {
             version,
             clickNav: scene.clickNav ?? null,
             inspect: scene.inspect ?? null,
+            traffic: scene.traffic ?? null,
           },
           null,
           2
