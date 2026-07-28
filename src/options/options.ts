@@ -49,6 +49,7 @@ import {
   SCHEME_LABELS,
   SwitchProfile,
   SYSTEM,
+  TABS_PERMS,
   VirtualProfile,
   hasCredentials,
   proxyProfiles,
@@ -511,37 +512,64 @@ function targetSelect(ownerId: string, value: string, onChange: (v: string) => v
 /* ---------- proxy editor ---------- */
 
 /**
- * Whether the auth permission is currently granted; null until the first
- * check resolves. Kept fresh so the banner below can flag configs whose
- * credentials arrived without a grant (import, or set on another device).
+ * Whether each optional permission is currently granted; null until the first
+ * check resolves. Kept fresh so the banners below can flag settings that
+ * arrived without their grant — an optional permission never travels with a
+ * config, so an import or another device can only ever carry the setting.
  */
 let authPermGranted: boolean | null = null;
+let tabsPermGranted: boolean | null = null;
 
-async function refreshAuthPermState(): Promise<void> {
-  const granted = await chrome.permissions.contains(AUTH_PERMS).catch(() => false);
-  if (granted !== authPermGranted) {
-    authPermGranted = granted;
-    updateAuthBanner();
-  }
+async function refreshPermState(): Promise<void> {
+  const [auth, tabs] = await Promise.all([
+    chrome.permissions.contains(AUTH_PERMS).catch(() => false),
+    chrome.permissions.contains(TABS_PERMS).catch(() => false),
+  ]);
+  if (auth === authPermGranted && tabs === tabsPermGranted) return;
+  authPermGranted = auth;
+  tabsPermGranted = tabs;
+  updatePermBanners();
 }
 
 async function requestAuthPermission(): Promise<boolean> {
   const has = await chrome.permissions.contains(AUTH_PERMS).catch(() => false);
   if (has) {
     authPermGranted = true;
-    updateAuthBanner();
+    updatePermBanners();
     return true;
   }
   const granted = await chrome.permissions.request(AUTH_PERMS).catch(() => false);
   toast(granted ? 'Authentication enabled' : 'Permission needed for proxy auth');
   authPermGranted = granted;
-  updateAuthBanner();
+  updatePermBanners();
   return granted;
+}
+
+/**
+ * The "tabs" grant the per-tab badge needs. Called both when the toggle is
+ * switched on and when a config arrives with the setting already true, so the
+ * setting and the grant can be brought back into agreement from either side.
+ */
+async function requestTabsPermission(): Promise<boolean> {
+  if (await chrome.permissions.contains(TABS_PERMS).catch(() => false)) {
+    tabsPermGranted = true;
+  } else {
+    const granted = await chrome.permissions.request(TABS_PERMS).catch(() => false);
+    toast(granted ? 'Per-tab badge enabled' : 'Permission needed for the per-tab badge');
+    tabsPermGranted = granted;
+  }
+  updatePermBanners();
+  return tabsPermGranted;
 }
 
 /** Credentials exist but the permission to answer challenges doesn't. */
 function authPermMissing(): boolean {
   return authPermGranted === false && proxyProfiles(config).some(hasCredentials);
+}
+
+/** The badge setting is on but the permission that makes it paint isn't. */
+function badgePermMissing(): boolean {
+  return tabsPermGranted === false && config.settings.badgeResult;
 }
 
 /** ipconfig.is origin grant, needed by the exit-IP check and the proxy test. */
@@ -551,37 +579,52 @@ async function ensureExitIpPermission(): Promise<boolean> {
   return chrome.permissions.request(EXIT_IP_PERMS).catch(() => false);
 }
 
-function authWarningBanner(): HTMLElement | null {
-  if (!authPermMissing()) return null;
+function warnBanner(message: string, action: string, onclick: () => void): HTMLElement {
   return el(
     'div',
     { class: 'warn-banner' },
-    el(
-      'span',
-      {},
-      'A proxy profile has credentials, but the permission to answer authentication challenges hasn’t been granted — proxy auth is inactive.'
-    ),
-    el(
-      'button',
-      { class: 'btn sm', onclick: () => void requestAuthPermission() },
-      'Enable authentication'
-    )
+    el('span', {}, message),
+    el('button', { class: 'btn sm', onclick }, action)
   );
 }
 
+/** One banner per setting that is switched on but inert without its grant. */
+function permWarningBanners(): HTMLElement[] {
+  const banners: HTMLElement[] = [];
+  if (authPermMissing()) {
+    banners.push(
+      warnBanner(
+        'A proxy profile has credentials, but the permission to answer authentication challenges hasn’t been granted — proxy auth is inactive.',
+        'Enable authentication',
+        () => void requestAuthPermission()
+      )
+    );
+  }
+  if (badgePermMissing()) {
+    banners.push(
+      warnBanner(
+        'The per-tab route badge is switched on, but the optional "tabs" permission hasn’t been granted — the badge stays blank.',
+        'Enable badge',
+        () => void requestTabsPermission()
+      )
+    );
+  }
+  return banners;
+}
+
 /**
- * Toggle the banner in place instead of re-rendering the page: permission
+ * Toggle the banners in place instead of re-rendering the page: permission
  * state can change while the user is mid-typing in the editor (the prompt is
  * triggered from a field's onchange), and a full render would wipe the
  * uncommitted sibling field.
  */
-function updateAuthBanner(): void {
+function updatePermBanners(): void {
   const content = document.querySelector('.content');
   if (!content) return;
-  const existing = content.querySelector(':scope > .warn-banner');
-  const fresh = authWarningBanner();
-  if (fresh && !existing) content.prepend(fresh);
-  else if (!fresh && existing) existing.remove();
+  content.querySelectorAll(':scope > .warn-banner').forEach((n) => n.remove());
+  // Prepend in reverse so the banners keep permWarningBanners' order above the
+  // panel, whatever else the content column already holds.
+  for (const banner of permWarningBanners().reverse()) content.prepend(banner);
 }
 
 function proxyEditor(profile: ProxyProfile): HTMLElement {
@@ -767,7 +810,7 @@ function authSection(profile: ProxyProfile): HTMLElement {
       profile.username = username.value.trim() || undefined;
       scheduleSave();
       if (hasCredentials(profile)) void requestAuthPermission();
-      else updateAuthBanner(); // may have just cleared the banner's cause
+      else updatePermBanners(); // may have just cleared the banner's cause
     },
   }) as HTMLInputElement;
 
@@ -781,7 +824,7 @@ function authSection(profile: ProxyProfile): HTMLElement {
       profile.password = password.value || undefined;
       scheduleSave();
       if (hasCredentials(profile)) void requestAuthPermission();
-      else updateAuthBanner(); // may have just cleared the banner's cause
+      else updatePermBanners(); // may have just cleared the banner's cause
     },
   }) as HTMLInputElement;
 
@@ -1286,16 +1329,12 @@ function settingsPanel(): HTMLElement {
         async (v) => {
           if (!v) {
             s.badgeResult = false;
+            updatePermBanners(); // the setting is off; nothing left to warn about
             return;
           }
-          const granted = await chrome.permissions
-            .request({ permissions: ['tabs'] })
-            .catch(() => false);
-          if (!granted) {
-            toast('Permission declined');
-            return false;
-          }
+          if (!(await requestTabsPermission())) return false;
           s.badgeResult = true;
+          updatePermBanners();
         }
       ),
       toggleRow(
@@ -1435,6 +1474,13 @@ function importConfig(): void {
       await saveConfig(config);
       toast('Imported');
       render();
+      // A backup carries settings, never the optional permissions they depend
+      // on. Ask for the badge's grant here, while the file-picker gesture is
+      // still live — otherwise the setting reads as on and does nothing until
+      // the user thinks to toggle it off and back on. Declined (or asked too
+      // late for the gesture) leaves the banner to offer it again.
+      if (config.settings.badgeResult) await requestTabsPermission();
+      void refreshPermState();
     } catch (e) {
       alert(`Import failed: ${e instanceof Error ? e.message : e}`);
     }
@@ -2008,7 +2054,7 @@ function render(): void {
       'div',
       { class: 'layout' },
       sideNode,
-      el('div', { class: 'content' }, authWarningBanner(), content)
+      el('div', { class: 'content' }, ...permWarningBanners(), content)
     )
   );
   // Expose the selected nav item to assistive tech (mirrors popup .row's aria-pressed).
@@ -2121,9 +2167,10 @@ void loadConfig().then((c) => {
   // sidebar node that render() has just installed.
   watchProxyErrors();
   watchPageRequests();
-  // Flag credentials that arrived without their permission (imported configs,
-  // or profiles created before auth support).
-  void refreshAuthPermState();
-  chrome.permissions.onAdded.addListener(() => void refreshAuthPermState());
-  chrome.permissions.onRemoved.addListener(() => void refreshAuthPermState());
+  // Flag settings that arrived without their permission — imported or synced
+  // configs, profiles created before auth support, or a grant revoked from
+  // chrome://extensions.
+  void refreshPermState();
+  chrome.permissions.onAdded.addListener(() => void refreshPermState());
+  chrome.permissions.onRemoved.addListener(() => void refreshPermState());
 });

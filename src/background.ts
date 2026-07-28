@@ -39,6 +39,7 @@ import {
   SCHEME_LABELS,
   SYSTEM,
   SwitchRule,
+  TABS_PERMS,
   profileById,
   proxyProfiles,
   reachableFrom,
@@ -857,14 +858,57 @@ async function updateRuleList(profileId: string): Promise<void> {
 
 /* ---------------- per-tab result badge (optional "tabs" permission) ---------------- */
 
+/**
+ * Whether the last applied config had the badge on. Session storage, not a
+ * module variable: the worker is recycled after ~30s idle, so by the time the
+ * user switches the feature off the process that painted the badges is usually
+ * gone. Session storage expires exactly when tab badges do — at browser
+ * restart — which makes it the right lifetime to reason about them from.
+ */
+const BADGE_PAINTING_KEY = 'sockitt-badge-painting';
+
+/**
+ * Drop the tab's badge OVERRIDE rather than blanking it. Text '' is still an
+ * override, and would hide the GLOBAL badge — the red proxy-error '!' included
+ * — for this tab alone; null removes it so the global text shows through
+ * again. (MV3's own typings omit the documented null, hence the cast.)
+ */
+async function clearTabBadge(tabId: number): Promise<void> {
+  await chrome.action
+    .setBadgeText({ tabId, text: null } as unknown as chrome.action.BadgeTextDetails)
+    .catch(() => undefined);
+}
+
 /** Repaint the focused tab's badge after a profile/temp-rule change. */
 async function refreshActiveTabBadge(config: Config): Promise<void> {
-  if (!config.settings.badgeResult) return;
+  const on = config.settings.badgeResult;
+  const store = await chrome.storage.session.get(BADGE_PAINTING_KEY);
+  const was = store[BADGE_PAINTING_KEY] === true;
+  if (was !== on) await chrome.storage.session.set({ [BADGE_PAINTING_KEY]: on });
+
+  if (!on) {
+    // Switching the feature off has to undo itself. A tab-scoped badge outlives
+    // navigation and every later updateTabBadge returns early once the feature
+    // is off, so without this sweep the last route painted would sit on each
+    // tab until that tab was closed.
+    if (was) await clearAllTabBadges();
+    return;
+  }
   try {
     const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
     if (tab?.id !== undefined) await updateTabBadge(tab.id, config);
   } catch {
     // no active tab
+  }
+}
+
+/** Remove every tab-scoped badge. tabs.query needs no permission for ids. */
+async function clearAllTabBadges(): Promise<void> {
+  try {
+    const tabs = await chrome.tabs.query({});
+    await Promise.all(tabs.map((t) => (t.id === undefined ? undefined : clearTabBadge(t.id))));
+  } catch {
+    // no tabs to clean up
   }
 }
 
@@ -874,14 +918,14 @@ async function refreshActiveTabBadge(config: Config): Promise<void> {
  */
 async function updateTabBadge(tabId: number, config: Config | null = cachedConfig): Promise<void> {
   const cfg = config ?? (await loadConfig());
-  const clear = () => chrome.action.setBadgeText({ tabId, text: '' }).catch(() => undefined);
+  const clear = () => clearTabBadge(tabId);
 
-  if (!cfg.settings.badgeResult) return; // feature off — leave global badge alone
+  if (!cfg.settings.badgeResult) return; // feature off — the sweep already cleaned up
   const active = profileById(cfg, cfg.activeId);
   // Unconditional profile (proxy/alias/direct): the icon already says it.
   if (!active || staticTerminal(cfg, active) !== null) return void (await clear());
   try {
-    if (!(await chrome.permissions.contains({ permissions: ['tabs'] }))) return;
+    if (!(await chrome.permissions.contains(TABS_PERMS))) return;
     const errorStore = await chrome.storage.session.get(ERROR_KEY);
     if (errorStore[ERROR_KEY]) return; // leave the global error badge visible
     const tab = await chrome.tabs.get(tabId);
@@ -1016,6 +1060,13 @@ chrome.permissions.onAdded.addListener((added) => {
   // registration for an async one until the next worker restart.
   if (added.permissions?.some((p) => p === 'webRequest' || p === 'webRequestAuthProvider')) {
     reregisterAuthListener();
+  }
+  // A "tabs" grant can land long after the setting was switched on (an imported
+  // or synced config carries the setting but not the grant). Paint immediately
+  // rather than waiting for the next tab switch or navigation, so the grant
+  // visibly does something.
+  if (added.permissions?.includes('tabs')) {
+    void loadConfig().then((config) => refreshActiveTabBadge(config));
   }
 });
 

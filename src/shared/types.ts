@@ -70,6 +70,13 @@ export const AUTH_PERMS: chrome.permissions.Permissions = {
   origins: ['<all_urls>'],
 };
 
+/**
+ * Optional permission behind the per-tab route badge. Same single-source rule
+ * as AUTH_PERMS: the options page requests exactly what the badge painter
+ * checks for, so a grant always satisfies the check.
+ */
+export const TABS_PERMS: chrome.permissions.Permissions = { permissions: ['tabs'] };
+
 /** true when the profile carries credentials the auth handler would serve. */
 export function hasCredentials(p: ProxyProfile): boolean {
   return schemeSupportsAuth(p.scheme) && Boolean(p.username || p.password);
