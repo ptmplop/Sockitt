@@ -25,7 +25,7 @@ ROUTE AUTOMATICALLY, SITE BY SITE
 
 SUBSCRIBE TO RULE LISTS
 
-• Import AutoProxy/GFWList or Switchy lists by URL with scheduled auto updates, or paste your own.
+• Import AutoProxy/GFWList or plain domain lists by URL with scheduled auto updates, or paste your own.
 • Domain entries compile to a single dictionary lookup, so a list with thousands of entries stays fast.
 
 

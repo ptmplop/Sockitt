@@ -103,7 +103,7 @@ function buildDocsPanel(): HTMLElement {
         'A profile is one of six things. ', code('Direct'), ' and ', code('System'), ' are built in and need no setup. A ',
         code('Proxy'), ' is a single server — SOCKS5, SOCKS4, HTTP, or HTTPS. An ', code('Auto switch'),
         ' is an ordered list of rules that picks between the others per request. A ', code('Rule list'),
-        ' does the same from a subscribed AutoProxy/GFWList or Switchy list. An ', code('Alias'),
+        ' does the same from a subscribed AutoProxy/GFWList or domain list. An ', code('Alias'),
         ' is a pointer, so many rules can be retargeted by editing one thing. One profile is active at a time; you choose it in the toolbar popup, with a keyboard shortcut, or automatically at browser start. Incognito windows can follow a second profile of their own — see Settings.'
       ),
       p(
@@ -140,7 +140,7 @@ function buildDocsPanel(): HTMLElement {
         ['System (built-in)', ['Follows the proxy settings configured in your operating system.']],
         ['Proxy', ['A single proxy server (SOCKS5, SOCKS4, HTTP, or HTTPS) with a host, port, and bypass list. Activate it to send everything through that server.']],
         ['Auto switch', ['An ordered list of rules that route each request to a target based on its URL, host, IP, or the time of day. This is the profile the popup lets you manage per site.']],
-        ['Rule list', ['Subscribes to an AutoProxy/GFWList or Switchy-format list (by URL or pasted in) and routes matching sites to a chosen target.']],
+        ['Rule list', ['Subscribes to an AutoProxy/GFWList or plain domain list (by URL or pasted in) and routes matching sites to a chosen target.']],
         ['Alias', ['A pointer to another profile. Aim several rules at one alias, then change the alias target once to retarget them all together.']],
       ])
     ),
@@ -216,8 +216,17 @@ function buildDocsPanel(): HTMLElement {
         ['AutoProxy / GFWList', [
           'Lines: ', code('||domain'), ' (host or subdomain), ', code('|https://prefix'), ' (URL prefix), ', code('/regex/'), ', ', code('@@'), ' to whitelist, and ', code('!'), ' or ', code('['), ' for comments and headers. Anything else is a URL substring — or a URL wildcard, if it contains ', code('*'), ' or ', code('?'), '. Base64-encoded payloads (GFWList’s format) are decoded automatically.',
         ]],
-        ['Switchy', [
-          'One pattern per line: bare patterns are host wildcards; entries containing ', code('://'), ' match the start of the URL, with a trailing ', code('*'), ' implied; ', code('@@'), ' whitelists; and ', code('#'), ' / ', code(';'), ' / ', code('!'), ' / ', code('['), ' start comments.',
+        ['Domain list', [
+          'One host or URL pattern per line. ', code('example.com'), ' matches that host exactly, ',
+          code('*.example.com'), ' the host or any subdomain, and ', code('ad*.example.com'),
+          ' is a host wildcard. An entry containing ', code('://'), ' matches the start of the URL, with a trailing ',
+          code('*'), ' implied. ', code('@@'), ' whitelists; ', code('#'), ' / ', code(';'), ' / ', code('!'), ' / ',
+          code('['), ' start comments. A line that cannot be a hostname — one with spaces, a path, a port or a CIDR — is counted as ignored under the editor instead of becoming a rule that could never match.',
+        ]],
+        ['Not SwitchyOmega', [
+          'This is not SwitchyOmega’s conditions format. Its ', code('[SwitchyOmega Conditions]'),
+          ' lists — typed prefixes like ', code('UrlRegex:'), ', ', code('Keyword:'), ' and ', code('Ip:'),
+          ', and ', code('!'), ' bypass lines — are not supported. Paste one in and Sockitt says so rather than loading it half-dead.',
         ]],
       ]),
       p(

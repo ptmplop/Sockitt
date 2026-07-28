@@ -23,7 +23,7 @@ options ┘        (config)                  └─> action icon / badge / title
 | `src/shared/match.ts` | Compiles conditions to matcher primitives; TS-side evaluator and `resolveRoute()` |
 | `src/shared/pac.ts` | Generates the PAC script from the profile graph; per-scheme proxy directives |
 | `src/shared/state.ts` | Storage load/save and `sanitizeConfig` (also validates imports and sync); session override rules |
-| `src/shared/rulelist.ts` | AutoProxy/GFWList and Switchy list parsing (base64 decode plus a small memo) |
+| `src/shared/rulelist.ts` | AutoProxy/GFWList and domain-list parsing (base64 decode plus a small memo) |
 | `src/shared/sync.ts` | Config mirroring over `chrome.storage.sync`: byte-bounded chunks, rule-list bodies excluded (refetchable), pre-push revision check, last-write-wins by revision |
 | `src/shared/errors.ts` | Proxy failure model: the live alert, the session error log (repeats collapsed), and the plain-English vocabulary both UI surfaces render |
 | `src/shared/avatar.ts` | Initials avatars (DiceBear-initials style, generated locally) |

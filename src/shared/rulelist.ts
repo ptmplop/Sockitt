@@ -6,9 +6,15 @@ export interface ParsedRuleList {
   blacklist: CompiledCondition[];
   /** Parsed entry count (for the options UI). */
   count: number;
+  /**
+   * Non-comment lines that could not be read as an entry. Surfaced in the
+   * editor: a list whose rules silently compile to something that can never
+   * match is worse than one that says so.
+   */
+  ignored: number;
 }
 
-const EMPTY: ParsedRuleList = { whitelist: [], blacklist: [], count: 0 };
+const EMPTY: ParsedRuleList = { whitelist: [], blacklist: [], count: 0, ignored: 0 };
 const RE_SPECIALS = /[.+^${}()|[\]\\]/g;
 
 /** Tiny memo — rule lists are large and parsed from several places. */
@@ -19,10 +25,22 @@ export function parseRuleList(format: RuleListFormat, text: string): ParsedRuleL
   const key = `${format}:${text}`;
   const hit = cache.get(key);
   if (hit) return hit;
-  const parsed = format === 'autoproxy' ? parseAutoProxy(text) : parseSwitchy(text);
+  const parsed = format === 'autoproxy' ? parseAutoProxy(text) : parseDomainList(text);
   if (cache.size >= 4) cache.delete(cache.keys().next().value!);
   cache.set(key, parsed);
   return parsed;
+}
+
+/**
+ * True when the text is a SwitchyOmega/ZeroOmega conditions list. Sockitt reads
+ * neither of its dialects — its typed conditions (`UrlRegex:`, `Keyword:`,
+ * `Ip:` …) and its `!` bypass lines have no equivalent here — and pasting one
+ * in used to parse "successfully" with half the rules inert. Detected so the
+ * editor can say so outright.
+ */
+export function looksLikeSwitchyOmega(text: string): boolean {
+  const head = text.trimStart();
+  return head.startsWith('[SwitchyOmega Conditions') || /(^|\n)\s*@with\s+results?\b/i.test(head);
 }
 
 /** GFWList ships base64-encoded; decode when the payload looks like it. */
@@ -56,6 +74,7 @@ export function parseAutoProxy(raw: string): ParsedRuleList {
   const whitelist: CompiledCondition[] = [];
   const blacklist: CompiledCondition[] = [];
   let count = 0;
+  let ignored = 0;
 
   for (let line of text.split('\n')) {
     line = line.trim();
@@ -70,9 +89,11 @@ export function parseAutoProxy(raw: string): ParsedRuleList {
     if (cond.op !== 'never') {
       bucket.push(cond);
       count++;
+    } else {
+      ignored++; // an unparseable or unsafe regex, or a bare ||
     }
   }
-  return { whitelist, blacklist, count };
+  return { whitelist, blacklist, count, ignored };
 }
 
 function compileAutoProxyEntry(entry: string): CompiledCondition {
@@ -109,14 +130,24 @@ function compileAutoProxyEntry(entry: string): CompiledCondition {
 }
 
 /**
- * Switchy format: one pattern per line. '#', ';', '!', '[' lines are
- * comments; '@@' prefixes a whitelist entry; entries containing '://' are
- * URL wildcards, everything else is a host wildcard.
+ * Domain list: one host or URL pattern per line — the shape most published
+ * blocklists ship in.
+ *
+ *   example.com          that host exactly
+ *   *.example.com        the host or any subdomain
+ *   ad*.example.com      host wildcard (* and ? supported)
+ *   https://example.com/api*   URL prefix, trailing * implied
+ *   @@*.safe.example     whitelist (wins over every match)
+ *   # ; ! [              comment / header lines
+ *
+ * Formerly labelled "Switchy" after SwitchyOmega's rule lists, which it never
+ * implemented — see looksLikeSwitchyOmega above.
  */
-export function parseSwitchy(text: string): ParsedRuleList {
+export function parseDomainList(text: string): ParsedRuleList {
   const whitelist: CompiledCondition[] = [];
   const blacklist: CompiledCondition[] = [];
   let count = 0;
+  let ignored = 0;
 
   for (let line of text.split('\n')) {
     line = line.trim();
@@ -127,15 +158,30 @@ export function parseSwitchy(text: string): ParsedRuleList {
       line = line.slice(2).trim();
       if (!line) continue;
     }
-    const cond: CompiledCondition = line.includes('://')
-      ? { op: 'urlRegex', source: `^${wildcardUrlSource(/[*?]$/.test(line) ? line : line + '*')}` }
-      : hostWildcardEntry(line);
+    const cond = domainListEntry(line);
     if (cond.op !== 'never') {
       bucket.push(cond);
       count++;
+    } else {
+      ignored++;
     }
   }
-  return { whitelist, blacklist, count };
+  return { whitelist, blacklist, count, ignored };
+}
+
+function domainListEntry(entry: string): CompiledCondition {
+  // Internal whitespace means this is not a host or a URL — overwhelmingly a
+  // typed condition from another tool ("UrlRegex: ^https?://…"), which used to
+  // compile to a host wildcard of the whole literal and match nothing, forever,
+  // without a word to the user.
+  if (/\s/.test(entry)) return { op: 'never' };
+  if (entry.includes('://')) {
+    return { op: 'urlRegex', source: `^${wildcardUrlSource(/[*?]$/.test(entry) ? entry : entry + '*')}` };
+  }
+  // A bare entry is a hostname pattern, so it may hold only the characters a
+  // hostname can — this rejects paths, ports, CIDRs and stray type prefixes.
+  if (/[^a-z0-9._*?-]/i.test(entry)) return { op: 'never' };
+  return hostWildcardEntry(entry);
 }
 
 function hostWildcardEntry(line: string): CompiledCondition {

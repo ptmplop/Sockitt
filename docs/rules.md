@@ -122,9 +122,17 @@ chosen target. Two formats:
 - **AutoProxy / GFWList**: `||domain`, `|https://prefix`, `/regex/`, plain
   keywords, `@@` whitelist entries, and `!` comments. Base64-encoded payloads
   (GFWList's distribution format) are decoded automatically.
-- **Switchy**: one pattern per line. Bare patterns are host wildcards, entries
-  containing `://` are URL wildcards, `@@` prefixes whitelist entries, and `#`,
-  `;`, or `!` start comments.
+- **Domain list**: one host or URL pattern per line. `example.com` matches that
+  host exactly, `*.example.com` the host or any subdomain, `ad*.example.com` is a
+  host wildcard, and an entry containing `://` matches the start of the URL (a
+  trailing `*` is implied). `@@` prefixes whitelist entries, and `#`, `;`, `!` or
+  `[` start comments. A line that cannot be a hostname — one with spaces, a path,
+  a port or a CIDR — is counted as ignored and reported under the editor rather
+  than compiled into a rule that could never match.
+
+  This format is **not** SwitchyOmega's. Its conditions list (`[SwitchyOmega
+  Conditions]`, `UrlRegex:`/`Keyword:`/`Ip:` prefixes, `!` bypass lines) is not
+  supported; pasting one in is detected and called out in the editor.
 
 Whitelist entries always win, sending the URL to the profile's default target.
 Lists auto-refresh on the interval you set; the URL's host must allow

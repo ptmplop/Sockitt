@@ -282,6 +282,9 @@ body {
 .field label { font-size: 12px; font-weight: 600; color: var(--text-dim); }
 .note { font-size: 11.5px; color: var(--text-dim); }
 .note.error { color: var(--danger-ink); font-weight: 600; }
+/* Not an error — the list still loads, some lines just could not be read. */
+.note.warn { color: var(--amber-ink); font-weight: 600; }
+.note.warn[hidden] { display: none; }
 .note.error[hidden] { display: none; }
 /* Unbounded explanatory copy inside a ~860px card ran to 130+ characters. */
 .panel > .note,

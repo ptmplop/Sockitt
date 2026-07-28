@@ -2,7 +2,7 @@ import { avatarEl, builtinTile, initialsFor } from '../shared/avatar';
 import { docsPanel } from './docs';
 import { EXIT_IP_PERMS, flagSrc } from '../shared/exitip';
 import { TraceEdge, pacRequestUrl, patternError, resolveRoute } from '../shared/match';
-import { parseRuleList } from '../shared/rulelist';
+import { looksLikeSwitchyOmega, parseRuleList } from '../shared/rulelist';
 import {
   ERROR_KEY,
   ERROR_LOG_KEY,
@@ -1065,7 +1065,7 @@ function ruleListEditor(profile: RuleListProfile): HTMLElement {
   const format = el('select', { class: 'input' }) as HTMLSelectElement;
   format.append(
     el('option', { value: 'autoproxy' }, 'AutoProxy / GFWList'),
-    el('option', { value: 'switchy' }, 'Switchy (one pattern per line)')
+    el('option', { value: 'switchy' }, 'Domain list (one per line)')
   );
   format.value = profile.format;
   format.onchange = () => {
@@ -1105,8 +1105,20 @@ function ruleListEditor(profile: RuleListProfile): HTMLElement {
     'span',
     { class: 'note' },
     `${parsed.count} entr${parsed.count === 1 ? 'y' : 'ies'} parsed` +
+      // Silence about unreadable lines is what let a half-dead list look loaded.
+      (parsed.ignored ? ` · ${parsed.ignored} line${parsed.ignored === 1 ? '' : 's'} ignored` : '') +
       (profile.lastUpdated ? ` · updated ${new Date(profile.lastUpdated).toLocaleString()}` : '')
   );
+
+  // Name the most likely cause outright rather than leaving a bare count.
+  const formatWarn = el(
+    'span',
+    { class: 'note warn', role: 'alert' },
+    'This looks like a SwitchyOmega conditions list. Sockitt reads AutoProxy/GFWList ' +
+      'and plain domain lists — SwitchyOmega’s typed conditions (UrlRegex:, Keyword:, ' +
+      'Ip:) and its ! bypass lines are not supported and will be ignored.'
+  );
+  formatWarn.hidden = !looksLikeSwitchyOmega(profile.text);
 
   // A pasted list with no URL and a body over the sync inline cap is dropped
   // from sync (slimConfig) and can't be refetched, so devices that never held
@@ -1174,7 +1186,7 @@ function ruleListEditor(profile: RuleListProfile): HTMLElement {
         field('Format', format, { style: { flex: '1' } }),
         updateNow
       ),
-      field('List content', source, { extra: [status, sizeWarn] }),
+      field('List content', source, { extra: [status, formatWarn, sizeWarn] }),
       el('span', { class: 'note' },
         'The URL host must allow cross-origin requests (raw.githubusercontent.com does). GFWList base64 payloads are decoded automatically.')
     ),

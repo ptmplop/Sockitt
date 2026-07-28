@@ -101,6 +101,17 @@ export interface VirtualProfile extends ProfileBase {
   targetId: TargetId;
 }
 
+/**
+ * Stored discriminant. `'switchy'` is a legacy wire value: that format was once
+ * labelled "Switchy", after SwitchyOmega's rule lists, which it never actually
+ * implemented — it is a plain domain list and is labelled one from v1.13.0.
+ *
+ * The stored string is deliberately NOT renamed. sanitizeConfig maps anything
+ * it does not recognise to 'autoproxy', so a device still on an older build
+ * would rewrite a renamed value on pull and push it back — silently turning
+ * host matching into URL-substring matching across the fleet. Changing it means
+ * bumping CONFIG_VERSION, which is not worth spending on a label.
+ */
 export type RuleListFormat = 'autoproxy' | 'switchy';
 
 /**

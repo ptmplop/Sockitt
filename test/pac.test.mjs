@@ -286,13 +286,46 @@ test('rule list profile compiles to a fast PAC and matches resolveRoute', () => 
   assert.ok(pac.includes('"$blocked.example":1'), 'suffix dictionary emitted');
 });
 
-test('Switchy format parsing', () => {
-  const parsed = lib.parseSwitchy(
+test('domain list parsing', () => {
+  const parsed = lib.parseDomainList(
     ['# comment', '*.wild.example', 'exact.example', '@@*.safe.example', 'https://url.example/*'].join('\n')
   );
   assert.equal(parsed.count, 4);
+  assert.equal(parsed.ignored, 0);
   assert.equal(parsed.whitelist.length, 1);
   assert.deepEqual(parsed.blacklist[1], { op: 'hostEq', host: 'exact.example' });
+});
+
+test('domain list reports lines it cannot read instead of matching nothing', () => {
+  // Verbatim from ZeroOmega's own "Export rule list" composer. Its typed
+  // conditions used to compile to host wildcards of the whole literal, which
+  // can never match — and the editor still reported them as parsed entries.
+  const parsed = lib.parseDomainList(
+    [
+      '[SwitchyOmega Conditions]',
+      '',
+      '*.github.com',
+      '!*.internal.corp',
+      'UrlRegex: ^https?://mail\\.',
+      'Keyword: analytics',
+      'Ip: 10.0.0.0/8',
+    ].join('\n')
+  );
+  assert.equal(parsed.count, 1, 'only the host wildcard is a domain-list entry');
+  assert.equal(parsed.ignored, 3, 'the three typed conditions are reported, not silently kept');
+});
+
+test('a SwitchyOmega list is recognised so the editor can say so', () => {
+  assert.equal(lib.looksLikeSwitchyOmega('[SwitchyOmega Conditions]\n\n*.a.example\n'), true);
+  assert.equal(lib.looksLikeSwitchyOmega('@with result\n*.a.example +Work\n'), true);
+  assert.equal(lib.looksLikeSwitchyOmega('*.a.example\nb.example\n'), false);
+  assert.equal(lib.looksLikeSwitchyOmega('[AutoProxy 0.2.9]\n||a.example\n'), false);
+});
+
+test('domain list rejects entries a hostname cannot hold', () => {
+  const parsed = lib.parseDomainList(['a.example/path', 'b.example:8080', '10.0.0.0/8', 'c.example'].join('\n'));
+  assert.equal(parsed.count, 1);
+  assert.equal(parsed.ignored, 3);
 });
 
 /* ---------------- structural guarantees ---------------- */

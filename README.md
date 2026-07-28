@@ -51,7 +51,7 @@ script.
   keyword, IPv4 CIDR (`10.0.0.0/8`), host-label count, weekday, or time of day.
   Rules can target a proxy, Direct, another switch profile, a rule list, or an
   alias.
-- **Rule lists.** Subscribe to AutoProxy/GFWList or Switchy-format lists by URL
+- **Rule lists.** Subscribe to AutoProxy/GFWList or plain domain lists by URL
   with auto-update, or paste one in. Domain entries compile to a single
   dictionary lookup, so even very large lists stay fast.
 - **Aliases.** Pointer profiles: aim many rules at one alias, then retarget them
@@ -177,8 +177,8 @@ Project layout and design notes are in [docs/development.md](docs/development.md
 ## Acknowledgements
 
 Sockitt is an independent, from-scratch implementation. Its concepts - proxy
-profiles, PAC-based automatic switching, and the AutoProxy and Switchy
-rule-list formats - are informed by
+profiles, PAC-based automatic switching, and the AutoProxy rule-list format -
+are informed by
 [Proxy SwitchyOmega](https://github.com/FelisCatus/SwitchyOmega) and its
 Manifest V3 fork [ZeroOmega](https://github.com/zero-peak/ZeroOmega), which were
 studied as a reference while designing this extension. Sockitt shares no code

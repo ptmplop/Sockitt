@@ -153,7 +153,7 @@ const SCENES = [
     file: 'screenshot-4-lists.png',
     clickNav: 'Ad block',
     title: 'Subscribe to rule lists',
-    subtitle: 'AutoProxy / GFWList or Switchy lists, auto-updated on a schedule — even very large lists stay fast.',
+    subtitle: 'AutoProxy / GFWList or plain domain lists, auto-updated on a schedule — even very large lists stay fast.',
   },
   {
     ...OPTIONS_FRAME,

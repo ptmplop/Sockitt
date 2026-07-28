@@ -38,7 +38,7 @@ src/
   shared/types.ts        data model and small helpers
   shared/match.ts        condition compiler / evaluator (browser + node)
   shared/pac.ts          PAC script generator (pure, node-testable)
-  shared/rulelist.ts     AutoProxy/GFWList and Switchy list parsing
+  shared/rulelist.ts     AutoProxy/GFWList and domain-list parsing
   shared/sync.ts         chrome.storage.sync mirroring
   shared/state.ts        chrome.storage load / save / sanitise
   shared/avatar.ts       initials-avatar helpers
