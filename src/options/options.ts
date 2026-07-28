@@ -44,6 +44,7 @@ import {
   Profile,
   ProxyProfile,
   ProxyScheme,
+  RULE_LIST_FORMAT_LABELS,
   RuleListProfile,
   RuleType,
   SCHEME_LABELS,
@@ -161,6 +162,19 @@ function scheduleSave(): void {
     savePending = false;
     void saveConfig(config).then(() => toast('Saved'));
   }, 300);
+}
+
+/**
+ * Switch to the in-app Docs page and land on one card. render() replaces the
+ * tree synchronously, so the anchor exists by the time we look for it.
+ */
+function openDocsAt(anchor: string): void {
+  selectedId = DOCS_ID;
+  render();
+  document.getElementById(anchor)?.scrollIntoView({
+    behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+    block: 'start',
+  });
 }
 
 function selected(): Profile | null {
@@ -681,6 +695,7 @@ function proxyEditor(profile: ProxyProfile): HTMLElement {
     placeholder: '127.0.0.1',
     spellcheck: false,
     oninput: () => {
+      invalidateTest();
       const err = proxyHostError(host.value);
       host.classList.toggle('invalid', err !== null);
       host.ariaInvalid = err !== null ? 'true' : 'false';
@@ -703,6 +718,7 @@ function proxyEditor(profile: ProxyProfile): HTMLElement {
     min: '1',
     max: '65535',
     oninput: () => {
+      invalidateTest();
       const n = Number(port.value);
       const ok = Number.isInteger(n) && n >= 1 && n <= 65535;
       port.classList.toggle('invalid', !ok);
@@ -735,6 +751,19 @@ function proxyEditor(profile: ProxyProfile): HTMLElement {
     class: 'note test-result',
     dataset: { profile: profile.id },
   });
+  /**
+   * Drop a previous verdict once the address it was about changes. The line is
+   * written by the test click and by watchProxyTests, and nothing else cleared
+   * it — so a green "Connection successful · 203.0.113.9 · 45 ms" would sit
+   * under a host the user had since retyped, which is a claim about a server
+   * that is no longer configured.
+   */
+  const invalidateTest = (): void => {
+    if (!testResult.textContent) return;
+    testResult.replaceChildren();
+    testResult.removeAttribute('title');
+    testResult.classList.remove('ok', 'bad');
+  };
   const ipLookupsOn = config.settings.exitIpCheck;
   const testBtn = el(
     'button',
@@ -972,9 +1001,22 @@ function switchEditor(profile: SwitchProfile): HTMLElement {
     wireDrag(row, rulesBox, () => {
       const order = [...rulesBox.querySelectorAll<HTMLElement>('.rule')].map((n) => n.dataset.id);
       profile.rules.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+      renumberRules();
       scheduleSave();
     });
     return row;
+  };
+
+  /**
+   * The rule aria-labels carry a position, and reordering deliberately never
+   * re-renders — it moves the live row and sorts the model — so without this a
+   * dragged rule announces the place it was built in, forever.
+   */
+  const renumberRules = (): void => {
+    rulesBox.querySelectorAll<HTMLElement>('.rule').forEach((n, i) => {
+      n.querySelector('.grip')?.setAttribute('aria-label', `Reorder rule ${i + 1}`);
+      n.querySelector('.toggle')?.setAttribute('aria-label', `Rule ${i + 1} enabled`);
+    });
   };
 
   rulesBox.append(
@@ -1048,8 +1090,6 @@ function placeholderFor(type: RuleType): string {
 /* ---------- rule list editor ---------- */
 
 function ruleListEditor(profile: RuleListProfile): HTMLElement {
-  const parsed = parseRuleList(profile.format, profile.text);
-
   const url = el('input', {
     class: 'input mono',
     value: profile.url,
@@ -1064,8 +1104,8 @@ function ruleListEditor(profile: RuleListProfile): HTMLElement {
 
   const format = el('select', { class: 'input' }) as HTMLSelectElement;
   format.append(
-    el('option', { value: 'autoproxy' }, 'AutoProxy / GFWList'),
-    el('option', { value: 'switchy' }, 'Domain list (one per line)')
+    el('option', { value: 'autoproxy' }, RULE_LIST_FORMAT_LABELS.autoproxy),
+    el('option', { value: 'switchy' }, `${RULE_LIST_FORMAT_LABELS.switchy} (one per line)`)
   );
   format.value = profile.format;
   format.onchange = () => {
@@ -1102,19 +1142,13 @@ function ruleListEditor(profile: RuleListProfile): HTMLElement {
     spellcheck: false,
     oninput: () => {
       profile.text = source.value;
+      refreshReadout();
       refreshSizeWarn();
       scheduleSave();
     },
   }) as HTMLTextAreaElement;
 
-  const status = el(
-    'span',
-    { class: 'note' },
-    `${parsed.count} entr${parsed.count === 1 ? 'y' : 'ies'} parsed` +
-      // Silence about unreadable lines is what let a half-dead list look loaded.
-      (parsed.ignored ? ` · ${parsed.ignored} line${parsed.ignored === 1 ? '' : 's'} ignored` : '') +
-      (profile.lastUpdated ? ` · updated ${new Date(profile.lastUpdated).toLocaleString()}` : '')
-  );
+  const status = el('span', { class: 'note' });
 
   // Name the most likely cause outright rather than leaving a bare count.
   const formatWarn = el(
@@ -1124,7 +1158,38 @@ function ruleListEditor(profile: RuleListProfile): HTMLElement {
       'and plain domain lists — SwitchyOmega’s typed conditions (UrlRegex:, Keyword:, ' +
       'Ip:) and its ! bypass lines are not supported and will be ignored.'
   );
-  formatWarn.hidden = !looksLikeSwitchyOmega(profile.text);
+
+  /**
+   * Re-read the list and repaint the count. Runs on every keystroke: the point
+   * of the readout is to tell you whether what you are typing parses, and a
+   * figure describing the text as it was when the editor opened cannot do that.
+   * Measured at 2 ms for 6,000 entries, so it stays well inside a frame and
+   * needs no debounce — which would put the lag back.
+   */
+  const refreshReadout = (): void => {
+    const parsed = parseRuleList(profile.format, profile.text);
+    status.textContent =
+      `${parsed.count} entr${parsed.count === 1 ? 'y' : 'ies'} parsed` +
+      // Silence about unreadable lines is what let a half-dead list look loaded.
+      (parsed.ignored ? ` · ${parsed.ignored} line${parsed.ignored === 1 ? '' : 's'} ignored` : '') +
+      (profile.lastUpdated ? ` · updated ${new Date(profile.lastUpdated).toLocaleString()}` : '');
+    formatWarn.hidden = !looksLikeSwitchyOmega(profile.text);
+  };
+  refreshReadout();
+
+  // The readout says how many lines were understood; this says where to look
+  // when that number is not what you expected.
+  const syntaxHelp = el(
+    'span',
+    { class: 'note' },
+    'Not sure of the syntax? ',
+    el(
+      'button',
+      { class: 'linklike', type: 'button', onclick: () => openDocsAt('doc-rule-lists') },
+      'See Docs → Rule lists'
+    ),
+    ' for both formats, with examples.'
+  );
 
   // A pasted list with no URL and a body over the sync inline cap is dropped
   // from sync (slimConfig) and can't be refetched, so devices that never held
@@ -1155,9 +1220,28 @@ function ruleListEditor(profile: RuleListProfile): HTMLElement {
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           const text = await response.text();
           if (!text.trim()) throw new Error('Empty response');
-          profile.text = text;
-          profile.lastUpdated = Date.now();
-          await saveConfig(config);
+          // The page's snapshot can be swapped out across that await — a popup
+          // write, a second options tab or a sync pull all reassign `config` —
+          // which orphans the `profile` captured when this editor was built.
+          // Writing to it would drop the fetch on the floor while the toast
+          // claimed success, so re-find the target by id the way the popup's
+          // commitConfig does.
+          const live = config.profiles.find((p) => p.id === profile.id);
+          if (!live || live.kind !== 'rulelist') throw new Error('Profile no longer exists');
+          const prevText = live.text;
+          const prevUpdated = live.lastUpdated;
+          live.text = text;
+          live.lastUpdated = Date.now();
+          try {
+            await saveConfig(config);
+          } catch (e) {
+            // Never leave a fetched body in a config that was not written: the
+            // editor still shows the old text and the old count, and the next
+            // keystroke would write that old text straight back over it.
+            live.text = prevText;
+            live.lastUpdated = prevUpdated;
+            throw e;
+          }
           toast('List updated');
           render();
         } catch (e) {
@@ -1192,7 +1276,7 @@ function ruleListEditor(profile: RuleListProfile): HTMLElement {
         field('Format', format, { style: { flex: '1' } }),
         updateNow
       ),
-      field('List content', source, { extra: [status, formatWarn, sizeWarn] }),
+      field('List content', source, { extra: [status, formatWarn, sizeWarn, syntaxHelp] }),
       el('span', { class: 'note' },
         'The URL host must allow cross-origin requests (raw.githubusercontent.com does). GFWList base64 payloads are decoded automatically.')
     ),

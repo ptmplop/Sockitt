@@ -22,6 +22,7 @@ import {
   DIRECT,
   Profile,
   ProxyProfile,
+  RULE_LIST_FORMAT_LABELS,
   SCHEME_LABELS,
   SYSTEM,
   SwitchProfile,
@@ -391,7 +392,7 @@ function subFor(profile: Profile): string {
     case 'virtual':
       return 'alias';
     case 'rulelist':
-      return profile.format;
+      return RULE_LIST_FORMAT_LABELS[profile.format];
   }
 }
 

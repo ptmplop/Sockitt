@@ -115,6 +115,16 @@ export interface VirtualProfile extends ProfileBase {
 export type RuleListFormat = 'autoproxy' | 'switchy';
 
 /**
+ * What each stored value is CALLED. The popup used to print the raw value, so a
+ * domain list introduced itself as "switchy" — the one name the rename was
+ * meant to retire. Both surfaces read these.
+ */
+export const RULE_LIST_FORMAT_LABELS: Record<RuleListFormat, string> = {
+  autoproxy: 'AutoProxy / GFWList',
+  switchy: 'Domain list',
+};
+
+/**
  * Online (or pasted) rule list. URLs matching the list route to
  * `matchTargetId`; whitelist entries and non-matches go to `defaultTargetId`.
  */

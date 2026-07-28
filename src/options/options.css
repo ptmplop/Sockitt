@@ -284,6 +284,22 @@ body {
 .note.error { color: var(--danger-ink); font-weight: 600; }
 /* Not an error — the list still loads, some lines just could not be read. */
 .note.warn { color: var(--amber-ink); font-weight: 600; }
+/* A button that reads as a link — it navigates within the page, so it is not
+   an <a>, but it should not look like a control either. */
+.linklike {
+  font: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent-ink);
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.linklike:hover { text-decoration-color: currentColor; }
+.linklike:focus-visible { outline: none; box-shadow: var(--ring); border-radius: var(--radius-xs); }
 .note.warn[hidden] { display: none; }
 .note.error[hidden] { display: none; }
 /* Unbounded explanatory copy inside a ~860px card ran to 130+ characters. */
