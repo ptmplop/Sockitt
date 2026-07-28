@@ -285,11 +285,17 @@ function auditRuleList(p: RuleListProfile, ctx: HealthContext, out: HealthIssue[
       fix: { kind: 'open', label: 'Open' },
     });
   } else if (parsed.ignored > parsed.count / 10) {
+    // Name the first offender. "12 lines were skipped" sends you looking; one
+    // worked example usually explains the other eleven, because a list's
+    // skipped lines almost always share a cause.
+    const first = parsed.rejected[0];
     out.push({
       id: `list-ignored:${p.id}`,
       level: 'info',
       title: `${parsed.ignored} lines in ${p.name} were skipped`,
-      detail: `${parsed.count} entries loaded. Skipped lines are usually a different list dialect.`,
+      detail: first
+        ? `${parsed.count} entries loaded. Line ${first.line}, “${first.text}”, ${first.reason}`
+        : `${parsed.count} entries loaded. Skipped lines are usually a different list dialect.`,
       profileId: p.id,
       fix: { kind: 'open', label: 'Open' },
     });

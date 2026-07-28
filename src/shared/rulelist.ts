@@ -1,6 +1,16 @@
 import { type CompiledCondition, regexSourceIsSafe } from './match';
 import { RuleListFormat } from './types';
 
+/** A line that could not become a rule, and the reason in plain English. */
+export interface RejectedLine {
+  /** 1-based, matching the line numbers a text editor shows. */
+  line: number;
+  /** The line as written. */
+  text: string;
+  /** Why it could not be read — a sentence continuing "this line …". */
+  reason: string;
+}
+
 export interface ParsedRuleList {
   whitelist: CompiledCondition[];
   blacklist: CompiledCondition[];
@@ -12,9 +22,39 @@ export interface ParsedRuleList {
    * match is worse than one that says so.
    */
   ignored: number;
+  /**
+   * The first REJECTED_SAMPLE ignored lines, named. `ignored` stays the true
+   * total — a subscription list can have thousands, and the editor wants to
+   * show you which ones, not all of them.
+   *
+   * A count alone said a line was dropped without saying which, so on any list
+   * longer than a screen it was a puzzle with no way in.
+   */
+  rejected: RejectedLine[];
 }
 
-const EMPTY: ParsedRuleList = { whitelist: [], blacklist: [], count: 0, ignored: 0 };
+/** How many rejected lines are recorded. Enough to act on, bounded for a big list. */
+const REJECTED_SAMPLE = 20;
+/** One pathological line must not bloat the parse record it appears in. */
+const REJECTED_TEXT_MAX = 160;
+
+function reject(
+  out: RejectedLine[],
+  line: number,
+  text: string,
+  reason: () => string
+): void {
+  if (out.length >= REJECTED_SAMPLE) return;
+  // The reason is a thunk: it is only worth computing for a line we will show,
+  // and a list can reject thousands.
+  out.push({
+    line,
+    text: text.length > REJECTED_TEXT_MAX ? `${text.slice(0, REJECTED_TEXT_MAX - 1)}…` : text,
+    reason: reason(),
+  });
+}
+
+const EMPTY: ParsedRuleList = { whitelist: [], blacklist: [], count: 0, ignored: 0, rejected: [] };
 const RE_SPECIALS = /[.+^${}()|[\]\\]/g;
 
 /** Tiny memo — rule lists are large and parsed from several places. */
@@ -96,11 +136,16 @@ export function parseAutoProxy(raw: string): ParsedRuleList {
   const text = maybeDecodeBase64(raw);
   const whitelist: CompiledCondition[] = [];
   const blacklist: CompiledCondition[] = [];
+  const rejected: RejectedLine[] = [];
   let count = 0;
   let ignored = 0;
 
-  for (let line of text.split('\n')) {
-    line = line.trim();
+  // Line numbers are into the DECODED text — a base64 GFWList has no
+  // line-addressable source to point at anyway.
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i]!;
+    let line = raw.trim();
     if (!line || line.startsWith('!') || line.startsWith('[')) continue;
     let bucket = blacklist;
     if (line.startsWith('@@')) {
@@ -114,9 +159,30 @@ export function parseAutoProxy(raw: string): ParsedRuleList {
       count++;
     } else {
       ignored++; // an unparseable or unsafe regex, or a bare ||
+      const entry = line;
+      reject(rejected, i + 1, raw.trim(), () => autoProxyRejection(entry));
     }
   }
-  return { whitelist, blacklist, count, ignored };
+  return { whitelist, blacklist, count, ignored, rejected };
+}
+
+/**
+ * Why compileAutoProxyEntry gave up. Only ever called for a line it already
+ * rejected, so it can assume one of those paths was taken.
+ */
+function autoProxyRejection(entry: string): string {
+  if (entry.startsWith('||')) return 'has nothing after ||, so there is no domain to match.';
+  if (entry.startsWith('|')) return 'has nothing after |, so there is no URL prefix to match.';
+  if (entry.length > 1 && entry.startsWith('/') && entry.endsWith('/')) {
+    const source = entry.slice(1, -1);
+    try {
+      new RegExp(source);
+    } catch (e) {
+      return `is not a valid regular expression: ${e instanceof Error ? e.message : 'unparseable'}.`;
+    }
+    return 'is a regular expression that could backtrack catastrophically. List rules run on every request, so it is not compiled.';
+  }
+  return 'could not be read as an AutoProxy entry.';
 }
 
 function compileAutoProxyEntry(entry: string): CompiledCondition {
@@ -173,11 +239,14 @@ function compileAutoProxyEntry(entry: string): CompiledCondition {
 export function parseDomainList(text: string): ParsedRuleList {
   const whitelist: CompiledCondition[] = [];
   const blacklist: CompiledCondition[] = [];
+  const rejected: RejectedLine[] = [];
   let count = 0;
   let ignored = 0;
 
-  for (let line of text.split('\n')) {
-    line = line.trim();
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i]!;
+    let line = raw.trim();
     if (!line || /^[#;![]/.test(line)) continue;
     line = line.replace(TRAILING_COMMENT, '').trimEnd();
     if (!line) continue;
@@ -193,9 +262,42 @@ export function parseDomainList(text: string): ParsedRuleList {
       count++;
     } else {
       ignored++;
+      // The line as the user wrote it, comment and all — that is what they will
+      // be looking at when they go to fix it.
+      const entry = line;
+      reject(rejected, i + 1, raw.trim(), () => domainListRejection(entry));
     }
   }
-  return { whitelist, blacklist, count, ignored };
+  return { whitelist, blacklist, count, ignored, rejected };
+}
+
+/**
+ * Why domainListEntry gave up, in the order that function tests. Only ever
+ * called for a line it already rejected.
+ */
+function domainListRejection(entry: string): string {
+  if (/\s/.test(entry)) {
+    return 'contains a space, so it is not a hostname or a URL. Typed conditions from other tools (UrlRegex:, Keyword:, Ip:) are not supported.';
+  }
+  if (entry.includes('://')) {
+    // The only way an entry with :// reaches here — see urlEntryIsUnreachable.
+    const scheme = entry.slice(0, entry.indexOf('://')).toLowerCase();
+    const host = entry.slice(entry.indexOf('://') + 3).split('/')[0] ?? '';
+    return `is ${scheme}:// with a path. Chrome gives the routing script only the origin for every scheme but http://, so the path can never match. Use ${host} to match the host, or http:// if the path is the point.`;
+  }
+  if (/[^\x20-\x7e]/.test(entry)) {
+    return 'contains a non-ASCII character. Use its punycode form (xn--bcher-kva.example).';
+  }
+  if (entry.includes('/')) {
+    return 'has a path or a CIDR suffix. A bare entry must be a hostname — drop everything from the / onward.';
+  }
+  if (entry.includes(':')) {
+    return 'has a port. Sockitt matches on hostname alone — drop the :port.';
+  }
+  if (/[^a-z0-9._*?-]/i.test(entry)) {
+    return 'is not a hostname. Only letters, digits, dot, dash, * and ? are allowed.';
+  }
+  return 'is empty once its leading and trailing dots are removed.';
 }
 
 /**

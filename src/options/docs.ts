@@ -330,6 +330,9 @@ function buildDocsPanel(): HTMLElement {
         ', and ', code('3 lines ignored'), ' if any line could not become a rule that can ever match (a space, a path, a port, a CIDR, a non-ASCII character, or an https entry with a path). Ignored lines are never compiled, so on a list that says 0 ignored every entry is doing something.'
       ),
       p(
+        'Each ignored line is then listed underneath by number, with what is wrong with it — click one to select it in the field above. A list can only be as good as the part of it that loads, and a count on its own tells you a line was dropped without telling you which.'
+      ),
+      p(
         'Set an ', code('Auto-update'), ' interval to refresh from the URL automatically — in hours, up to 720 (30 days), or 0 to disable; new lists start at 24. You can also press ',
         code('Update now'), '. The URL’s host must allow cross-origin requests (', code('raw.githubusercontent.com'), ' does). Domain entries compile to a single dictionary lookup, so even very large lists stay fast.'
       )

@@ -396,6 +396,60 @@ textarea.input { resize: vertical; min-height: 88px; line-height: 1.6; }
   align-items: end;
 }
 
+/* ---- ignored rule-list lines ----
+   A count said a line was dropped without saying which. These name them, and
+   each row is a button that selects that line in the field above. */
+.rl-rejects {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 2px;
+  border: 1px solid color-mix(in srgb, var(--amber) 40%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--amber) 8%, transparent);
+  overflow: hidden;
+  max-width: var(--measure);
+  /* Twenty rejected lines must not push the routing panel off the page. */
+  max-height: 210px;
+  overflow-y: auto;
+}
+.rl-rejects[hidden] { display: none; }
+.rl-rejects .note { padding: 6px 10px; margin: 0; }
+
+.rl-reject {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 9px;
+  align-items: baseline;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.rl-reject + .rl-reject { border-top: 1px solid color-mix(in srgb, var(--amber) 22%, transparent); }
+.rl-reject:hover { background: color-mix(in srgb, var(--amber) 14%, transparent); }
+.rl-reject:focus-visible { outline: none; box-shadow: var(--ring); }
+.rl-reject-no {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--amber-ink);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.rl-reject-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.rl-reject-text {
+  font-size: 11.5px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rl-reject-why { font-size: 11.5px; line-height: 1.45; color: var(--text-dim); }
+
 /* ---- settings ----
    A ruled list: the hairline is what carries the eye across the gap from a
    description to the switch that belongs to it. Without it the two ends of a

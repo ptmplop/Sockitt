@@ -1142,6 +1142,25 @@ function placeholderFor(type: RuleType): string {
 /* ---------- rule list editor ---------- */
 
 /**
+ * Put the caret on a 1-based line of a textarea and bring it into view.
+ *
+ * scrollTop is set by proportion rather than by measuring the line: the field
+ * is a fixed line-height monospace box, so line N is at (N-1)/total of the
+ * scroll height, and that needs no layout read. Centred where there is room, so
+ * the offending line lands in the middle of the box rather than at its edge.
+ */
+function selectLine(field: HTMLTextAreaElement, line: number): void {
+  const lines = field.value.split('\n');
+  if (line < 1 || line > lines.length) return;
+  let start = 0;
+  for (let i = 0; i < line - 1; i++) start += (lines[i]?.length ?? 0) + 1;
+  field.focus();
+  field.setSelectionRange(start, start + (lines[line - 1]?.length ?? 0));
+  const ratio = (line - 1) / Math.max(1, lines.length);
+  field.scrollTop = Math.max(0, ratio * field.scrollHeight - field.clientHeight / 2);
+}
+
+/**
  * Fetch a rule list's body and store it. One copy, shared by the editor's
  * "Update now" and the dashboard's "Fetch now" — the care here is in the
  * re-find and the rollback, and two copies of that is one too many.
@@ -1281,6 +1300,42 @@ function ruleListEditor(profile: RuleListProfile): HTMLElement {
    * Measured at 2 ms for 6,000 entries, so it stays well inside a frame and
    * needs no debounce — which would put the lag back.
    */
+  /**
+   * The ignored lines themselves, named. The count above says a line was
+   * dropped; on anything longer than a screen that is a puzzle with no way in,
+   * because nothing on the page said which line or why.
+   *
+   * Clicking one selects it in the textarea and scrolls it into view, so the
+   * fix starts where the problem is.
+   */
+  const rejects = el('div', { class: 'rl-rejects' });
+
+  const refreshRejects = (parsed: ReturnType<typeof parseRuleList>): void => {
+    rejects.hidden = parsed.rejected.length === 0;
+    if (rejects.hidden) return;
+    const rows: HTMLElement[] = parsed.rejected.map((r) =>
+      el(
+        'button',
+        {
+          class: 'rl-reject',
+          type: 'button',
+          title: 'Select this line',
+          onclick: () => selectLine(source, r.line),
+        },
+        el('span', { class: 'rl-reject-no mono' }, String(r.line)),
+        el(
+          'span',
+          { class: 'rl-reject-body' },
+          el('span', { class: 'rl-reject-text mono' }, r.text),
+          el('span', { class: 'rl-reject-why' }, r.reason)
+        )
+      )
+    );
+    const hidden = parsed.ignored - parsed.rejected.length;
+    if (hidden > 0) rows.push(el('p', { class: 'note' }, `…and ${hidden} more not listed.`));
+    rejects.replaceChildren(...rows);
+  };
+
   const refreshReadout = (): void => {
     const parsed = parseRuleList(profile.format, profile.text);
     status.textContent =
@@ -1289,6 +1344,7 @@ function ruleListEditor(profile: RuleListProfile): HTMLElement {
       (parsed.ignored ? ` · ${parsed.ignored} line${parsed.ignored === 1 ? '' : 's'} ignored` : '') +
       (profile.lastUpdated ? ` · updated ${new Date(profile.lastUpdated).toLocaleString()}` : '');
     formatWarn.hidden = !looksLikeSwitchyOmega(profile.text);
+    refreshRejects(parsed);
   };
   refreshReadout();
 
@@ -1356,7 +1412,7 @@ function ruleListEditor(profile: RuleListProfile): HTMLElement {
         field('Format', format, { style: { flex: '1' } }),
         updateNow
       ),
-      field('List content', source, { extra: [status, formatWarn, sizeWarn, syntaxHelp] }),
+      field('List content', source, { extra: [status, rejects, formatWarn, sizeWarn, syntaxHelp] }),
       el('span', { class: 'note' },
         'The URL host must allow cross-origin requests (raw.githubusercontent.com does). GFWList base64 payloads are decoded automatically.')
     ),
