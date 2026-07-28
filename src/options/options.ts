@@ -2273,6 +2273,9 @@ function repaintErrorsPage(): void {
   refreshSidebar(); // the nav count moves with the alert
 }
 
+/** How long a run of failure events is allowed to collapse into one repaint. */
+const ERROR_COALESCE_MS = 400;
+
 /** Mirror the worker's failure state into this page and keep it current. */
 function watchProxyErrors(): void {
   // Monotonic guard: a burst of failures fires a burst of change events, each
@@ -2294,10 +2297,24 @@ function watchProxyErrors(): void {
       refreshSidebar();
     } else refreshSidebar();
   };
+  // Coalesce the burst. A proxy that is down fails every request through it,
+  // and each failure is its own storage write — so an open Overview was
+  // repainting many times a second for as long as the proxy stayed broken.
+  // Only the last state in a burst is worth painting, and the trailing edge is
+  // imperceptible on the first failure after a quiet spell.
+  let pending: ReturnType<typeof setTimeout> | undefined;
+  const schedule = (): void => {
+    if (pending) return;
+    pending = setTimeout(() => {
+      pending = undefined;
+      void refresh();
+    }, ERROR_COALESCE_MS);
+  };
+
   void refresh();
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'session') return;
-    if (changes[ERROR_KEY] || changes[ERROR_LOG_KEY]) void refresh();
+    if (changes[ERROR_KEY] || changes[ERROR_LOG_KEY]) schedule();
   });
 }
 

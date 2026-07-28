@@ -232,6 +232,24 @@ function heroCard(): { node: HTMLElement; refresh: () => void } {
   const node = el('section', { class: 'hero-console' });
 
   const refresh = (): void => {
+    // Never while the user is in the switcher.
+    //
+    // replaceChildren below takes the <select> out of the document along with
+    // everything else, and a select that leaves the document loses focus and
+    // shuts an open list. Repaints arrive from storage events, and a proxy that
+    // is down writes a failure per failed request — so the control shut on
+    // every one of them, which made switching away impossible at exactly the
+    // moment the page was shouting that you should. The card is a readout; the
+    // one interactive thing on it wins, and it catches up on the next repaint
+    // after focus leaves.
+    //
+    // node.contains, not the id alone: a full render builds a NEW hero while
+    // the outgoing one is still mounted, and activate() does exactly that from
+    // this very control — so matching on the id would see the old card's
+    // focused select and leave the new card blank.
+    const switcher = document.getElementById(SWITCH_SELECT_ID);
+    if (switcher && node.contains(switcher) && document.activeElement === switcher) return;
+
     const config = host.config();
     const alert = host.alert();
     const activeId = config.activeId;
