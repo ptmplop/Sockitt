@@ -134,6 +134,31 @@ chosen target. Two formats:
   Conditions]`, `UrlRegex:`/`Keyword:`/`Ip:` prefixes, `!` bypass lines) is not
   supported; pasting one in is detected and called out in the editor.
 
+### Making a domain list
+
+1. Sidebar → **Create** → **Rule list**.
+2. Set **Format** to *Domain list (one per line)*.
+3. Paste the list into **List content**, or set a **URL** and press **Update now**.
+4. Under **Routing**, pick where matching sites go (*Matching entries route via*)
+   and where everything else goes (*Everything else*).
+5. Activate the profile from the popup, or point an Auto switch rule at it.
+
+One entry per line; the common case needs no punctuation at all:
+
+```
+# Anything after # ; ! or [ is a comment
+ads.example.com          # this host only
+*.tracker.example        # the host and every subdomain
+metrics*.example.net     # * and ? are wildcards
+https://cdn.example/px   # a URL prefix; trailing * is implied
+@@safe.example.com       # never match this one
+```
+
+The count under the field reports how it was read — `42 entries parsed`, plus
+`3 lines ignored` if any line could not be a hostname. Ignored lines are never
+compiled into a rule, so a list showing 0 ignored is one where every line does
+something.
+
 Whitelist entries always win, sending the URL to the profile's default target.
 Lists auto-refresh on the interval you set; the URL's host must allow
 cross-origin requests (`raw.githubusercontent.com` does). Performance note:

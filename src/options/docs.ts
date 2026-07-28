@@ -46,6 +46,11 @@ function code(text: string): HTMLElement {
   return el('code', { class: 'doc-code' }, text);
 }
 
+/** A worked example. Inline `code` cannot hold one; this can. */
+function pre(text: string): HTMLElement {
+  return el('pre', { class: 'doc-pre' }, text);
+}
+
 function ul(items: (Node | string)[]): HTMLElement {
   return el('ul', { class: 'doc-list' }, ...items.map((i) => el('li', {}, i)));
 }
@@ -229,6 +234,31 @@ function buildDocsPanel(): HTMLElement {
           ', and ', code('!'), ' bypass lines — are not supported. Paste one in and Sockitt says so rather than loading it half-dead.',
         ]],
       ]),
+      el('h4', { class: 'doc-sub' }, 'Making a domain list'),
+      el(
+        'ol',
+        { class: 'doc-list' },
+        el('li', {}, 'In the sidebar under ', code('Create'), ', click ', code('Rule list'), '.'),
+        el('li', {}, 'Set ', code('Format'), ' to ', code('Domain list (one per line)'), '.'),
+        el('li', {}, 'Either paste the list into ', code('List content'), ', or put a ', code('URL'), ' in and press ', code('Update now'), ' to fetch it.'),
+        el('li', {}, 'Under ', code('Routing'), ', choose where matching sites go (', code('Matching entries route via'), ') and where everything else goes (', code('Everything else'), ').'),
+        el('li', {}, 'Activate the rule-list profile from the popup, or point an Auto switch rule at it.')
+      ),
+      p('A list looks like this — one entry per line, no punctuation needed for the common case:'),
+      pre(
+        [
+          '# Anything after # ; ! or [ is a comment',
+          'ads.example.com          # this host only',
+          '*.tracker.example        # the host and every subdomain',
+          'metrics*.example.net     # * and ? are wildcards',
+          'https://cdn.example/px   # a URL prefix; trailing * is implied',
+          '@@safe.example.com       # never match this one',
+        ].join('\n')
+      ),
+      p(
+        'The count under the field tells you how it was read — ', code('42 entries parsed'),
+        ', and ', code('3 lines ignored'), ' if any line could not be a hostname (a space, a path, a port, a CIDR). Ignored lines are never compiled into a rule, so a list that says 0 ignored is one where every line does something.'
+      ),
       p(
         'Set an ', code('Auto-update'), ' interval to refresh from the URL automatically — in hours, up to 720 (30 days), or 0 to disable; new lists start at 24. You can also press ',
         code('Update now'), '. The URL’s host must allow cross-origin requests (', code('raw.githubusercontent.com'), ' does). Domain entries compile to a single dictionary lookup, so even very large lists stay fast.'

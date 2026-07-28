@@ -513,6 +513,21 @@ textarea.input { resize: vertical; min-height: 88px; line-height: 1.6; }
   border: 1px solid var(--border);
   white-space: nowrap;
 }
+/* A worked example, as a block rather than an inline snippet. */
+.doc-pre {
+  margin: 0;
+  padding: 11px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre;
+  overflow-x: auto;
+  max-width: var(--measure);
+}
+
 .doc-list {
   margin: 0;
   padding-left: 20px;

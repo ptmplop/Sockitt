@@ -1092,7 +1092,13 @@ function ruleListEditor(profile: RuleListProfile): HTMLElement {
   const source = el('textarea', {
     class: 'input mono rl-source',
     value: profile.text,
-    placeholder: '! Paste list content here, or set a URL and press Update now.\n||example.com\n@@||allowed.example.com',
+    // Format-aware: the AutoProxy sample used to show for both, so a domain
+    // list demonstrated syntax it rejects — type it in verbatim and the editor
+    // answers "2 lines ignored".
+    placeholder:
+      profile.format === 'autoproxy'
+        ? '! Paste list content here, or set a URL and press Update now.\n||example.com\n|https://example.org/api\n@@||allowed.example.com'
+        : '# Paste list content here, or set a URL and press Update now.\nexample.com\n*.ads.example.net\n@@safe.example.com',
     spellcheck: false,
     oninput: () => {
       profile.text = source.value;
