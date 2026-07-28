@@ -138,7 +138,8 @@ function compileAutoProxyEntry(entry: string): CompiledCondition {
  *   ad*.example.com      host wildcard (* and ? supported)
  *   https://example.com/api*   URL prefix, trailing * implied
  *   @@*.safe.example     whitelist (wins over every match)
- *   # ; ! [              comment / header lines
+ *   # ; ! [              a whole-line comment / header
+ *   example.com  # why    a trailing comment, after whitespace
  *
  * Formerly labelled "Switchy" after SwitchyOmega's rule lists, which it never
  * implemented — see looksLikeSwitchyOmega above.
@@ -152,6 +153,8 @@ export function parseDomainList(text: string): ParsedRuleList {
   for (let line of text.split('\n')) {
     line = line.trim();
     if (!line || /^[#;![]/.test(line)) continue;
+    line = line.replace(TRAILING_COMMENT, '');
+    if (!line) continue;
     let bucket = blacklist;
     if (line.startsWith('@@')) {
       bucket = whitelist;
@@ -168,6 +171,15 @@ export function parseDomainList(text: string): ParsedRuleList {
   }
   return { whitelist, blacklist, count, ignored };
 }
+
+/**
+ * A trailing comment. The marker must be preceded by whitespace so a URL
+ * fragment (`https://x.example/p#frag`) is not mistaken for one, and it must be
+ * an explicit `#` or `;` rather than "everything after the first space" —
+ * otherwise a typed condition like `HostWildcard *.foo.example` would quietly
+ * truncate to a valid-looking hostname instead of being reported as unreadable.
+ */
+const TRAILING_COMMENT = /\s+[#;].*$/;
 
 function domainListEntry(entry: string): CompiledCondition {
   // Internal whitespace means this is not a host or a URL — overwhelmingly a

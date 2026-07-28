@@ -322,6 +322,42 @@ test('a SwitchyOmega list is recognised so the editor can say so', () => {
   assert.equal(lib.looksLikeSwitchyOmega('[AutoProxy 0.2.9]\n||a.example\n'), false);
 });
 
+test('domain list accepts a trailing comment after whitespace', () => {
+  // The worked example in the docs uses these, and it must actually parse.
+  const parsed = lib.parseDomainList(
+    [
+      '# a whole-line comment',
+      'ads.example.com          # this host only',
+      '*.tracker.example        # the host and every subdomain',
+      'https://cdn.example/px   # a URL prefix; trailing * is implied',
+      '@@safe.example.com       # never match this one',
+      'plain.example',
+    ].join('\n')
+  );
+  assert.equal(parsed.count, 5);
+  assert.equal(parsed.ignored, 0);
+  assert.equal(parsed.whitelist.length, 1, 'the @@ entry survives its trailing comment');
+  // A bare entry is that host exactly; only a *. prefix widens to subdomains.
+  assert.deepEqual(parsed.blacklist[0], { op: 'hostEq', host: 'ads.example.com' });
+  assert.deepEqual(parsed.blacklist[1], {
+    op: 'suffix', suffix: '.tracker.example', alsoBare: 'tracker.example',
+  });
+});
+
+test('a # inside a URL is not a comment, and a marker needs whitespace before it', () => {
+  const parsed = lib.parseDomainList(['https://x.example/p#frag', 'a.example#b'].join('\n'));
+  assert.equal(parsed.count, 1, 'the URL keeps its fragment');
+  assert.equal(parsed.ignored, 1, 'a bare # in a hostname is still not a hostname');
+});
+
+test('a trailing comment cannot rescue an unreadable entry', () => {
+  // Stripping at the first whitespace instead of at an explicit marker would
+  // truncate this to "HostWildcard" — a valid-looking hostname — and hide it.
+  const parsed = lib.parseDomainList(['HostWildcard *.foo.example', 'UrlRegex: ^https?://m\\.'].join('\n'));
+  assert.equal(parsed.count, 0);
+  assert.equal(parsed.ignored, 2);
+});
+
 test('domain list rejects entries a hostname cannot hold', () => {
   const parsed = lib.parseDomainList(['a.example/path', 'b.example:8080', '10.0.0.0/8', 'c.example'].join('\n'));
   assert.equal(parsed.count, 1);

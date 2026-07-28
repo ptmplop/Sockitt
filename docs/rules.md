@@ -125,8 +125,10 @@ chosen target. Two formats:
 - **Domain list**: one host or URL pattern per line. `example.com` matches that
   host exactly, `*.example.com` the host or any subdomain, `ad*.example.com` is a
   host wildcard, and an entry containing `://` matches the start of the URL (a
-  trailing `*` is implied). `@@` prefixes whitelist entries, and `#`, `;`, `!` or
-  `[` start comments. A line that cannot be a hostname — one with spaces, a path,
+  trailing `*` is implied). `@@` prefixes whitelist entries. A line starting with
+  `#`, `;`, `!` or `[` is a comment, and `#` or `;` **after whitespace** starts a
+  trailing one — a `#` with no space before it is left alone, so a URL fragment
+  survives. A line that cannot be a hostname — one with spaces, a path,
   a port or a CIDR — is counted as ignored and reported under the editor rather
   than compiled into a rule that could never match.
 
@@ -146,7 +148,7 @@ chosen target. Two formats:
 One entry per line; the common case needs no punctuation at all:
 
 ```
-# Anything after # ; ! or [ is a comment
+# A whole line, or after whitespace at the end of one
 ads.example.com          # this host only
 *.tracker.example        # the host and every subdomain
 metrics*.example.net     # * and ? are wildcards
