@@ -8,7 +8,9 @@ import {
   RuleListProfile,
   SwitchProfile,
   SwitchRule,
+  TargetId,
   hasCredentials,
+  profileById,
   referencedTargets,
   reachableFrom,
 } from './types';
@@ -413,18 +415,48 @@ export function listedEntryCount(config: Config): number {
 }
 
 /**
+ * Targets traffic can actually be handed to right now.
+ *
+ * Deliberately NOT referencedTargets, which is the conservative superset the
+ * cycle guard needs: it counts a disabled rule's target, because re-enabling
+ * that rule must not be able to close a loop. Nothing routes through a disabled
+ * rule, though, so counting it here would light a proxy on the live path that
+ * no request can reach — and the map draws no edge to it either, leaving a lit
+ * node with nothing joining it to anything.
+ */
+function liveTargets(profile: Profile): TargetId[] {
+  switch (profile.kind) {
+    case 'proxy':
+      return [];
+    case 'switch':
+      return [profile.defaultTargetId, ...profile.rules.filter((r) => r.enabled).map((r) => r.targetId)];
+    case 'virtual':
+      return [profile.targetId];
+    case 'rulelist':
+      return [profile.matchTargetId, profile.defaultTargetId];
+  }
+}
+
+/**
  * The set of profiles the active one can actually reach, for highlighting the
- * live path in the routing map. Built on reachableFrom so it follows the same
- * edges the compiler does.
+ * live path in the routing map. Walks the edges that can carry a request, which
+ * is what the highlight claims to mean — see liveTargets.
  */
 export function livePath(config: Config, activeId: string): Set<string> {
-  return reachableFrom(config, activeId);
+  const seen = new Set<string>();
+  const walk = (id: string): void => {
+    if (seen.has(id)) return;
+    seen.add(id);
+    const p = profileById(config, id);
+    if (p) for (const t of liveTargets(p)) walk(t);
+  };
+  walk(activeId);
+  return seen;
 }
 
 /**
  * True when this switch rule is currently satisfiable at all — a time or
- * weekday rule outside its window matches nothing right now. Used by the map to
- * dim edges that exist but are asleep.
+ * weekday rule outside its window matches nothing right now.
  */
 export function ruleActiveNow(rule: SwitchRule, now: Date): boolean {
   if (rule.type !== 'time' && rule.type !== 'weekday') return true;

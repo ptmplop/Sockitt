@@ -1140,7 +1140,10 @@ textarea.input { resize: vertical; min-height: 88px; line-height: 1.6; }
 
 /* ---- routing map ---- */
 .dash-map-wrap { overflow-x: auto; }
-.dash-map { width: 100%; height: auto; display: block; overflow: visible; }
+/* max-width, not width: the svg carries its natural size, so a map wider than
+   the card scales down to fit but a small one is never stretched up to fill it.
+   width:100% blew a two-node map up to three times its type size. */
+.dash-map { max-width: 100%; height: auto; display: block; overflow: visible; }
 .dash-node { cursor: pointer; transition: opacity .15s; }
 .dash-node rect.bx { fill: var(--bg-elev); stroke: var(--border-strong); stroke-width: 1; transition: stroke .15s; }
 .dash-node:hover rect.bx { stroke: var(--accent); }

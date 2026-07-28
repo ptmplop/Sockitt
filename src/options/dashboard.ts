@@ -760,14 +760,10 @@ function routingMap(): { node: HTMLElement; refresh: () => void } {
     const config = host.config();
     const legend = node.querySelector('.dash-map-legend')!;
 
-    // Every node that takes part: all profiles, plus Direct if anything points
-    // at it, plus whichever built-in is active.
-    const ids = config.profiles.map((p) => p.id);
-    const pointsAtDirect = config.profiles.some((p) => referencedTargets(p).includes(DIRECT));
-    if (pointsAtDirect || config.activeId === DIRECT) ids.push(DIRECT);
-    if (config.activeId === SYSTEM) ids.push(SYSTEM);
-
-    if (ids.length < 2) {
+    // A map of things that route nowhere is not a map. Said rather than drawn,
+    // so the card is never a stack of tiles under a legend about lines that
+    // aren't there.
+    const drawEmpty = (): void => {
       holder.replaceChildren(
         el(
           'p',
@@ -776,6 +772,21 @@ function routingMap(): { node: HTMLElement; refresh: () => void } {
         )
       );
       legend.replaceChildren();
+    };
+
+    // Every node that takes part: all profiles, plus Direct if anything points
+    // at it, plus whichever built-in is active. That is provably every target
+    // too — sanitizeConfig rewrites any reference that is neither Direct nor a
+    // live profile id, on load, on import and on a sync pull, and deleting a
+    // profile repoints its referrers — so no edge below can want a node that
+    // is missing here.
+    const ids = config.profiles.map((p) => p.id);
+    const pointsAtDirect = config.profiles.some((p) => referencedTargets(p).includes(DIRECT));
+    if (pointsAtDirect || config.activeId === DIRECT) ids.push(DIRECT);
+    if (config.activeId === SYSTEM) ids.push(SYSTEM);
+
+    if (ids.length < 2) {
+      drawEmpty();
       return;
     }
 
@@ -803,13 +814,32 @@ function routingMap(): { node: HTMLElement; refresh: () => void } {
 
     const sheet = svg('svg', {
       class: 'dash-map',
+      // Its natural size, so the stylesheet can scale the map down into a
+      // narrow card without ever stretching it past 1:1.
+      width: width + 4,
+      height: height + 4,
       viewBox: `-2 -2 ${width + 4} ${height + 4}`,
       role: 'img',
       'aria-label': 'How your profiles route into each other',
     });
 
     const defs = svg('defs', {});
-    const hot = svg('linearGradient', { id: 'dash-edge-hot', x1: '0', y1: '0', x2: '1', y2: '0' });
+    // userSpaceOnUse, spanning the map — NOT the default objectBoundingBox.
+    //
+    // An edge between two nodes on the same row is a perfectly flat curve, so
+    // its bounding box is zero high, and a gradient in bounding-box units is by
+    // spec not rendered at all on a degenerate box: the line simply vanished.
+    // It only bit the live edges, because those are the only ones painted with
+    // the gradient — which is why the map looked right until you switched to
+    // the very profile whose routing it was drawing.
+    const hot = svg('linearGradient', {
+      id: 'dash-edge-hot',
+      gradientUnits: 'userSpaceOnUse',
+      x1: '0',
+      y1: '0',
+      x2: String(width),
+      y2: '0',
+    });
     hot.append(
       svg('stop', { offset: '0', 'stop-color': '#6d5dfc' }),
       svg('stop', { offset: '1', 'stop-color': '#46c9e5' })
@@ -888,6 +918,14 @@ function routingMap(): { node: HTMLElement; refresh: () => void } {
         sheet.append(path);
         edgeNodes.push(path);
       }
+    }
+
+    // Proxies and the built-ins are leaves — they point at nothing. Without a
+    // switch, rule-list or alias profile above them there is no edge in the
+    // config at all, which is the "System proxy on, no routes yet" install.
+    if (!edgeNodes.length) {
+      drawEmpty();
+      return;
     }
 
     const nodeGroups: SVGGElement[] = [];
