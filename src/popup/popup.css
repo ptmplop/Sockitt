@@ -7,20 +7,28 @@ body {
   width: 720px;
   height: 520px;
   margin: 0;
-  border-radius: 14px;
+  border-radius: var(--radius);
   overflow: hidden;
   background: var(--bg);
 }
 #app { height: 100%; display: flex; flex-direction: column; min-height: 0; }
 
 /* ---- top bar ----
-   Dark, echoing the options-page sidebar. Dark tokens are scoped here so the
-   brand + cog adapt, while the rest of the popup stays light. */
+   The same dark material as the options sidebar — both pull --chrome-* from
+   theme.css rather than each picking their own darks. Dark tokens are scoped
+   here so the brand and cog adapt, while the rest of the popup stays light. */
 .topbar {
   --surface-hover: rgba(255, 255, 255, 0.10);
   --border: rgba(255, 255, 255, 0.10);
+  --border-strong: rgba(255, 255, 255, 0.20);
   --text: #e8ebf3;
-  --text-dim: #8b93a7;
+  --text-dim: #98a0b4;
+  /* Violet is only ~4:1 on near-black; cyan is 9:1. */
+  --ring:
+    0 0 0 2px var(--accent-2),
+    0 0 0 5px color-mix(in srgb, var(--accent-2) 25%, transparent);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.20);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.32);
   color-scheme: dark;
 
   height: 48px;
@@ -29,8 +37,14 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 0 10px 0 14px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.18);
-  background: linear-gradient(180deg, #171c28, #12161f);
+  border-bottom: 1px solid var(--chrome-edge);
+  /* A violet glow behind the sock, fading out well before the cog. */
+  background:
+    radial-gradient(90% 200% at 6% 0%, rgba(109, 93, 252, 0.24), transparent 62%),
+    linear-gradient(180deg, var(--chrome-1), var(--chrome-2));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 6px 16px -8px rgba(15, 19, 27, 0.45);
   color: var(--text);
 }
 .topbar .brand { display: flex; align-items: center; gap: 9px; font-size: 16px; font-weight: 800; letter-spacing: -0.01em; }
@@ -53,7 +67,7 @@ body {
   gap: 5px;
   /* Lifted off the base --danger, which is tuned for the light panes and reads
      muddy on the dark bar. */
-  color: #ff7d90;
+  color: #ff8496;
 }
 .topbar .alert-btn:hover { color: #ff9aa9; background: color-mix(in srgb, #ff7d90 18%, transparent); }
 .alert-btn .alert-ico { display: inline-flex; }
@@ -91,6 +105,14 @@ body {
   flex-direction: column;
   gap: 2px;
   scrollbar-gutter: stable;
+  /* A scrim at each end that only shows while there is more list that way, so a
+     long profile list says so instead of ending flush at the fold. */
+  background:
+    linear-gradient(color-mix(in srgb, var(--bg) 55%, var(--bg-elev)) 30%, transparent) top / 100% 22px no-repeat,
+    linear-gradient(transparent, color-mix(in srgb, var(--bg) 55%, var(--bg-elev)) 70%) bottom / 100% 22px no-repeat,
+    radial-gradient(farthest-side at 50% 0, rgba(20, 26, 44, 0.10), transparent) top / 100% 9px no-repeat,
+    radial-gradient(farthest-side at 50% 100%, rgba(20, 26, 44, 0.10), transparent) bottom / 100% 9px no-repeat;
+  background-attachment: local, local, scroll, scroll;
 }
 
 /* filter/grouping helpers */
@@ -99,17 +121,20 @@ body {
 .left-filter {
   flex: none;
   margin: 10px 10px 0;
+  width: auto;
   height: 34px;
   padding: 0 11px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
   font-size: 12.5px;
-  color: var(--text);
 }
-.left-filter::placeholder { color: var(--text-dim); }
-.left-filter:focus { outline: none; border-color: var(--accent); box-shadow: var(--ring); }
-.no-matches { padding: 12px 8px; text-align: center; font-size: 12px; color: var(--text-dim); }
+.no-matches {
+  margin: 12px 8px;
+  padding: 18px 16px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-dim);
+}
 
 .empty-block {
   margin: 14px 8px;
@@ -127,31 +152,35 @@ body {
 .empty-block .btn { margin-top: 5px; }
 
 .builtin-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 2px; }
-.builtin-grid .row { background: var(--surface); border-color: var(--border); padding: 8px 9px; }
+/* Direct and System are the resting state, not a call to action — a hairline and
+   the pane's own surface, so the coloured profile rows below stay the loudest
+   thing in the switcher. */
+.builtin-grid .row {
+  background: var(--bg-elev);
+  border-color: var(--border);
+  box-shadow: 0 1px 1.5px rgba(28, 39, 84, 0.05);
+  padding: 8px 9px;
+}
+.builtin-grid .row:hover { border-color: var(--border-strong); }
 .builtin-grid .row .sub { font-family: inherit; }
 .builtin-grid .row.active {
+  --glow-color: var(--accent);
   background: var(--grad);
   color: #fff;
   border-color: transparent;
-  box-shadow: 0 3px 10px color-mix(in srgb, var(--accent) 32%, transparent);
+  box-shadow: var(--glow);
 }
-.builtin-grid .row.active .sub { color: #fff; opacity: 0.8; }
-.builtin-grid .row.active .avatar { background: rgba(255, 255, 255, 0.92) !important; color: var(--accent) !important; }
-.builtin-grid .row.active .avatar::after { display: none; }
+.builtin-grid .row.active .sub { color: #fff; opacity: 0.85; }
+.builtin-grid .row.active .avatar { box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.9); }
 
 /* Section headers: the options-page gradient-bar motif. */
 .section-label {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 11.5px;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.09em;
   color: var(--text-dim);
   margin: 9px 6px 3px;
 }
-.section-label::before { content: ""; width: 3px; height: 13px; border-radius: 2px; background: var(--grad); flex: none; }
 
 /* ---- profile rows ---- */
 .row {
@@ -172,22 +201,25 @@ body {
 .row .avatar { width: 27px; height: 27px; font-size: 10px; flex: none; }
 .row .meta { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
 .row .title { font-weight: 600; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.row .sub { font-size: 10px; color: var(--text-dim); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 10px mono needs the line box the rest of the row can spare. */
+.row .sub { font-size: 10.5px; line-height: 1.35; color: var(--text-dim); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row .check { margin-left: auto; width: 14px; text-align: center; flex: none; font-weight: 800; }
 
 /* Selected row: filled in the profile's own colour, ink auto-picked for contrast. */
 .row.active {
+  --glow-color: var(--row-color, var(--accent));
   background: var(--row-color, var(--accent));
   color: var(--row-ink, #fff);
   border-color: transparent;
-  box-shadow: 0 3px 10px color-mix(in srgb, var(--row-color, var(--accent)) 32%, transparent);
+  box-shadow: var(--glow);
 }
 .row.active:hover { filter: brightness(1.04); }
-.row.active .sub { color: var(--row-ink, #fff); opacity: 0.72; }
+.row.active .sub { color: var(--row-ink, #fff); opacity: 0.78; }
 .row.active .check { color: var(--row-ink, #fff); }
-/* The tile frosts to a near-white chip so it never merges into the same-colour fill. */
-.row.active .avatar { background: rgba(255, 255, 255, 0.92) !important; color: var(--row-color, var(--accent)) !important; }
-.row.active .avatar::after { display: none; }
+/* The tile keeps its own colour and takes a light rim, so it separates from the
+   same-coloured fill without being repainted into a near-white chip — which is
+   what used to leave pale profile colours as ~2.5:1 initials. */
+.row.active .avatar { box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.9); }
 
 .left-foot { flex: none; border-top: 1px solid var(--border); padding: 8px; }
 .foot-manage { width: 100%; justify-content: center; gap: 8px; font-size: 12.5px; }
@@ -215,11 +247,14 @@ body {
   gap: 12px;
   padding: 14px 18px;
   border-bottom: 1px solid var(--border);
+  /* The profile's colour reaches further across the strip and lands a hairline
+     of itself on the bottom edge, so the identity is stated rather than hinted. */
   background:
-    linear-gradient(135deg, color-mix(in srgb, var(--tint) 14%, transparent), transparent 62%),
+    linear-gradient(135deg, color-mix(in srgb, var(--tint) 22%, transparent), transparent 72%),
     var(--bg-elev);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--tint) 28%, transparent);
 }
-.detail-head .avatar { width: 40px; height: 40px; border-radius: 24%; font-size: 15px; }
+.detail-head .avatar { width: 40px; height: 40px; font-size: 15px; }
 .dh-meta { min-width: 0; flex: 1; }
 .dh-top { display: flex; align-items: center; gap: 8px; }
 .dh-name { font-size: 16px; font-weight: 800; letter-spacing: -0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -248,8 +283,10 @@ body {
   overflow: hidden;
   white-space: nowrap;
 }
-.exit-line.dim { opacity: 0.5; }
-.exit-line.err { color: var(--danger); }
+/* Halving the opacity of live text took it to ~2:1; 0.72 still reads as
+   "superseded, a fresh reading is coming". */
+.exit-line.dim { opacity: 0.72; }
+.exit-line.err { color: var(--danger-ink); }
 /* "Exit via" — labels the readout so it can't be read as the profile's own
    address. Never shrinks; the address beside it takes the ellipsis. */
 .exit-lead { flex: none; }
@@ -275,12 +312,13 @@ button.exit-enable {
   background: none;
   border: none;
   padding: 0;
-  color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
   cursor: pointer;
   text-align: left;
 }
 button.exit-enable:hover { text-decoration: underline; }
-button.exit-enable:focus-visible { outline: none; box-shadow: var(--ring); border-radius: 4px; }
+button.exit-enable:focus-visible { outline: none; box-shadow: var(--ring); border-radius: var(--radius-xs); }
 
 .detail-scroll {
   flex: 1;
@@ -307,25 +345,17 @@ button.exit-enable:focus-visible { outline: none; box-shadow: var(--ring); borde
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 11.5px;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.09em;
   color: var(--text-dim);
 }
-.ts-label::before { content: ""; width: 3px; height: 13px; border-radius: 2px; background: var(--grad); flex: none; }
 /* "loading": the host below is a navigation still in flight, not the page on
    screen. Amber, like the other temporary state in this pane (the override). */
 .ts-state {
   flex: none;
-  font-size: 9.5px;
-  font-weight: 800;
-  letter-spacing: 0.07em;
-  color: var(--amber);
-  background: color-mix(in srgb, var(--amber) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--amber) 35%, transparent);
+  color: var(--amber-ink);
+  background: color-mix(in srgb, var(--amber) 14%, #fff);
+  border: 1px solid color-mix(in srgb, var(--amber) 40%, transparent);
   padding: 1px 7px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 .ts-host {
   font-family: var(--mono);
@@ -341,36 +371,58 @@ button.exit-enable:focus-visible { outline: none; box-shadow: var(--ring); borde
 }
 
 /* ---- field-group card (route / rule / override) ---- */
-.site-mgr { padding: 0; overflow: hidden; border-color: color-mix(in srgb, var(--accent) 24%, var(--border)); }
+.site-mgr {
+  padding: 0;
+  /* The focus ring is a 5px outer shadow and this card used to clip it, so a
+     keyboard user tabbing into the rule select saw the ring sliced off on three
+     sides. Clipping the inner rows' corners is what the radius already does. */
+  overflow: clip;
+  overflow-clip-margin: 6px;
+  border-color: color-mix(in srgb, var(--accent) 24%, var(--border));
+}
 .sm-field { padding: 13px 16px; display: flex; flex-direction: column; gap: 8px; }
 .sm-field + .sm-field { border-top: 1px solid var(--border); }
-.sm-field.greyed { opacity: 0.4; }
+/* 0.4 put the overridden rule's own label at 1.7:1 — the user could no longer
+   read the rule the override was replacing. */
+.sm-field.greyed { opacity: 0.62; }
 .sm-lead { display: flex; align-items: baseline; gap: 8px; }
-.sm-label { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.07em; color: var(--accent); }
-.sm-label.temp { color: var(--amber); }
+.sm-label { color: var(--accent-ink); }
+.sm-label.temp { color: var(--amber-ink); }
 .sm-note { margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 600; font-size: 10px; color: var(--text-dim); }
 
-.sm-field.route { flex-direction: row; align-items: center; justify-content: space-between; gap: 10px; }
+/* The conclusion band: what this tab does right now, on its own tinted ground so
+   it reads as the answer and the two bands below it read as the controls. */
+.sm-field.route {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
 .route-val { display: flex; align-items: center; gap: 9px; min-width: 0; font-weight: 600; }
 .route-val .avatar { width: 20px; height: 20px; font-size: 8px; flex: none; }
 .route-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .route-tag {
   flex: none;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
   color: var(--text-dim);
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
   padding: 2px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
+}
+/* An override is temporary — say so here too, not only in the band below. */
+.route-tag.temp {
+  color: var(--amber-ink);
+  border-color: color-mix(in srgb, var(--amber) 45%, transparent);
+  background: color-mix(in srgb, var(--amber) 14%, #fff);
 }
 .route-sentence { font-size: 13px; color: var(--text); }
 
 .sm-ctl { display: flex; align-items: center; gap: 8px; }
 .sm-ctl select.input { flex: 1; min-width: 0; height: 34px; }
 .sm-ctl .btn.sm { flex: none; height: 34px; }
+/* Was 30px in a row of 34px controls. */
+.sm-ctl .btn.icon { width: 34px; height: 34px; }
 .sm-pattern {
   flex: none;
   max-width: 42%;
@@ -392,7 +444,7 @@ button.exit-enable:focus-visible { outline: none; box-shadow: var(--ring); borde
 .input.sm { padding: 7px 9px; }
 
 /* override / bypass chip */
-.sm-field.override.set { background: color-mix(in srgb, var(--amber) 8%, transparent); }
+.sm-field.override.set { background: color-mix(in srgb, var(--amber) 9%, transparent); }
 .ov-chip {
   display: flex;
   align-items: center;
@@ -401,7 +453,7 @@ button.exit-enable:focus-visible { outline: none; box-shadow: var(--ring); borde
   min-width: 0;
   padding: 7px 10px;
   border-radius: var(--radius-sm);
-  border: 1px dashed color-mix(in srgb, var(--amber) 45%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--amber) 55%, transparent);
   background: var(--bg-elev);
   font-weight: 600;
   font-size: 12px;
@@ -413,9 +465,12 @@ button.exit-enable:focus-visible { outline: none; box-shadow: var(--ring); borde
 
 .sm-hint { font-size: 12px; line-height: 1.5; color: var(--text-dim); margin: 0; }
 
-/* flat buttons in the popup — no raised/3d shadow */
-.pane-right .btn,
-.pane-left .btn { box-shadow: none; }
+/* Flat buttons in the popup — no raised/3d shadow. Scoped to the resting state
+   so it cannot also erase the focus ring, which is a box-shadow too. */
+.pane-right .btn:not(:focus-visible),
+.pane-left .btn:not(:focus-visible) { box-shadow: none; }
+.pane-right .btn.primary:not(:focus-visible),
+.pane-left .btn.primary:not(:focus-visible) { box-shadow: var(--glow); }
 
 /* ---- sock wiggle on switch ---- */
 @keyframes sock-wiggle {

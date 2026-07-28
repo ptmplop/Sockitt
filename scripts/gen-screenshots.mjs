@@ -141,10 +141,11 @@ const SCENES = [
   {
     file: 'app-options.png',
     page: 'options',
-    // Tall enough to reach the "Everything else" default under the rule table:
-    // the table is the point of the shot, and a clipped last row reads as a bug.
     width: 1180,
-    height: 840,
+    // Tall enough to clear the Danger zone card under the rule table. The table
+    // is the point of the shot, and a card sliced through its own heading reads
+    // as a bug — so the frame either contains a card whole or not at all.
+    height: 960,
     settleMs: 500,
   },
 ];

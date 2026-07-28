@@ -758,7 +758,9 @@ function siteRuleCard(active: SwitchProfile): HTMLElement {
       { class: 'route-val' },
       via.tile,
       el('span', { class: 'route-name', title: via.name }, via.name),
-      el('span', { class: 'route-tag' }, tag)
+      // An override is the one temporary answer here, so the conclusion carries
+      // the same amber the OVERRIDE band below it does.
+      el('span', { class: `route-tag${tag === 'override' ? ' temp' : ''}` }, tag)
     )
   );
 
@@ -1160,9 +1162,10 @@ function leftPane(groups: Array<[string, Profile[]]>): HTMLElement {
   const filter =
     total >= 12
       ? el('input', {
-          class: 'left-filter',
+          class: 'input left-filter',
           type: 'search',
           placeholder: 'Filter profiles…',
+          ariaLabel: 'Filter profiles',
           value: filterText,
           spellcheck: false,
           oninput: (e: Event) => {

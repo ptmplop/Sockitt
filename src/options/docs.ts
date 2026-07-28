@@ -26,7 +26,10 @@ function toc(cards: HTMLElement[]): HTMLElement {
           href: '#' + c.id,
           onclick: (e: Event) => {
             e.preventDefault();
-            c.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            c.scrollIntoView({
+              behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+              block: 'start',
+            });
           },
         },
         c.querySelector('h3')?.textContent ?? ''

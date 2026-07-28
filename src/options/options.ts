@@ -451,43 +451,48 @@ function dangerZone(profile: Profile): HTMLElement {
   return el(
     'div',
     { class: 'card panel danger-zone' },
-    el('span', { class: 'muted' }, 'Remove this profile and any rules pointing at it.'),
+    el('h3', {}, 'Danger zone'),
     el(
-      'button',
-      {
-        class: 'btn danger',
-        onclick: () => {
-          if (!confirmMaybe(`Delete “${profile.name}”?`)) return;
-          config.profiles = config.profiles.filter((p) => p.id !== profile.id);
-          for (const p of config.profiles) {
-            switch (p.kind) {
-              case 'switch':
-                if (p.defaultTargetId === profile.id) p.defaultTargetId = DIRECT;
-                for (const r of p.rules) if (r.targetId === profile.id) r.targetId = DIRECT;
-                break;
-              case 'virtual':
-                if (p.targetId === profile.id) p.targetId = DIRECT;
-                break;
-              case 'rulelist':
-                if (p.matchTargetId === profile.id) p.matchTargetId = DIRECT;
-                if (p.defaultTargetId === profile.id) p.defaultTargetId = DIRECT;
-                break;
-              case 'proxy':
-                break;
+      'div',
+      { class: 'danger-row' },
+      el('span', { class: 'muted' }, 'Remove this profile and any rules pointing at it.'),
+      el(
+        'button',
+        {
+          class: 'btn danger',
+          onclick: () => {
+            if (!confirmMaybe(`Delete “${profile.name}”?`)) return;
+            config.profiles = config.profiles.filter((p) => p.id !== profile.id);
+            for (const p of config.profiles) {
+              switch (p.kind) {
+                case 'switch':
+                  if (p.defaultTargetId === profile.id) p.defaultTargetId = DIRECT;
+                  for (const r of p.rules) if (r.targetId === profile.id) r.targetId = DIRECT;
+                  break;
+                case 'virtual':
+                  if (p.targetId === profile.id) p.targetId = DIRECT;
+                  break;
+                case 'rulelist':
+                  if (p.matchTargetId === profile.id) p.matchTargetId = DIRECT;
+                  if (p.defaultTargetId === profile.id) p.defaultTargetId = DIRECT;
+                  break;
+                case 'proxy':
+                  break;
+              }
             }
-          }
-          config.settings.quickSwitchIds = config.settings.quickSwitchIds.filter(
-            (id) => id !== profile.id
-          );
-          if (config.settings.startupProfileId === profile.id) config.settings.startupProfileId = '';
-          if (config.settings.incognitoProfileId === profile.id) config.settings.incognitoProfileId = '';
-          if (config.activeId === profile.id) config.activeId = SYSTEM;
-          selectedId = config.profiles[0]?.id ?? null;
-          scheduleSave();
-          render();
+            config.settings.quickSwitchIds = config.settings.quickSwitchIds.filter(
+              (id) => id !== profile.id
+            );
+            if (config.settings.startupProfileId === profile.id) config.settings.startupProfileId = '';
+            if (config.settings.incognitoProfileId === profile.id) config.settings.incognitoProfileId = '';
+            if (config.activeId === profile.id) config.activeId = SYSTEM;
+            selectedId = config.profiles[0]?.id ?? null;
+            scheduleSave();
+            render();
+          },
         },
-      },
-      'Delete profile'
+        'Delete profile'
+      )
     )
   );
 }
@@ -833,8 +838,10 @@ function authSection(profile: ProxyProfile): HTMLElement {
     { class: 'field' },
     el('label', {}, 'Authentication'),
     el(
+      // "plain": these two fields carry no labels of their own, so they opt out
+      // of the label/control/note bands the other field grids share.
       'div',
-      { class: 'field-grid' },
+      { class: 'field-grid plain' },
       el('div', { class: 'field' }, username),
       el('div', { class: 'field' }, password)
     ),
@@ -860,7 +867,7 @@ function authSection(profile: ProxyProfile): HTMLElement {
 function switchEditor(profile: SwitchProfile): HTMLElement {
   const rulesBox = el('div', { class: 'rules' });
 
-  const ruleRow = (rule: SwitchProfile['rules'][number]): HTMLElement => {
+  const ruleRow = (rule: SwitchProfile['rules'][number], index: number): HTMLElement => {
     const typeSel = el('select', { class: 'input' }) as HTMLSelectElement;
     for (const [value, label] of Object.entries(RULE_TYPES)) {
       typeSel.append(el('option', { value }, label));
@@ -900,6 +907,8 @@ function switchEditor(profile: SwitchProfile): HTMLElement {
     const enabled = el('input', {
       class: 'toggle',
       type: 'checkbox',
+      // Without a name a screen reader reads a column of identical "checkbox"es.
+      ariaLabel: `Rule ${index + 1} enabled`,
       checked: rule.enabled,
       onchange: () => {
         rule.enabled = enabled.checked;
@@ -911,7 +920,14 @@ function switchEditor(profile: SwitchProfile): HTMLElement {
     const row = el(
       'div',
       { class: `rule${rule.enabled ? '' : ' disabled'}`, dataset: { id: rule.id } },
-      el('span', { class: 'grip', title: 'Drag to reorder', draggable: true, innerHTML: NAV_ICON.grip }),
+      el('button', {
+        class: 'grip',
+        type: 'button',
+        title: 'Drag to reorder, or focus and press Alt + ↑ / ↓',
+        ariaLabel: `Reorder rule ${index + 1}`,
+        draggable: true,
+        innerHTML: NAV_ICON.grip,
+      }),
       typeSel,
       pattern,
       targetSelect(profile.id, rule.targetId, (v) => {
@@ -979,7 +995,13 @@ function switchEditor(profile: SwitchProfile): HTMLElement {
           scheduleSave();
         });
         if (!sel.id) sel.id = `fld-${++fieldSeq}`;
-        return el('div', { class: 'default-row' }, el('label', { htmlFor: sel.id }, 'Everything else'), sel);
+        return el(
+          'div',
+          { class: 'default-row' },
+          el('label', { htmlFor: sel.id }, 'Everything else'),
+          sel,
+          el('span', { class: 'note' }, 'Used when no rule above matches.')
+        );
       })()
     ),
     dangerZone(profile)
@@ -1119,7 +1141,9 @@ function ruleListEditor(profile: RuleListProfile): HTMLElement {
         'div',
         { class: 'field-grid' },
         field('URL', url),
-        field('Auto-update (hours, 0 = off)', interval)
+        // The unit belongs under the control, not in the label: a two-line label
+        // in a 150px column used to push this input off the URL input's baseline.
+        field('Auto-update', interval, { extra: [el('span', { class: 'note' }, 'Hours · 0 = off')] })
       ),
       el(
         'div',
@@ -1422,6 +1446,20 @@ function settingsPanel(): HTMLElement {
 
 function wireDrag(row: HTMLElement, container: HTMLElement, commit: () => void): void {
   const grip = row.querySelector<HTMLElement>('.grip')!;
+  // The grip is a real button, so reordering is not mouse-only: Alt + arrow
+  // moves the row one place and keeps focus on the handle for a second press.
+  grip.addEventListener('keydown', (e) => {
+    const up = e.key === 'ArrowUp';
+    if (!e.altKey || (!up && e.key !== 'ArrowDown')) return;
+    e.preventDefault();
+    // The row above the first rule is .rule-head, so check the class rather
+    // than merely that a sibling exists.
+    const neighbour = up ? row.previousElementSibling : row.nextElementSibling;
+    if (!neighbour?.classList.contains('rule')) return;
+    container.insertBefore(row, up ? neighbour : neighbour.nextElementSibling);
+    commit();
+    grip.focus();
+  });
   grip.addEventListener('dragstart', (e) => {
     e.dataTransfer!.effectAllowed = 'move';
     e.dataTransfer!.setDragImage(row, 20, 20);
@@ -1550,13 +1588,24 @@ function inspectorPanel(): HTMLElement {
     ? inspectStartId
     : '';
 
+  /** Holds the panel's shape before anything is typed, instead of a bare strip. */
+  const emptyState = (): HTMLElement =>
+    el(
+      'p',
+      { class: 'inspect-empty' },
+      'Nothing to resolve yet — type a URL above and the chain appears here.'
+    );
+
   const runInspect = async (): Promise<void> => {
     const seq = ++inspectSeq;
     inspectUrl = urlInput.value;
     inspectStartId = startSel.value;
     results.replaceChildren();
     const raw = urlInput.value.trim();
-    if (!raw) return;
+    if (!raw) {
+      results.append(emptyState());
+      return;
+    }
 
     let u: URL;
     try {
@@ -1633,6 +1682,7 @@ function inspectorPanel(): HTMLElement {
   startSel.onchange = () => void runInspect();
 
   if (inspectUrl.trim()) void runInspect();
+  else results.append(emptyState());
 
   return el(
     'div',
@@ -1651,6 +1701,7 @@ function inspectorPanel(): HTMLElement {
     )
   );
 }
+
 
 /* ---------- proxy errors page ---------- */
 
@@ -1761,6 +1812,7 @@ function errorStatusCard(): HTMLElement {
     return el(
       'div',
       { class: 'card panel err-status failing' },
+      el('h3', {}, 'Live status'),
       el('div', { class: 'err-status-head' }, el('span', { class: 'err-live-dot' }), el('span', { class: 'err-status-title' }, heading)),
       el('p', { class: 'err-code mono' }, errorHeadline(alert)),
       alert.details ? el('p', { class: 'err-detail' }, alert.details) : null,
@@ -1784,6 +1836,7 @@ function errorStatusCard(): HTMLElement {
     return el(
       'div',
       { class: 'card panel err-status clear' },
+      el('h3', {}, 'Live status'),
       el('div', { class: 'err-status-head' }, el('span', { class: 'err-ok-dot' }), el('span', { class: 'err-status-title' }, 'No proxy errors')),
       el(
         'p',
@@ -1795,6 +1848,7 @@ function errorStatusCard(): HTMLElement {
   return el(
     'div',
     { class: 'card panel err-status clear' },
+    el('h3', {}, 'Live status'),
     el('div', { class: 'err-status-head' }, el('span', { class: 'err-ok-dot' }), el('span', { class: 'err-status-title' }, 'No errors right now')),
     el(
       'p',
