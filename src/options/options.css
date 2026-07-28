@@ -951,7 +951,7 @@ textarea.input { resize: vertical; min-height: 88px; line-height: 1.6; }
   grid-column: 1 / -1;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
   flex-wrap: wrap;
   padding-top: 13px;
   border-top: 1px solid rgba(255, 255, 255, .10);
@@ -962,30 +962,56 @@ textarea.input { resize: vertical; min-height: 88px; line-height: 1.6; }
   letter-spacing: .085em;
   text-transform: uppercase;
   color: #98a0b4;
-  margin-right: 3px;
+  cursor: pointer;
 }
-.hero-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 4px 12px 4px 5px;
-  border-radius: var(--radius-pill);
-  border: 1px solid rgba(255, 255, 255, .14);
-  background: rgba(255, 255, 255, .05);
+/* Not .input: that skin is a light-theme well (white fill, inset shadow) and
+   disappears into this card. color-scheme:dark is what makes the native option
+   list render dark too — without it a light popup drops out of a dark control. */
+.hero-select {
+  color-scheme: dark;
+  appearance: auto;
+  min-width: 240px;
+  max-width: 340px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, .20);
+  background: rgba(255, 255, 255, .08);
   color: #e8ebf3;
   font-weight: 650;
-  font-size: 12px;
+  font-size: 12.5px;
   cursor: pointer;
-  transition: background .14s, border-color .14s, transform .08s;
+  transition: background .14s, border-color .14s;
 }
-.hero-pill:hover { background: rgba(255, 255, 255, .12); border-color: rgba(255, 255, 255, .30); }
-.hero-pill:active { transform: translateY(.5px); }
-.hero-pill[aria-pressed="true"] {
-  background: color-mix(in srgb, var(--accent) 40%, transparent);
-  border-color: var(--accent);
-  box-shadow: 0 4px 14px -4px color-mix(in srgb, var(--accent) 90%, transparent);
+.hero-select:hover { background: rgba(255, 255, 255, .14); border-color: rgba(255, 255, 255, .34); }
+.hero-select:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--accent-2); }
+
+/* What the browser is actually using, in the colours a plain option list
+   cannot carry. */
+.hero-active {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 12px 4px 6px;
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
 }
-.hero-pill:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--accent-2); }
+.hero-active-tag {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .085em;
+  text-transform: uppercase;
+  color: #c9c2ff;
+}
+.hero-active-name {
+  font-weight: 700;
+  font-size: 12.5px;
+  color: #e8ebf3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* Only ever rendered when something else owns the proxy — so it can be loud. */
 .hero-control {

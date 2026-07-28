@@ -367,29 +367,64 @@ async function runExitCheck(force = false): Promise<void> {
   }
 }
 
-/** Inline profile switcher — the fastest path from "landed" to "switched". */
+/** Headings for the switcher's option groups, in the order the sidebar uses. */
+const SWITCH_GROUPS: Array<[Profile['kind'], string]> = [
+  ['proxy', 'Proxies'],
+  ['switch', 'Auto switch'],
+  ['rulelist', 'Rule lists'],
+  ['virtual', 'Aliases'],
+];
+
+/**
+ * Inline profile switcher — the fastest path from "landed" to "switched".
+ *
+ * A dropdown rather than a row of pills: pills were fine at four profiles and a
+ * wall of them at fifteen, wrapping to three lines and burying the one that was
+ * actually active. A select stays one control at any size, and optgroups keep
+ * the kinds apart the way the sidebar does.
+ *
+ * The chip beside it is not decoration and not a duplicate of the select's own
+ * value: a native option list is plain text, so it cannot show the colour and
+ * initials every other surface identifies a profile by — and it shows what the
+ * browser is USING, which during the moment between picking and applying is not
+ * yet what the select says.
+ */
 function switcherRow(): HTMLElement {
   const config = host.config();
-  const row = el('div', { class: 'hero-switch' }, el('span', { class: 'hero-switch-lbl' }, 'Switch'));
-  const ids = [DIRECT, SYSTEM, ...config.profiles.map((p) => p.id)];
-  for (const id of ids) {
-    const info = nodeInfo(config, id);
-    const on = config.activeId === id;
-    const pill = el(
-      'button',
-      {
-        class: 'hero-pill',
-        type: 'button',
-        title: info.sub,
-        onclick: () => host.activate(id),
-      },
-      tileFor(config, id, 18),
-      el('span', {}, info.name)
-    );
-    pill.setAttribute('aria-pressed', String(on));
-    row.append(pill);
+
+  const select = el('select', { class: 'hero-select' }) as HTMLSelectElement;
+  select.id = 'dash-switch';
+  // Names only. The optgroup already says what kind a profile is, and the
+  // closed select shows its chosen option verbatim — appending the subtitle put
+  // "Work — 6 rules · default Direct" here, word for word what the card's own
+  // heading says two inches away.
+  select.append(el('option', { value: DIRECT }, 'Direct'));
+  select.append(el('option', { value: SYSTEM }, 'System'));
+  for (const [kind, label] of SWITCH_GROUPS) {
+    const members = config.profiles.filter((p) => p.kind === kind);
+    if (!members.length) continue;
+    const group = el('optgroup', {}) as HTMLOptGroupElement;
+    group.label = label;
+    for (const p of members) group.append(el('option', { value: p.id }, p.name));
+    select.append(group);
   }
-  return row;
+  select.value = config.activeId;
+  select.onchange = () => host.activate(select.value);
+
+  const active = nodeInfo(config, config.activeId);
+  return el(
+    'div',
+    { class: 'hero-switch' },
+    el('label', { class: 'hero-switch-lbl', htmlFor: select.id }, 'Switch'),
+    select,
+    el(
+      'div',
+      { class: 'hero-active', title: active.sub },
+      el('span', { class: 'hero-active-tag' }, 'Active'),
+      tileFor(config, config.activeId, 20),
+      el('span', { class: 'hero-active-name' }, active.name)
+    )
+  );
 }
 
 /** Who Chrome says owns the proxy — surfaced only when it is not us. */
