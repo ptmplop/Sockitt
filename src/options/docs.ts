@@ -128,6 +128,66 @@ function buildDocsPanel(): HTMLElement {
     ),
 
     card(
+      'Overview',
+      p(
+        'The page this options tab opens on. It answers the arrival questions — what is active, where traffic actually exits, and whether anything is broken — from data Sockitt already holds. Nothing on it is measured by watching your browsing: it is your configuration, read back to you.'
+      ),
+      terms([
+        [
+          'Live route',
+          [
+            'The active profile, the hop chain it produces, and the exit IP measured through it. A dashed link in the chain means the route is decided per request rather than fixed. The exit reading needs ',
+            code('IP address lookups'),
+            ' (Settings) and is off until you turn it on.',
+          ],
+        ],
+        [
+          'Routing map',
+          [
+            'Every profile and the targets it points at, with the path traffic takes right now picked out in colour. Solid links are always taken; dashed ones only when a rule or list entry matches. Hover a profile to isolate its connections, click to open it. This is where an orphaned profile, an accidental route to Direct, or a loop becomes obvious.',
+          ],
+        ],
+        [
+          'Config health',
+          [
+            'A score and the specifics behind it: patterns that will not compile, rules buried under a catch-all so they can never run, duplicate rules with conflicting targets, credentials without the permission that answers the challenge, missing ',
+            code('<local>'),
+            ' bypasses, empty or overdue rule lists, and reference loops. Each finding carries the action that fixes it.',
+          ],
+        ],
+        [
+          'Proxy servers',
+          [
+            'Each proxy with its address and last connection verdict. ',
+            code('Test all'),
+            ' runs them one at a time — the browser has a single proxy setting, so a test briefly borrows it and they cannot overlap.',
+          ],
+        ],
+        [
+          'Where your tabs go',
+          [
+            'Resolves every open tab through your current rules and shows the split. Needs the optional ',
+            code('tabs'),
+            ' permission — the same one the per-tab badge uses. Tab URLs are read to resolve them locally; nothing is stored, and nothing is sent anywhere.',
+          ],
+        ],
+        [
+          'This session',
+          [
+            'Which profile was active over the course of this browser session, with failures marked on the same time base. Session-scoped, like the error log: it starts fresh with the browser and is never written to your saved configuration.',
+          ],
+        ],
+      ]),
+      el(
+        'p',
+        { class: 'doc-note' },
+        'Prefer to land somewhere else? Settings → Behaviour → ',
+        code('This page opens on'),
+        ' switches it to whichever page you had open last. That preference is per device and is not synced.'
+      )
+    ),
+
+    card(
       'Quick start',
       el(
         'ol',

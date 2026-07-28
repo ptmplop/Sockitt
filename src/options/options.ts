@@ -1,4 +1,12 @@
 import { avatarEl, builtinTile, initialsFor } from '../shared/avatar';
+import {
+  dashboardMounted,
+  dashboardPanel,
+  repaintDashboard,
+  setApplied,
+  setControlLevel,
+  setHistory,
+} from './dashboard';
 import { docsPanel } from './docs';
 import { EXIT_IP_PERMS, flagSrc } from '../shared/exitip';
 import { TraceEdge, pacRequestUrl, patternError, resolveRoute } from '../shared/match';
@@ -20,11 +28,19 @@ import {
   viaIsSelf,
 } from '../shared/errors';
 import {
+  APPLIED_KEY,
+  CONTROL_KEY,
+  HISTORY_KEY,
+  LandingPage,
   OPEN_PAGE_KEY,
   TEST_KEY,
   TEST_RESULT_KEY,
+  UiPrefs,
+  defaultUiPrefs,
   loadConfig,
+  loadHistory,
   loadTempRules,
+  loadUiPrefs,
   newProxyProfile,
   newRuleListProfile,
   newSwitchProfile,
@@ -33,6 +49,7 @@ import {
   proxyHostError,
   sanitizeConfig,
   saveConfig,
+  saveUiPrefs,
 } from '../shared/state';
 import { INLINE_TEXT_MAX, SYNC_ERROR_KEY, applyFromSync, clearSync, pullFromSync, remoteSyncState } from '../shared/sync';
 import {
@@ -58,9 +75,10 @@ import {
   schemeSupportsAuth,
   uid,
 } from '../shared/types';
-import { el, toast } from '../shared/ui';
+import { el, relativeTime, toast } from '../shared/ui';
 
 const app = document.getElementById('app')!;
+const DASH_ID = '@dash';
 const SETTINGS_ID = '@settings';
 const DOCS_ID = '@docs';
 const INSPECT_ID = '@inspect';
@@ -70,7 +88,7 @@ const ERRORS_ID = '@errors';
  * page cannot be forgotten by the "selected profile was deleted" check below —
  * forgetting it there silently bounces the user off the page on any config change.
  */
-const PAGE_IDS = new Set<string>([SETTINGS_ID, DOCS_ID, INSPECT_ID, ERRORS_ID]);
+const PAGE_IDS = new Set<string>([DASH_ID, SETTINGS_ID, DOCS_ID, INSPECT_ID, ERRORS_ID]);
 
 /**
  * Feather-style icons for the "Extension" nav items. Crisp, uniformly sized
@@ -79,6 +97,9 @@ const PAGE_IDS = new Set<string>([SETTINGS_ID, DOCS_ID, INSPECT_ID, ERRORS_ID]);
  * especially looked tiny next to the gear).
  */
 const NAV_ICON = {
+  // A bento of unequal panes — the dashboard's own layout, at 14px.
+  overview:
+    '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="8" height="10" rx="1.5"/><rect x="13" y="3" width="8" height="6" rx="1.5"/><rect x="3" y="15" width="8" height="6" rx="1.5"/><rect x="13" y="11" width="8" height="10" rx="1.5"/></svg>',
   settings:
     '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
   search:
@@ -125,6 +146,8 @@ function field(
 
 let config: Config;
 let selectedId: string | null = null;
+/** Per-device page preferences — deliberately not part of Config; see state.ts. */
+let uiPrefs: UiPrefs = defaultUiPrefs();
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 let syncError: string | null = null;
 /** Proxy-failure state, mirrored from session storage (see shared/errors.ts). */
@@ -227,6 +250,20 @@ function sidebar(): HTMLElement {
     el(
       'nav',
       { class: 'nav' },
+      // The home, above the profile groups rather than inside "Extension" —
+      // it is where the page opens, not one of its tools.
+      el(
+        'button',
+        {
+          class: `nav-item${selectedId === DASH_ID ? ' selected' : ''}`,
+          onclick: () => {
+            selectedId = DASH_ID;
+            render();
+          },
+        },
+        iconTile(NAV_ICON.overview, 22),
+        el('span', { class: 'name' }, 'Overview')
+      ),
       ...groups,
       el('div', { class: 'section-label' }, 'Extension'),
       el(
@@ -1102,6 +1139,69 @@ function placeholderFor(type: RuleType): string {
 
 /* ---------- rule list editor ---------- */
 
+/**
+ * Fetch a rule list's body and store it. One copy, shared by the editor's
+ * "Update now" and the dashboard's "Fetch now" — the care here is in the
+ * re-find and the rollback, and two copies of that is one too many.
+ *
+ * Always repaints when it returns, whatever the outcome, so the caller's button
+ * comes back without every call site having to remember to restore it.
+ */
+async function refetchRuleList(profileId: string): Promise<void> {
+  const repaint = (): void => {
+    if (selectedId === DASH_ID && dashboardMounted()) repaintDashboard();
+    else render();
+  };
+  const before = config.profiles.find((p) => p.id === profileId);
+  if (!before || before.kind !== 'rulelist') {
+    toast('Profile no longer exists');
+    repaint();
+    return;
+  }
+  if (!before.url) {
+    toast('Set a URL first');
+    repaint();
+    return;
+  }
+  try {
+    const response = await fetch(before.url, { cache: 'no-cache' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const text = await response.text();
+    if (!text.trim()) throw new Error('Empty response');
+    // Parsing is synchronous and sits on the PAC-compile path, so an unbounded
+    // body is an unbounded stall — refuse it here rather than store something
+    // the worker will choke on later.
+    if (text.length > RULE_LIST_MAX_BYTES) {
+      throw new Error(`List is too large (over ${RULE_LIST_MAX_BYTES / 1048576} MB)`);
+    }
+    // The page's snapshot can be swapped out across that await — a popup write,
+    // a second options tab or a sync pull all reassign `config` — which orphans
+    // the profile captured before it. Writing to that one would drop the fetch
+    // on the floor while the toast claimed success, so re-find it by id the way
+    // the popup's commitConfig does.
+    const live = config.profiles.find((p) => p.id === profileId);
+    if (!live || live.kind !== 'rulelist') throw new Error('Profile no longer exists');
+    const prevText = live.text;
+    const prevUpdated = live.lastUpdated;
+    live.text = text;
+    live.lastUpdated = Date.now();
+    try {
+      await saveConfig(config);
+    } catch (e) {
+      // Never leave a fetched body in a config that was not written: the editor
+      // still shows the old text and the old count, and the next keystroke would
+      // write that old text straight back over it.
+      live.text = prevText;
+      live.lastUpdated = prevUpdated;
+      throw e;
+    }
+    toast('List updated');
+  } catch (e) {
+    toast(`Update failed: ${e instanceof Error ? e.message : e}`);
+  }
+  repaint();
+}
+
 function ruleListEditor(profile: RuleListProfile): HTMLElement {
   const url = el('input', {
     class: 'input mono',
@@ -1221,53 +1321,12 @@ function ruleListEditor(profile: RuleListProfile): HTMLElement {
     'button',
     {
       class: 'btn',
-      onclick: async () => {
-        if (!profile.url) {
-          toast('Set a URL first');
-          return;
-    }
+      onclick: () => {
         updateNow.textContent = 'Updating…';
         (updateNow as HTMLButtonElement).disabled = true;
-        try {
-          const response = await fetch(profile.url, { cache: 'no-cache' });
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          const text = await response.text();
-          if (!text.trim()) throw new Error('Empty response');
-          // Parsing is synchronous and sits on the PAC-compile path, so an
-          // unbounded body is an unbounded stall — refuse it here rather than
-          // store something the worker will choke on later.
-          if (text.length > RULE_LIST_MAX_BYTES) {
-            throw new Error(`List is too large (over ${RULE_LIST_MAX_BYTES / 1048576} MB)`);
-          }
-          // The page's snapshot can be swapped out across that await — a popup
-          // write, a second options tab or a sync pull all reassign `config` —
-          // which orphans the `profile` captured when this editor was built.
-          // Writing to it would drop the fetch on the floor while the toast
-          // claimed success, so re-find the target by id the way the popup's
-          // commitConfig does.
-          const live = config.profiles.find((p) => p.id === profile.id);
-          if (!live || live.kind !== 'rulelist') throw new Error('Profile no longer exists');
-          const prevText = live.text;
-          const prevUpdated = live.lastUpdated;
-          live.text = text;
-          live.lastUpdated = Date.now();
-          try {
-            await saveConfig(config);
-          } catch (e) {
-            // Never leave a fetched body in a config that was not written: the
-            // editor still shows the old text and the old count, and the next
-            // keystroke would write that old text straight back over it.
-            live.text = prevText;
-            live.lastUpdated = prevUpdated;
-            throw e;
-          }
-          toast('List updated');
-          render();
-        } catch (e) {
-          toast(`Update failed: ${e instanceof Error ? e.message : e}`);
-          updateNow.textContent = 'Update now';
-          (updateNow as HTMLButtonElement).disabled = false;
-        }
+        // refetchRuleList repaints when it settles, which rebuilds this button
+        // in either outcome — there is nothing to restore by hand.
+        void refetchRuleList(profile.id);
       },
     },
     'Update now'
@@ -1433,6 +1492,17 @@ function settingsPanel(): HTMLElement {
     s.incognitoProfileId = incognito.value;
     scheduleSave();
   };
+  const landing = el('select', { class: 'input' }) as HTMLSelectElement;
+  landing.append(
+    el('option', { value: 'overview' }, 'Overview (default)'),
+    el('option', { value: 'last' }, 'The page I had open last')
+  );
+  landing.value = uiPrefs.landing;
+  landing.onchange = () => {
+    uiPrefs = { ...uiPrefs, landing: landing.value as LandingPage };
+    void saveUiPrefs(uiPrefs).then(() => toast('Saved'));
+  };
+
   const incognitoNote = el(
     'span',
     { class: 'note' },
@@ -1532,7 +1602,19 @@ function settingsPanel(): HTMLElement {
         (v) => {
           s.confirmDeletion = v;
         }
-      )
+      ),
+      // Stored per device, outside the synced configuration on purpose — see
+      // the UI-preferences note in state.ts.
+      field('This page opens on', landing, {
+        style: { maxWidth: '280px' },
+        extra: [
+          el(
+            'span',
+            { class: 'note' },
+            'A per-device preference — it is not synced to your other browsers.'
+          ),
+        ],
+      })
     ),
     el(
       'div',
@@ -1849,16 +1931,6 @@ function inspectorPanel(): HTMLElement {
 
 /* ---------- proxy errors page ---------- */
 
-/** "just now" / "4 min ago" — precision a failure log actually benefits from. */
-function relativeTime(at: number, now = Date.now()): string {
-  const seconds = Math.max(0, Math.round((now - at) / 1000));
-  if (seconds < 45) return 'just now';
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.round(minutes / 60);
-  return hours < 24 ? `${hours} h ago` : `${Math.round(hours / 24)} d ago`;
-}
-
 /** The profile that was active, linking to its editor when it still exists. */
 function errorProfileChip(entry: ProxyErrorEntry): HTMLElement {
   if (entry.profileId === DIRECT) {
@@ -2156,15 +2228,44 @@ function watchProxyErrors(): void {
     proxyAlert = alert;
     errorLog = log;
     // Never a full render: it would eat unsaved text in an open editor. The
-    // page that shows this data repaints in place; everywhere else only the nav
+    // pages that show this data repaint in place; everywhere else only the nav
     // badge moves.
     if (selectedId === ERRORS_ID) repaintErrorsPage();
-    else refreshSidebar();
+    else if (selectedId === DASH_ID) {
+      repaintDashboard();
+      refreshSidebar();
+    } else refreshSidebar();
   };
   void refresh();
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'session') return;
     if (changes[ERROR_KEY] || changes[ERROR_LOG_KEY]) void refresh();
+  });
+}
+
+/**
+ * The rest of the worker→page signals the dashboard reads. Each is cheap and
+ * each moves something visible: who owns the proxy, the session timeline, and
+ * the exit IP (which is only meaningful for the route currently applied, so a
+ * new apply invalidates the measurement rather than leaving a stale one up).
+ */
+function watchDashboardSignals(): void {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'session' || !dashboardMounted()) return;
+    if (changes[CONTROL_KEY]) {
+      const record = changes[CONTROL_KEY].newValue as { level?: unknown } | undefined;
+      setControlLevel(typeof record?.level === 'string' ? record.level : '');
+    }
+    if (changes[HISTORY_KEY]) void loadHistory().then(setHistory);
+    if (changes[APPLIED_KEY]) {
+      const applied = changes[APPLIED_KEY].newValue as
+        | { activeId?: unknown; at?: unknown }
+        | undefined;
+      setApplied(
+        typeof applied?.activeId === 'string' ? applied.activeId : '',
+        typeof applied?.at === 'number' ? applied.at : Date.now()
+      );
+    }
   });
 }
 
@@ -2236,17 +2337,23 @@ function render(): void {
   const profile = selected();
   sideNode = sidebar();
   const content =
-    selectedId === DOCS_ID
-      ? docsPanel()
-      : selectedId === INSPECT_ID
-        ? inspectorPanel()
-        : selectedId === ERRORS_ID
-          ? errorsPanel()
-          : selectedId === SETTINGS_ID
-            ? settingsPanel()
-            : profile
-              ? editorFor(profile)
-              : emptyPane();
+    selectedId === DASH_ID
+      ? // Nothing to overview yet — a wall of empty cards is a worse welcome
+        // than the hero that tells a new install what to do first.
+        config.profiles.length
+        ? dashboardPanel(dashboardHost)
+        : emptyPane()
+      : selectedId === DOCS_ID
+        ? docsPanel()
+        : selectedId === INSPECT_ID
+          ? inspectorPanel()
+          : selectedId === ERRORS_ID
+            ? errorsPanel()
+            : selectedId === SETTINGS_ID
+              ? settingsPanel()
+              : profile
+                ? editorFor(profile)
+                : emptyPane();
   app.replaceChildren(
     el(
       'div',
@@ -2257,7 +2364,43 @@ function render(): void {
   );
   // Expose the selected nav item to assistive tech (mirrors popup .row's aria-pressed).
   sideNode.querySelector('.nav-item.selected')?.setAttribute('aria-current', 'page');
+
+  // Remember where we were, for the "reopen the last page" landing option.
+  // Done here rather than at each call site so a new navigation path cannot
+  // forget to record itself.
+  if (selectedId && selectedId !== uiPrefs.lastPage) {
+    uiPrefs = { ...uiPrefs, lastPage: selectedId };
+    void saveUiPrefs(uiPrefs);
+  }
 }
+
+/**
+ * The dashboard's window onto this page. Closures rather than a snapshot: the
+ * panel outlives several `config` reassignments (a sync pull, a popup write),
+ * and a captured object would quietly go stale under it.
+ */
+const dashboardHost = {
+  config: () => config,
+  alert: () => proxyAlert,
+  errorLog: () => errorLog,
+  open: (id: string) => {
+    selectedId = id;
+    render();
+  },
+  activate: (id: string) => {
+    config.activeId = id;
+    // Immediate, not debounced: switching the active profile is the one action
+    // here whose whole point is that the browser reacts now.
+    void saveConfig(config).then(() => toast('Switched'));
+    render();
+  },
+  save: () => {
+    void saveConfig(config).then(() => toast('Saved'));
+  },
+  requestAuth: () => requestAuthPermission(),
+  requestExitIp: () => ensureExitIpPermission(),
+  refetchRuleList,
+};
 
 /**
  * Adopt config written by the background (rule-list auto-update, quick-switch
@@ -2362,9 +2505,26 @@ function watchProxyTests(): void {
   });
 }
 
-void loadConfig().then((c) => {
+/**
+ * Where the options tab opens. Overview by default — the page's whole job on
+ * arrival is to say where traffic is going and whether it works, which no
+ * profile editor can answer. 'last' reopens whatever was up before, for people
+ * who live in one editor; a page that has since been deleted falls back to
+ * Overview rather than to an empty pane.
+ */
+function landingPage(prefs: UiPrefs): string | null {
+  if (prefs.landing === 'last' && prefs.lastPage) {
+    const stillThere =
+      PAGE_IDS.has(prefs.lastPage) || config.profiles.some((p) => p.id === prefs.lastPage);
+    if (stillThere) return prefs.lastPage;
+  }
+  return DASH_ID;
+}
+
+void Promise.all([loadConfig(), loadUiPrefs()]).then(([c, prefs]) => {
   config = c;
-  selectedId = config.profiles[0]?.id ?? null;
+  uiPrefs = prefs;
+  selectedId = landingPage(prefs);
   watchSyncError();
   watchProxyTests();
   render();
@@ -2372,10 +2532,17 @@ void loadConfig().then((c) => {
   // sidebar node that render() has just installed.
   watchProxyErrors();
   watchPageRequests();
+  watchDashboardSignals();
   // Flag settings that arrived without their permission — imported or synced
   // configs, profiles created before auth support, or a grant revoked from
   // chrome://extensions.
   void refreshPermState();
-  chrome.permissions.onAdded.addListener(() => void refreshPermState());
-  chrome.permissions.onRemoved.addListener(() => void refreshPermState());
+  chrome.permissions.onAdded.addListener(() => {
+    void refreshPermState();
+    if (dashboardMounted()) repaintDashboard();
+  });
+  chrome.permissions.onRemoved.addListener(() => {
+    void refreshPermState();
+    if (dashboardMounted()) repaintDashboard();
+  });
 });

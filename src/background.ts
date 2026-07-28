@@ -4,6 +4,7 @@ import { compilePac, fixedServersValue, pacDirective, staticTerminal } from './s
 import { RULE_LIST_MAX_BYTES } from './shared/rulelist';
 import {
   APPLIED_KEY,
+  CONTROL_KEY,
   PENDING_RELOAD_KEY,
   POPUP_PORT,
   RELOAD_KEY,
@@ -15,6 +16,7 @@ import {
   loadTempRules,
   onConfigChanged,
   onTempRulesChanged,
+  recordActivation,
   saveConfig,
   saveConfigRaw,
 } from './shared/state';
@@ -174,7 +176,13 @@ async function applyActiveInner(signal = true): Promise<void> {
     chrome.action.setPopup({ popup: config.settings.quickSwitch ? '' : 'popup.html' }),
   ]);
 
+  // The session timeline reads this. Appended after settings.set, so it records
+  // routes that were actually applied rather than ones we tried to apply;
+  // repeats of the same profile are dropped by recordActivation itself.
+  await recordActivation(config.activeId, Date.now());
+
   const current = await chrome.proxy.settings.get({});
+  await publishControl(current.levelOfControl);
   if (current.levelOfControl === 'controlled_by_other_extensions') {
     await chrome.action.setBadgeBackgroundColor({ color: DANGER });
     await chrome.action.setBadgeText({ text: '!' });
@@ -218,6 +226,21 @@ async function applyActiveInner(signal = true): Promise<void> {
   await refreshActiveTabBadge(config);
   await scheduleRuleListUpdates(config);
   if (config.settings.syncEnabled) await pushToSync(config);
+}
+
+/**
+ * Republish who Chrome says owns the proxy settings.
+ *
+ * The worker already reads levelOfControl after every apply, and already badges
+ * the toolbar when another extension has taken over — but until now nothing
+ * said so anywhere a user would look. UI pages never call chrome.proxy
+ * themselves (the worker is the sole caller, by design), so the answer rides
+ * session storage like every other worker→UI signal.
+ */
+async function publishControl(level: string | undefined): Promise<void> {
+  await chrome.storage.session
+    .set({ [CONTROL_KEY]: { level: level ?? 'unknown', at: Date.now() } })
+    .catch(() => undefined);
 }
 
 /* ---------------- proxy failure reporting ---------------- */
@@ -1097,6 +1120,10 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 
 chrome.proxy.settings.onChange.addListener((details) => {
+  // Published on every change, not just the hostile one: the dashboard's
+  // control pill has to be able to go back to green when the other extension
+  // lets go, and onChange is the only event that says so.
+  void publishControl(details.levelOfControl);
   if (details.levelOfControl !== 'controlled_by_other_extensions') return;
   void (async () => {
     const config = await loadConfig();

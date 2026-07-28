@@ -746,6 +746,553 @@ textarea.input { resize: vertical; min-height: 88px; line-height: 1.6; }
   .err-when { flex-direction: row; gap: 8px; grid-column: 1 / -1; }
 }
 
+/* ================================================================
+   OVERVIEW (dashboard)
+   Composed from the existing kit: .card/.panel carry the surface and the
+   eyebrow, .avatar the tiles, .chain-chip the verdict pills, .test-result the
+   connection verdicts. What is new here is the bento, the stat tiles, and the
+   two drawn things — the routing map and the ring.
+   ================================================================ */
+
+.dash { gap: 14px; }
+.dash-head { display: flex; align-items: baseline; gap: 12px; padding: 0 2px 2px; }
+.dash-title { margin: 0; font-size: 24px; font-weight: 800; letter-spacing: -.022em; }
+.dash-head-sub { margin-left: auto; font-size: 12.5px; color: var(--text-dim); }
+
+.dash-bento {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 14px;
+  /* Stretch, not start: paired cards rarely have the same natural height, and
+     ragged bottoms make a bento read as a pile rather than a grid. The short
+     card of a pair gains empty space at its foot, which is the better artefact. */
+  align-items: stretch;
+}
+/* Tighter than a form panel: these cards hold figures, not fields. */
+.dash-card { padding: 15px 17px; gap: 12px; }
+.dash-c12 { grid-column: span 12; }
+.dash-c7 { grid-column: span 7; }
+.dash-c6 { grid-column: span 6; }
+.dash-c5 { grid-column: span 5; }
+/* Trailing content in a card eyebrow — a count, or an action. */
+.dash-rt {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: .02em;
+  text-transform: none;
+  color: var(--text-dim);
+}
+.dash-empty {
+  margin: 0;
+  padding: 20px 16px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  max-width: none;
+}
+
+/* ---- hero: the live route console ----
+   The one dark object on a light page. It is the same material as the sidebar
+   it sits beside (--chrome-1/--chrome-2), which is what stops it reading as a
+   pasted-in widget: the two are one piece of chrome with the content between. */
+.hero-console {
+  grid-column: span 12;
+  position: relative;
+  overflow: hidden;
+  padding: 17px 20px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(255, 255, 255, .09);
+  background:
+    radial-gradient(80% 140% at 4% 0%, rgba(109, 93, 252, .30), transparent 62%),
+    radial-gradient(70% 130% at 96% 10%, rgba(70, 201, 229, .20), transparent 64%),
+    linear-gradient(160deg, var(--chrome-1), var(--chrome-2));
+  box-shadow:
+    0 1px 1px rgba(15, 19, 27, .40),
+    0 20px 44px -22px rgba(15, 19, 27, .85);
+  color: #e8ebf3;
+  display: grid;
+  grid-template-columns: minmax(200px, 280px) minmax(0, 1fr) auto;
+  gap: 22px;
+  align-items: center;
+}
+.hero-id { display: flex; align-items: center; gap: 13px; min-width: 0; }
+/* Bleeds the active profile's own colour onto the console, the way the editor's
+   identity preview bleeds it onto the card. */
+.hero-id .avatar { box-shadow: 0 10px 26px -8px currentColor; }
+.hero-idtext { min-width: 0; }
+.hero-name {
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: -.018em;
+  line-height: 1.15;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hero-meta { font-size: 11.5px; color: #98a0b4; margin-top: 2px; }
+.hero-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 7px;
+  padding: 2px 9px 2px 7px;
+  border-radius: var(--radius-pill);
+  border: 1px solid;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: .085em;
+  text-transform: uppercase;
+}
+.hero-state i { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.hero-state.ok { color: #6ce3bd; border-color: rgba(23, 185, 138, .5); background: rgba(23, 185, 138, .14); }
+.hero-state.ok i { background: var(--ok); box-shadow: 0 0 8px rgba(23, 185, 138, .8); }
+.hero-state.bad { color: #ff97a8; border-color: rgba(239, 77, 100, .55); background: rgba(239, 77, 100, .16); }
+.hero-state.bad i { background: var(--danger); box-shadow: 0 0 8px rgba(239, 77, 100, .9); animation: err-pulse 2.4s ease-in-out infinite; }
+
+/* The hop chain. The wire is not decoration: solid means the route is fixed,
+   dashed means it is decided per request, and the travelling highlight is what
+   distinguishes "routing" from a static diagram of a route. */
+.flow { display: flex; align-items: center; min-width: 0; overflow: hidden; }
+.hop {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: none;
+  max-width: 240px;
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, .07);
+  border: 1px solid rgba(255, 255, 255, .13);
+  font-weight: 650;
+  font-size: 12.5px;
+}
+.hop.term { background: rgba(255, 255, 255, .11); }
+.hop svg { display: block; color: #98a0b4; flex: none; }
+.hop-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wire {
+  flex: 1;
+  min-width: 22px;
+  height: 2px;
+  position: relative;
+  background: rgba(255, 255, 255, .16);
+}
+.wire::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, var(--accent-2), transparent);
+  background-size: 46% 100%;
+  background-repeat: no-repeat;
+  animation: dash-flow 2.6s linear infinite;
+}
+.wire.conditional { background: repeating-linear-gradient(90deg, rgba(255, 255, 255, .30) 0 5px, transparent 5px 10px); }
+.wire.conditional::before { animation-duration: 3.4s; }
+@keyframes dash-flow {
+  from { background-position: -50% 0; }
+  to { background-position: 150% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wire::before {
+    animation: none;
+    background: linear-gradient(90deg, transparent, rgba(70, 201, 229, .55), transparent);
+    background-size: 100% 100%;
+  }
+}
+
+.hero-exit { text-align: right; flex: none; }
+.hero-exit-lbl {
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: .085em;
+  text-transform: uppercase;
+  color: #98a0b4;
+}
+.hero-ip {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 3px;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -.01em;
+}
+.hero-flag { border-radius: 2px; object-fit: cover; box-shadow: 0 0 0 1px rgba(0, 0, 0, .25); display: block; }
+.hero-exit-sub { font-size: 11.5px; color: #98a0b4; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.hero-exit-off { font-size: 12px; color: #98a0b4; margin: 4px 0 6px; }
+.hero-exit-off.bad { color: #ff97a8; max-width: 190px; }
+
+/* Buttons on the dark console: the light .btn skin is invisible here. */
+.hero-btn {
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 650;
+  padding: 4px 11px;
+  border-radius: var(--radius-pill);
+  border: 1px solid rgba(255, 255, 255, .22);
+  background: rgba(255, 255, 255, .08);
+  color: #e8ebf3;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .14s, border-color .14s;
+}
+.hero-btn:hover { background: rgba(255, 255, 255, .16); border-color: rgba(255, 255, 255, .38); }
+.hero-btn:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--accent-2); }
+
+.hero-switch {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-top: 13px;
+  border-top: 1px solid rgba(255, 255, 255, .10);
+}
+.hero-switch-lbl {
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: .085em;
+  text-transform: uppercase;
+  color: #98a0b4;
+  margin-right: 3px;
+}
+.hero-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 12px 4px 5px;
+  border-radius: var(--radius-pill);
+  border: 1px solid rgba(255, 255, 255, .14);
+  background: rgba(255, 255, 255, .05);
+  color: #e8ebf3;
+  font-weight: 650;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background .14s, border-color .14s, transform .08s;
+}
+.hero-pill:hover { background: rgba(255, 255, 255, .12); border-color: rgba(255, 255, 255, .30); }
+.hero-pill:active { transform: translateY(.5px); }
+.hero-pill[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--accent) 40%, transparent);
+  border-color: var(--accent);
+  box-shadow: 0 4px 14px -4px color-mix(in srgb, var(--accent) 90%, transparent);
+}
+.hero-pill:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--accent-2); }
+
+/* Only ever rendered when something else owns the proxy — so it can be loud. */
+.hero-control {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(239, 77, 100, .16);
+  border: 1px solid rgba(239, 77, 100, .45);
+  color: #ffc2cb;
+  font-size: 12px;
+  font-weight: 600;
+}
+.hero-control-ic { display: flex; color: #ff97a8; flex: none; }
+.hero-control .hero-btn { margin-left: auto; }
+
+/* ---- stat strip ---- */
+.dash-stats {
+  grid-column: span 12;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 14px;
+}
+.dash-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 13px 15px 14px;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition: border-color .14s, transform .12s, box-shadow .14s;
+}
+.dash-stat:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  transform: translateY(-1px);
+}
+.dash-stat:focus-visible { outline: none; box-shadow: var(--ring); }
+.dash-stat-lbl {
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: .085em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.dash-stat-fig {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 27px;
+  font-weight: 800;
+  letter-spacing: -.03em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.dash-stat-fig small { font-size: 12px; font-weight: 650; letter-spacing: 0; color: var(--text-dim); }
+.dash-stat-foot { font-size: 11px; color: var(--text-dim); }
+/* Holds the row height steady when a tile has no visual, so five tiles with
+   different content still line their footers up. */
+.dash-stat-spacer { height: 5px; }
+.dash-stat.crit .dash-stat-fig { color: var(--danger-ink); }
+.dash-stat.warn .dash-stat-fig { color: var(--amber-ink); }
+
+.dash-seg { display: flex; height: 5px; gap: 1.5px; border-radius: 3px; overflow: hidden; }
+.dash-seg i { display: block; height: 100%; }
+.dash-meter { display: block; height: 5px; border-radius: 3px; background: var(--surface-hover); overflow: hidden; }
+.dash-meter i { display: block; height: 100%; border-radius: 3px; background: var(--grad); }
+.dash-spark { display: block; width: 100%; height: 26px; overflow: visible; }
+
+/* ---- routing map ---- */
+.dash-map-wrap { overflow-x: auto; }
+.dash-map { width: 100%; height: auto; display: block; overflow: visible; }
+.dash-node { cursor: pointer; transition: opacity .15s; }
+.dash-node rect.bx { fill: var(--bg-elev); stroke: var(--border-strong); stroke-width: 1; transition: stroke .15s; }
+.dash-node:hover rect.bx { stroke: var(--accent); }
+.dash-node:focus-visible { outline: none; }
+.dash-node:focus-visible rect.bx { stroke: var(--accent); stroke-width: 2.4; }
+.dash-node.active rect.bx {
+  stroke: var(--accent);
+  stroke-width: 1.8;
+  filter: drop-shadow(0 4px 12px color-mix(in srgb, var(--accent) 35%, transparent));
+}
+.dash-node text.t1 { font-size: 11.5px; font-weight: 700; fill: var(--text); }
+.dash-node text.t2 { font-family: var(--mono); font-size: 9.5px; font-weight: 600; fill: var(--text-dim); }
+/* Not on the live path — still legible, just not competing with it. */
+.dash-node.faded { opacity: .45; }
+.dash-node.muted { opacity: .22; }
+.dash-edge { fill: none; stroke-width: 1.6; stroke-linecap: round; transition: opacity .15s; }
+.dash-edge.live { stroke-width: 2.6; }
+.dash-edge.muted { opacity: .12; }
+/* A label sits ON its own curve. paint-order draws the white stroke first and
+   the glyphs over it, knocking a halo out of whatever passes underneath —
+   without it the edges run straight through the type. */
+.dash-edge-label {
+  font-size: 9px;
+  font-weight: 650;
+  fill: var(--text-dim);
+  opacity: .6;
+  paint-order: stroke;
+  stroke: var(--bg-elev);
+  stroke-width: 3.5px;
+  stroke-linejoin: round;
+}
+.dash-edge-label.live { opacity: 1; }
+.dash-map-legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 11px; color: var(--text-dim); }
+.dash-map-legend b { font-weight: 700; color: var(--text); }
+
+/* ---- config health ---- */
+.dash-health-top { display: flex; align-items: center; gap: 16px; }
+.dash-ring { position: relative; width: 78px; height: 78px; flex: none; }
+.dash-ring svg { transform: rotate(-90deg); display: block; }
+.dash-ring-val {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: -.03em;
+  font-variant-numeric: tabular-nums;
+}
+.dash-health-sum { min-width: 0; }
+.dash-health-t { font-size: 14.5px; font-weight: 700; letter-spacing: -.012em; }
+.dash-health-s { font-size: 11.5px; color: var(--text-dim); margin-top: 3px; line-height: 1.45; }
+
+.dash-issues {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  /* Long audits stay browsable without pushing the card past its neighbour. */
+  max-height: 300px;
+  overflow-y: auto;
+}
+.dash-issue {
+  display: grid;
+  grid-template-columns: 4px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 11px 9px 0;
+}
+.dash-issue + .dash-issue { border-top: 1px solid var(--border); }
+.dash-issue-bar { align-self: stretch; border-radius: 0 2px 2px 0; }
+.dash-issue.crit .dash-issue-bar { background: var(--danger); }
+.dash-issue.warn .dash-issue-bar { background: var(--amber); }
+.dash-issue.info .dash-issue-bar { background: var(--accent-2); }
+.dash-issue-txt { font-size: 12px; line-height: 1.4; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.dash-issue-txt b { font-weight: 700; }
+.dash-issue-detail { color: var(--text-dim); font-size: 11.5px; }
+
+/* A quiet action that lives inside a row — smaller than .btn, same manners. */
+.dash-mini {
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  padding: 4px 11px;
+  min-height: 24px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elev);
+  color: var(--text-dim);
+  cursor: pointer;
+  white-space: nowrap;
+  flex: none;
+  transition: color .13s, border-color .13s, background .13s;
+}
+.dash-mini:hover:not(:disabled) { color: var(--accent-ink); border-color: var(--accent); background: var(--accent-soft); }
+.dash-mini:focus-visible { outline: none; box-shadow: var(--ring); }
+.dash-mini:disabled { opacity: .5; cursor: default; }
+
+/* ---- proxy servers ---- */
+.dash-srv-list { display: flex; flex-direction: column; }
+.dash-srv {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) minmax(0, auto) auto;
+  gap: 11px;
+  align-items: center;
+  padding: 9px 2px;
+}
+.dash-srv + .dash-srv { border-top: 1px solid var(--border); }
+.dash-srv-id { min-width: 0; }
+.dash-srv-nm { font-weight: 650; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash-srv-ep { font-size: 10.5px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash-srv-res { font-size: 11.5px; text-align: right; overflow-wrap: anywhere; }
+
+/* ---- where your tabs go ---- */
+.dash-locked {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+  padding: 18px 14px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+.dash-locked-ic { color: var(--text-dim); display: flex; }
+.dash-locked p { margin: 0; font-size: 12px; line-height: 1.5; color: var(--text-dim); max-width: 40ch; }
+.dash-locked b { color: var(--text); }
+
+.dash-donut-row { display: flex; align-items: center; gap: 18px; }
+.dash-donut { position: relative; width: 108px; height: 108px; flex: none; }
+.dash-donut svg { transform: rotate(-90deg); display: block; }
+.dash-donut-mid {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  line-height: 1.1;
+  text-align: center;
+}
+.dash-donut-mid b { font-size: 22px; font-weight: 800; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.dash-donut-mid span {
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: .085em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.dash-legend { display: flex; flex-direction: column; gap: 7px; min-width: 0; flex: 1; }
+.dash-legend-li {
+  display: grid;
+  grid-template-columns: 9px minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: center;
+  font-size: 12px;
+}
+.dash-legend-li i { width: 9px; height: 9px; border-radius: 3px; display: block; }
+.dash-legend-n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash-legend-v { font-variant-numeric: tabular-nums; color: var(--text-dim); font-weight: 650; }
+
+/* ---- session timeline ---- */
+.dash-tl {
+  display: flex;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.dash-tl i { display: block; height: 100%; min-width: 2px; }
+/* Failure moments, positioned on the same time base as the band above. */
+.dash-tl-marks { position: relative; height: 10px; margin-top: -4px; }
+.dash-tl-marks i {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: 8px;
+  border-radius: 1px;
+  background: var(--danger-ink);
+}
+.dash-tl-axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10.5px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- rule lists ---- */
+.dash-rl-list { display: flex; flex-direction: column; }
+.dash-rl {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  gap: 11px;
+  align-items: center;
+  padding: 9px 2px;
+}
+.dash-rl + .dash-rl { border-top: 1px solid var(--border); }
+.dash-rl-id { min-width: 0; }
+.dash-rl-nm { font-weight: 650; font-size: 12.5px; }
+.dash-rl-sub { font-size: 10.5px; color: var(--text-dim); }
+.dash-rl-sub.stale { color: var(--amber-ink); font-weight: 650; }
+.dash-freshbar { height: 4px; border-radius: 2px; background: var(--surface-hover); overflow: hidden; margin-top: 5px; }
+.dash-freshbar i { display: block; height: 100%; border-radius: 2px; }
+
+/* ---- inline route tester ---- */
+.dash-tester { display: flex; gap: 8px; }
+.dash-tester .input { flex: 1; min-width: 0; }
+.dash-tester .btn { flex: none; }
+.dash-verdict { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 30px; }
+.dash-arrow { color: var(--text-dim); font-size: 11.5px; font-style: italic; }
+.dash-arrow::before { content: "→ "; font-style: normal; }
+
+/* ---- responsive ----
+   Two steps: the bento halves before it stacks, so a 1000px window still gets
+   pairs rather than a single 12-wide column of very wide cards. */
+@media (max-width: 1080px) {
+  .dash-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .hero-console { grid-template-columns: minmax(200px, 1fr) auto; }
+  .flow { grid-column: 1 / -1; order: 3; }
+  .hero-switch { order: 4; }
+  .hero-control { order: 5; }
+}
+@media (max-width: 900px) {
+  .dash-c7, .dash-c6, .dash-c5 { grid-column: span 12; }
+  .dash-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hero-console { grid-template-columns: minmax(0, 1fr); }
+  .hero-exit { text-align: left; }
+  .hero-ip { justify-content: flex-start; }
+  .dash-donut-row { flex-direction: column; align-items: flex-start; }
+}
+
 /* ---- connection test ---- */
 .test-row { display: flex; align-items: center; gap: 12px; }
 .test-row .test-result { margin: 0; }

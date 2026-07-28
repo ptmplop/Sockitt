@@ -50,19 +50,32 @@ ever sent to the developer or to any third party.
   which proxy that page will use and to let you add or override a rule for it.
   This is used momentarily to compute routing and is not stored, logged, or
   transmitted.
+- **Open tab addresses (optional)** - if you have granted the optional `tabs`
+  permission, the Overview page's "Where your tabs go" card reads the URLs of
+  your open tabs, resolves each one through your own rules, and shows how many
+  land on each profile. Only the counts are ever displayed; the addresses are
+  used in memory to compute them and are not stored, logged, or transmitted.
+  Without that grant the card shows nothing and reads no URL.
+- **Which profile was active, and when** - the Overview page's session timeline
+  records the profile id and the time on each switch. Like the error log it is
+  held in `chrome.storage.session` only: gone when the browser restarts, never
+  written to your saved configuration, and never synced. It records no address
+  of any kind.
 - **Rule-list subscriptions (optional)** - if you add a rule-list profile with
   a URL, your browser fetches that list directly from the address you entered,
   on the schedule you set, and stores the returned text locally as routing
   patterns. These requests go from your browser to that URL; the developer is
   not involved and receives nothing.
-- **IP address lookups (optional, off by default)** - the popup's exit-IP line
-  and the proxy "Test connection" button fetch `ipconfig.is/json`, an IP-echo
-  service operated by the Sockitt developer, to display the IP address, country,
-  and latency the current tab exits with. Both are **off by default**: Sockitt
-  makes no such request unless you turn on **IP address lookups** in Settings.
-  With it on, the popup line runs when you open the popup, after a switch, and
-  when a this-tab route change could move the exit; the test button runs only
-  when you click it. With it off (the default), neither ever runs. The request
+- **IP address lookups (optional, off by default)** - the popup's exit-IP line,
+  the same line on the Overview page, and the proxy "Test connection" button
+  fetch `ipconfig.is/json`, an IP-echo service operated by the Sockitt
+  developer, to display the IP address, country, and latency your traffic exits
+  with. All are **off by default**: Sockitt makes no such request unless you
+  turn on **IP address lookups** in Settings. With it on, the popup line runs
+  when you open the popup, after a switch, and when a this-tab route change
+  could move the exit; the Overview line runs when that page is open and the
+  active profile changes; the test button runs only when you click it. With it
+  off (the default), none of them ever runs. The request
   carries no identifying payload — the service simply reports the connecting
   address back, and Sockitt keeps the result only in `chrome.storage.session`
   (in memory, not written to disk; cleared when the browser closes). Access to
@@ -93,7 +106,8 @@ Sockitt requests only the permissions its features need. By default:
 `proxy` (apply proxy settings), `storage` (save your configuration),
 `activeTab` (read the current tab's URL in the popup), and `alarms` (schedule
 rule-list refreshes). Optional permissions are requested only when you turn on
-the feature that needs them: `tabs` (per-tab route badge), `webRequest` +
+the feature that needs them: `tabs` (per-tab route badge, and the Overview's
+tab breakdown), `webRequest` +
 `webRequestAuthProvider` + host access (only to answer HTTP/HTTPS proxy
 authentication challenges with your saved credentials), and access to
 `ipconfig.is` (only for IP address lookups — the exit-IP line and connection

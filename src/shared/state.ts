@@ -22,6 +22,16 @@ const TEMP_KEY = 'sockitt-temp';
    shared/errors.ts alongside the type and the helpers that read them. */
 /** Written by the worker after each proxy application (popup exit-IP re-check). */
 export const APPLIED_KEY = 'sockitt-applied';
+/**
+ * Who Chrome says owns the proxy settings, republished by the worker after
+ * every apply and on every external change.
+ *
+ * A separate key from APPLIED_KEY on purpose: the popup treats an APPLIED_KEY
+ * write as "the route just changed, re-measure the exit IP", so folding this
+ * into that record would fire a redundant network lookup every time another
+ * extension touched the proxy.
+ */
+export const CONTROL_KEY = 'sockitt-control';
 /** Proxy-test request (options page → worker). */
 export const TEST_KEY = 'sockitt-test';
 /** Proxy-test response (worker → options page). */
@@ -153,6 +163,103 @@ export function onConfigChanged(fn: (config: Config) => void): void {
     const config = sanitizeConfig(changes[KEY].newValue);
     if (config) fn(config);
   });
+}
+
+/* ---------- activation history (session-scoped) ---------- */
+
+/**
+ * Newest-LAST log of profile activations this browser session, behind the
+ * dashboard's session timeline. Session storage, like the error log it is read
+ * beside: a diagnostic buffer that never reaches disk and is gone on restart.
+ */
+export const HISTORY_KEY = 'sockitt-history';
+/** Cap. A session that switches more than this drops its oldest segments. */
+export const MAX_HISTORY = 80;
+
+export interface ActivationEntry {
+  /** 'direct' | 'system' | a profile id. */
+  id: string;
+  at: number;
+}
+
+function asActivation(v: unknown): ActivationEntry | null {
+  if (typeof v !== 'object' || v === null) return null;
+  const o = v as Record<string, unknown>;
+  return typeof o.id === 'string' && typeof o.at === 'number' ? { id: o.id, at: o.at } : null;
+}
+
+export async function loadHistory(): Promise<ActivationEntry[]> {
+  try {
+    const stored = await chrome.storage.session.get(HISTORY_KEY);
+    const raw = stored[HISTORY_KEY];
+    if (!Array.isArray(raw)) return [];
+    return raw.map(asActivation).filter((e): e is ActivationEntry => e !== null);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Append an activation, unless the newest entry already names this profile.
+ *
+ * The skip is what makes this safe to call from every apply: the worker
+ * re-applies on rule edits, permission grants and its own restarts, none of
+ * which are a switch. Without it the timeline would be a wall of zero-width
+ * segments instead of a record of what the user did.
+ */
+export async function recordActivation(id: string, at: number): Promise<void> {
+  try {
+    const log = await loadHistory();
+    if (log[log.length - 1]?.id === id) return;
+    log.push({ id, at });
+    if (log.length > MAX_HISTORY) log.splice(0, log.length - MAX_HISTORY);
+    await chrome.storage.session.set({ [HISTORY_KEY]: log });
+  } catch {
+    // session storage unavailable — the timeline just shows the current profile
+  }
+}
+
+/* ---------- per-device UI preferences ---------- */
+
+/**
+ * Options-page state that is NOT part of Config, and deliberately so.
+ *
+ * Which page the options tab opens on is a per-device preference, and putting
+ * it in Settings would mean bumping CONFIG_VERSION: an install running an older
+ * sanitizer would strip the unknown field and push the gutted config back
+ * through sync (see the CONFIG_VERSION note in types.ts). Its own local key
+ * costs nothing, never syncs, and cannot take anything else down with it.
+ */
+const UI_KEY = 'sockitt-ui';
+
+/** 'overview' opens the dashboard; 'last' reopens whatever was open before. */
+export type LandingPage = 'overview' | 'last';
+
+export interface UiPrefs {
+  landing: LandingPage;
+  /** Nav id that was selected when the page was last used. */
+  lastPage: string;
+}
+
+export function defaultUiPrefs(): UiPrefs {
+  return { landing: 'overview', lastPage: '' };
+}
+
+export async function loadUiPrefs(): Promise<UiPrefs> {
+  try {
+    const stored = await chrome.storage.local.get(UI_KEY);
+    const o = stored[UI_KEY] as Record<string, unknown> | undefined;
+    return {
+      landing: o?.landing === 'last' ? 'last' : 'overview',
+      lastPage: typeof o?.lastPage === 'string' ? o.lastPage : '',
+    };
+  } catch {
+    return defaultUiPrefs();
+  }
+}
+
+export async function saveUiPrefs(prefs: UiPrefs): Promise<void> {
+  await chrome.storage.local.set({ [UI_KEY]: prefs }).catch(() => undefined);
 }
 
 /* ---------- temp rules (session-scoped: gone on browser restart) ---------- */

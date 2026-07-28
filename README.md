@@ -40,6 +40,15 @@ script.
 
 ## Features
 
+- **Overview dashboard.** The page the options tab opens on, and the answer to
+  the question you arrive with: what is active, where traffic exits, and whether
+  anything is broken. A live route console with the hop chain and exit IP, a
+  drawn **routing map** of how your profiles feed into each other with the
+  active path picked out, a **config health** audit with one-click fixes
+  (patterns that will not compile, rules buried under a catch-all, credentials
+  without their permission, stale rule lists, reference loops), per-server
+  reachability, a session timeline, and an inline URL resolver. Everything on it
+  is derived from your own configuration — nothing watches your browsing.
 - **Proxy profiles.** SOCKS5, SOCKS4, HTTP, or HTTPS servers with a host, port,
   and per-profile bypass list, plus optional username/password authentication
   for HTTP(S) proxies. Each profile has an identity: an initials avatar in a
@@ -133,7 +142,9 @@ you configure; enabling IP address lookups (opt-in, below) adds lookups of
 
 Extra capabilities are strictly opt-in and requested only when you use them:
 
-- **Per-tab route badge** requests `tabs`.
+- **Per-tab route badge** requests `tabs`. The Overview's "Where your tabs go"
+  breakdown uses the same grant: tab URLs are resolved locally through your own
+  rules to count them, and nothing is stored or sent.
 - **HTTP/HTTPS proxy authentication** requests `webRequest`,
   `webRequestAuthProvider`, and all-sites access, which Chromium needs to answer
   proxy auth challenges. Sockitt asks when you set credentials.
