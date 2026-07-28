@@ -37,6 +37,15 @@ MANAGE THE TAB YOU ARE ON
 • An optional exit IP readout (off by default) shows the country flag, IP address, and round trip latency your current tab exits with.
 
 
+SEE WHERE YOUR TRAFFIC GOES
+
+• The options page opens on an Overview: the active profile, the hop chain it produces, and the exit IP measured through it.
+• A routing map draws how your profiles feed into each other, with the path your traffic takes right now picked out, so an orphaned profile or an accidental route to Direct is something you can see rather than something you have to work out.
+• A configuration health check finds what a rule table hides: patterns that will not compile, rules buried under a catch all so they can never run, duplicates with conflicting targets, credentials without the permission that answers the challenge, rule lists that have stopped updating, and reference loops. Each finding carries the action that fixes it.
+• Optionally, a breakdown of where every open tab routes, resolved locally through your own rules.
+• Everything on the page is read back from your own configuration. Nothing here watches your browsing.
+
+
 BUILT FOR TRUST
 
 • Minimal default permissions: proxy, storage, activeTab, and alarms. No host permissions at all.

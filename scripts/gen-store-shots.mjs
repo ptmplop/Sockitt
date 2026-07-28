@@ -37,6 +37,17 @@ const P = {
   ads: 'p-ads',
 };
 
+/**
+ * Anything the UI renders as an AGE has to be relative, or the shot rots: the
+ * Overview prints "fetched 3 h ago" and draws a freshness bar from it, so a
+ * fixed timestamp would read "fetched 400 d ago" in amber a year from now and
+ * raise a stale-list finding nobody intended to demonstrate. Fixed values are
+ * still right for `rev`, which is never shown.
+ */
+const NOW = Date.now();
+const MINUTE = 60_000;
+const HOUR = 3_600_000;
+
 const CONFIG = {
   version: 4,
   rev: 1_753_500_000_000,
@@ -87,7 +98,7 @@ const CONFIG = {
       matchTargetId: 'direct',
       defaultTargetId: 'direct',
       text: '! EasyList (subset)\n||doubleclick.net\n||googlesyndication.com\n||ads.example.com\n',
-      lastUpdated: 1_753_490_000_000,
+      lastUpdated: NOW - 3 * HOUR,
     },
   ],
   settings: {
@@ -111,7 +122,7 @@ const CONFIG = {
 /** The tab the popup believes is in front. */
 const TAB = { id: 7, url: 'https://github.com/ptmplop/Sockitt', active: true };
 
-/* ---------------- the five listing scenes ---------------- */
+/* ---------------- the six listing scenes ---------------- */
 
 const POPUP_FRAME = { page: 'popup', frameW: 720, frameH: 520, left: 280, top: 205, radius: 16 };
 const OPTIONS_FRAME = {
@@ -164,6 +175,49 @@ const SCENES = [
     subtitle:
       'Trace any URL through your configuration with the real resolver — which rule fired, the chain it walked, where it landed.',
   },
+  {
+    ...OPTIONS_FRAME,
+    file: 'screenshot-6-overview.png',
+    clickNav: 'Overview',
+    // Everything below is arranged so the page has something true to SAY. An
+    // Overview rendered against an untouched fixture is a grid of empty states:
+    // no session to draw a timeline from, no tabs to break down, a sync tile
+    // reading "off", and a health card with nothing to report — which shows the
+    // layout and none of the point.
+    config: {
+      ...CONFIG,
+      // One deliberate smell, so the health card can demonstrate what it is
+      // for. Localhost through a remote proxy is the mistake people actually
+      // make, and it carries a one-click fix.
+      profiles: CONFIG.profiles.map((p) => (p.id === P.home ? { ...p, bypass: [] } : p)),
+    },
+    settings: { exitIpCheck: true, syncEnabled: true },
+    session: {
+      'sockitt-history': [
+        { id: 'direct', at: NOW - 130 * MINUTE },
+        { id: P.office, at: NOW - 100 * MINUTE },
+        { id: P.work, at: NOW - 45 * MINUTE },
+        { id: P.office, at: NOW - 25 * MINUTE },
+      ],
+      'sockitt-applied': { activeId: P.office, at: NOW - 4 * MINUTE },
+      'sockitt-control': { level: 'controlled_by_this_extension', at: NOW - 4 * MINUTE },
+    },
+    // Home VPS's own address, so the exit reading agrees with the profile the
+    // rest of the listing shows.
+    exitIp: { ip: '198.51.100.24', country_name: 'Netherlands', country_code: 'NL' },
+    // A believable spread across the three routes the rule table produces:
+    // github/slack → Work SOCKS5, the "internal" keyword → Home VPS, the rest direct.
+    tabs: [
+      ...Array.from({ length: 4 }, (_, i) => ({ id: 100 + i, url: `https://github.com/ptmplop/Sockitt/pull/${i + 1}` })),
+      ...Array.from({ length: 3 }, (_, i) => ({ id: 110 + i, url: `https://app.slack.com/client/T0/C${i}` })),
+      ...Array.from({ length: 2 }, (_, i) => ({ id: 120 + i, url: `https://wiki.internal.corp/page/${i}` })),
+      ...Array.from({ length: 5 }, (_, i) => ({ id: 130 + i, url: `https://news.example.com/story/${i}` })),
+    ],
+    title: 'Know where your traffic goes',
+    // Two lines is what fits above the frame; a third disappears behind it.
+    subtitle:
+      'The live route and its exit IP, a map of how your profiles feed into each other, and a health check with one-click fixes.',
+  },
 ];
 
 /* ---------------- the chrome.* shim injected ahead of the bundle ---------------- */
@@ -171,7 +225,10 @@ const SCENES = [
 function mockSource() {
   return `(() => {
   const S = globalThis.__SOCKITT_SCENE__;
-  const areas = { local: { sockitt: S.config }, session: {}, sync: {}, managed: {} };
+  // Session storage is seeded per scene: the Overview reads its activation
+  // timeline and its proxy-failure state from there, and an empty session
+  // renders those cards as their own empty states.
+  const areas = { local: { sockitt: S.config }, session: S.session || {}, sync: {}, managed: {} };
   const listeners = [];
   const clone = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
   const pick = (store, keys) => {
@@ -182,6 +239,9 @@ function mockSource() {
     return out;
   };
   const area = (name) => ({
+    // The Overview's sync tile reads this. A fixed figure, so the meter is the
+    // same width in every regeneration.
+    getBytesInUse: async () => 12_704,
     get: async (keys) => pick(areas[name], keys),
     set: async (items) => {
       const changes = {};
@@ -213,7 +273,7 @@ function mockSource() {
         },
       },
     },
-    tabs: { query: async () => (S.tab ? [S.tab] : []), reload: noop },
+    tabs: { query: async () => S.tabs || (S.tab ? [S.tab] : []), reload: noop },
     permissions: { contains: async () => true, request: async () => true, onAdded: evt(), onRemoved: evt() },
     runtime: {
       lastError: undefined,
@@ -227,10 +287,15 @@ function mockSource() {
     alarms: { create: noop, clear: noop, onAlarm: evt() },
   };
 
-  // No scene enables the exit-IP readout, so nothing here should reach the
-  // network. Fail loudly rather than let a listing shot depend on the internet.
+  // A listing shot must never depend on the internet. A scene that shows the
+  // exit readout declares the answer it expects; everything else still fails
+  // loudly, so a new network call cannot creep in unnoticed.
   globalThis.fetch = async (input) => {
-    throw new Error('unexpected network call in a listing shot: ' + input);
+    const url = String(input);
+    if (S.exitIp && url.includes('ipconfig.is')) {
+      return { ok: true, json: async () => S.exitIp };
+    }
+    throw new Error('unexpected network call in a listing shot: ' + url);
   };
 
   addEventListener('load', () => {
@@ -419,8 +484,16 @@ async function main() {
         resolve(STAGE, 'scene.js'),
         `globalThis.__SOCKITT_SCENE__ = ${JSON.stringify(
           {
-            config: { ...CONFIG, settings: { ...CONFIG.settings, ...(scene.settings ?? {}) } },
+            // A scene may swap the whole configuration; `settings` still layers
+            // on top either way, so the frame defaults keep applying.
+            config: (() => {
+              const base = scene.config ?? CONFIG;
+              return { ...base, settings: { ...base.settings, ...(scene.settings ?? {}) } };
+            })(),
             tab: TAB,
+            tabs: scene.tabs ?? null,
+            session: scene.session ?? {},
+            exitIp: scene.exitIp ?? null,
             version,
             clickNav: scene.clickNav ?? null,
             inspect: scene.inspect ?? null,

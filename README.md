@@ -30,6 +30,10 @@ default permission set, and a rule engine that compiles to an optimised PAC
 script.
 
 <p align="center">
+  <img src="img/store/screenshot-6-overview.png" width="720" alt="Sockitt Overview dashboard - live route, routing map, and config health"><br>
+  <sub>Overview: the live route and its exit IP, a map of how your profiles feed into each other, and a health check with one-click fixes</sub>
+</p>
+<p align="center">
   <img src="img/store/screenshot-1-popup.png" width="720" alt="Sockitt popup"><br>
   <sub>Popup: switch profiles on the left; on the right, where this tab routes, its rule, and where it exits</sub>
 </p>

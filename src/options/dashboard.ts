@@ -651,13 +651,17 @@ function statStrip(): { node: HTMLElement; refresh: () => void } {
         onclick: () => host.open('@inspect'),
       }),
       statTile({
-        label: 'Errors this session',
+        // One word. "Errors this session" wrapped to two lines wherever the
+        // content column is narrow, which pushed this tile's figure a line
+        // below its neighbours' and made the whole strip look ragged. The
+        // scope moves to the footer, which has room for it.
+        label: 'Errors',
         figure: String(errorCount),
         foot: alert
           ? `failing now · ${relativeTime(alert.lastAt)}`
           : log[0]
-            ? `last ${relativeTime(log[0].lastAt)}`
-            : 'nothing has failed',
+            ? `last ${relativeTime(log[0].lastAt)} this session`
+            : 'none this session',
         visual: log.length ? sparkline(log) : null,
         tone: alert ? 'crit' : undefined,
         onclick: () => host.open('@errors'),
