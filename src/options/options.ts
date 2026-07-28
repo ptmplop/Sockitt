@@ -12,6 +12,7 @@ import { docsPanel } from './docs';
 import { EXIT_IP_PERMS, flagSrc } from '../shared/exitip';
 import { TraceEdge, pacRequestUrl, patternError, resolveRoute } from '../shared/match';
 import { RULE_LIST_MAX_BYTES, looksLikeSwitchyOmega, parseRuleList } from '../shared/rulelist';
+import { networkPanel } from './network';
 import { releasesPanel } from './releases';
 import {
   ERROR_KEY,
@@ -88,6 +89,7 @@ const SETTINGS_ID = '@settings';
 const DOCS_ID = '@docs';
 const INSPECT_ID = '@inspect';
 const ERRORS_ID = '@errors';
+const NETWORK_ID = '@network';
 /** Reached from the Documentation page; deliberately not in the sidebar. */
 const RELEASES_ID = '@releases';
 /**
@@ -103,6 +105,7 @@ const PAGE_IDS = new Set<string>([
   DOCS_ID,
   INSPECT_ID,
   ERRORS_ID,
+  NETWORK_ID,
   RELEASES_ID,
 ]);
 
@@ -120,6 +123,9 @@ const NAV_ICON = {
     '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
   search:
     '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+  // A trace, the way a monitor draws one.
+  activity:
+    '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 12 7 12 10 5 14 19 17 12 21 12"/></svg>',
   help:
     '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
   grip:
@@ -328,6 +334,18 @@ function sidebar(): HTMLElement {
         },
         iconTile(NAV_ICON.search, 22),
         el('span', { class: 'name' }, 'Route inspector')
+      ),
+      el(
+        'button',
+        {
+          class: `nav-item${selectedId === NETWORK_ID ? ' selected' : ''}`,
+          onclick: () => {
+            selectedId = NETWORK_ID;
+            render();
+          },
+        },
+        iconTile(NAV_ICON.activity, 22),
+        el('span', { class: 'name' }, 'Network monitor')
       ),
       el(
         'button',
@@ -2436,29 +2454,33 @@ function editorFor(profile: Profile): HTMLElement {
   }
 }
 
-function render(): void {
+/**
+ * The panel for whatever is selected.
+ *
+ * Statements rather than the nested conditional this used to be: one branch per
+ * page reads top to bottom, and adding the ninth page to an eight-deep ternary
+ * had already produced two mis-indented edits that the compiler caught and a
+ * reader would not have.
+ */
+function contentFor(): HTMLElement {
+  if (selectedId === DASH_ID) {
+    // Nothing to overview yet — a wall of empty cards is a worse welcome than
+    // the hero that tells a new install what to do first.
+    return config.profiles.length ? dashboardPanel(dashboardHost) : emptyPane();
+  }
+  if (selectedId === DOCS_ID) return docsPanel(() => goTo(RELEASES_ID));
+  if (selectedId === RELEASES_ID) return releasesPanel(() => goTo(DOCS_ID));
+  if (selectedId === INSPECT_ID) return inspectorPanel();
+  if (selectedId === NETWORK_ID) return networkPanel(networkHost);
+  if (selectedId === ERRORS_ID) return errorsPanel();
+  if (selectedId === SETTINGS_ID) return settingsPanel();
   const profile = selected();
+  return profile ? editorFor(profile) : emptyPane();
+}
+
+function render(): void {
   sideNode = sidebar();
-  const content =
-    selectedId === DASH_ID
-      ? // Nothing to overview yet — a wall of empty cards is a worse welcome
-        // than the hero that tells a new install what to do first.
-        config.profiles.length
-        ? dashboardPanel(dashboardHost)
-        : emptyPane()
-      : selectedId === DOCS_ID
-        ? docsPanel(() => goTo(RELEASES_ID))
-        : selectedId === RELEASES_ID
-          ? releasesPanel(() => goTo(DOCS_ID))
-          : selectedId === INSPECT_ID
-            ? inspectorPanel()
-            : selectedId === ERRORS_ID
-              ? errorsPanel()
-              : selectedId === SETTINGS_ID
-                ? settingsPanel()
-                  : profile
-                    ? editorFor(profile)
-                    : emptyPane();
+  const content = contentFor();
   app.replaceChildren(
     el(
       'div',
@@ -2478,6 +2500,15 @@ function render(): void {
     void saveUiPrefs(uiPrefs);
   }
 }
+
+/** The monitor's window onto this page — a live config read, and a way out. */
+const networkHost = {
+  config: () => config,
+  open: (id: string) => {
+    selectedId = id;
+    render();
+  },
+};
 
 /**
  * The dashboard's window onto this page. Closures rather than a snapshot: the

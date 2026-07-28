@@ -1456,3 +1456,104 @@ textarea.input { resize: vertical; min-height: 88px; line-height: 1.6; }
 /* ---- first-proxy confetti ---- */
 .confetti-layer { position: fixed; inset: 0; pointer-events: none; z-index: 100; overflow: hidden; }
 .confetti { position: absolute; width: 8px; height: 12px; border-radius: 2px; opacity: 0; }
+
+/* ---- network monitor ----
+   A dense log, so it uses the table rhythm the rule editor already sets rather
+   than card padding: rows are for scanning, not for reading one at a time. */
+.net { gap: 14px; }
+.net-lede { margin: 0; font-size: 13px; line-height: 1.55; color: var(--text-dim); max-width: var(--measure); }
+.net-count { font-size: 12px; color: var(--text-dim); font-variant-numeric: tabular-nums; margin-left: auto; }
+.net-bar { display: flex; gap: 8px; align-items: center; }
+.net-bar .input { flex: 1; min-width: 0; }
+.net-bar .btn.on { color: var(--accent-ink); border-color: var(--accent); background: var(--accent-soft); }
+
+.net-body { min-width: 0; }
+.net-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  /* The log is the page's tallest thing by far; cap it so the filter bar above
+     stays reachable without scrolling the whole document back up. */
+  max-height: 62vh;
+  overflow-y: auto;
+}
+/* Columns: time, method, url, profile, kind, result, size, took. Only the URL
+   flexes — everything else is a fixed reading position down the column. */
+.net-row {
+  display: grid;
+  /* Result is generous on purpose: on a failed row the net:: code is the
+     single most useful thing in the line, and it is what gets truncated. */
+  grid-template-columns: 78px 58px minmax(0, 1fr) 150px 82px 148px 72px 64px;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 11px;
+  font-size: 12px;
+}
+.net-row + .net-row { border-top: 1px solid var(--border); }
+.net-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--border-strong);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.net-row.pending { color: var(--text-dim); }
+.net-row.error .net-status { color: var(--danger-ink); font-weight: 650; }
+
+.net-time, .net-ms, .net-size { font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums; color: var(--text-dim); }
+.net-size, .net-ms { text-align: right; }
+.net-method { font-family: var(--mono); font-size: 11px; font-weight: 650; color: var(--text-dim); }
+.net-url { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 11.5px; }
+.net-type { font-size: 11px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.net-status { font-family: var(--mono); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The profile a request was routed through — a button, because it goes there. */
+.net-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 650;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elev);
+  color: var(--text);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.net-chip i { width: 8px; height: 8px; border-radius: 2px; flex: none; display: block; }
+.net-chip:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); }
+.net-chip:focus-visible { outline: none; box-shadow: var(--ring); }
+.net-chip.direct, .net-chip.unknown { color: var(--text-dim); }
+.net-chip:disabled { cursor: default; }
+
+.net-empty, .net-gate {
+  margin: 0;
+  padding: 22px 18px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.net-gate { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.net-gate p { margin: 0; max-width: 56ch; line-height: 1.6; }
+
+@media (max-width: 1080px) {
+  /* Kind and size are the first things worth losing when the row cannot hold
+     everything — the route and whether it worked are the point of the panel. */
+  .net-row { grid-template-columns: 70px 52px minmax(0, 1fr) 130px 88px 60px; }
+  .net-type, .net-size { display: none; }
+}

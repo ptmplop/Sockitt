@@ -363,6 +363,15 @@ function buildDocsPanel(onReleases: () => void): HTMLElement {
       terms([
         ['Route inspector', ['The sidebar’s ', code('Route inspector'), ' page traces any URL through your configuration with the same resolver real routing uses: which rule fired (including the popup override), the chain it walked through aliases and rule lists, and the proxy it landed on. It starts from the active profile, or from any profile you pick — so you can check one before switching to it.']],
         ['Connection test', ['Every proxy editor has a ', code('Test connection'), ' button. It briefly routes your browsing through that proxy, fetches ', code('ipconfig.is'), ' to capture the exit IP, country, and latency, then restores your configuration — auth included, so wrong credentials show up here too. The result appears beside the button, and is not kept once you leave the page. It’s an ', code('ipconfig.is'), ' lookup, so it needs IP address lookups turned on in Settings (off by default).']],
+        ['Network monitor', [
+          'Where the Route inspector answers for one URL you type, the ', code('Network monitor'), ' page answers for everything the browser actually asks for: each request as it happens, and which profile your rules route it through. Useful for the question a single lookup cannot settle — whether a rule is firing on the subresources a page pulls in, not just on its address bar.',
+          el('br'),
+          el('br'),
+          'It records only while the page is open, and only in that page. Nothing is written to disk, closing the tab discards the log, and leaving the page stops the recording — so it can never become a browsing history that Sockitt keeps. It needs permission to observe requests, asked for the first time you open it and never used anywhere else in the extension.',
+          el('br'),
+          el('br'),
+          'Two columns deserve a note. ', el('b', {}, 'Routed via'), ' is computed, not observed: Chrome tells an extension that a request happened but never which proxy carried it, so this is the same resolver the Route inspector uses, applied to every request. ', el('b', {}, 'Size'), ' is the response’s declared ', code('Content-Length'), ' — streamed and chunked responses do not carry one and show ', code('—'), ', so it is not a measure of how much data a proxy has carried.',
+        ]],
       ])
     ),
 
