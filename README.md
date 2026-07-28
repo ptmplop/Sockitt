@@ -30,12 +30,12 @@ default permission set, and a rule engine that compiles to an optimised PAC
 script.
 
 <p align="center">
-  <img src="img/screenshots/app-popup.png" width="640" alt="Sockitt popup"><br>
+  <img src="img/store/screenshot-1-popup.png" width="720" alt="Sockitt popup"><br>
   <sub>Popup: switch profiles on the left; on the right, where this tab routes, its rule, and where it exits</sub>
 </p>
 <p align="center">
-  <img src="img/screenshots/app-options.png" width="640" alt="Sockitt options - Auto Switch rules"><br>
-  <sub>Options: an ordered, first-match-wins rule table</sub>
+  <img src="img/store/screenshot-2-rules.png" width="720" alt="Sockitt options - Auto Switch rules"><br>
+  <sub>Options: an ordered, first-match-wins rule table, compiled to a PAC script</sub>
 </p>
 
 ## Features
@@ -168,7 +168,7 @@ npm run build       # production build to dist/
 npm run watch       # dev build with inline sourcemaps
 npm run zip         # store-ready sockitt.zip
 npm run crx         # signed sockitt.crx for Chrome Web Store uploads
-npm run shots       # regenerate the README screenshots from the built UI
+npm run shots       # regenerate the README + store screenshots from the built UI
 npm run icons       # regenerate icons from img/logo-source.png (needs ImageMagick)
 ```
 

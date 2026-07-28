@@ -17,7 +17,7 @@ npm run build       # minified production build to dist/
 npm run watch       # rebuild on change, inline sourcemaps
 npm run zip         # builds, then packs dist/ into sockitt.zip
 npm run crx         # builds, then signs dist/ into sockitt.crx (see Signing below)
-npm run shots       # builds, then regenerates img/screenshots/ from the real UI
+npm run shots       # builds, then regenerates img/store/ from the real UI
 npm run icons       # regenerate img/ assets from img/logo-source.png (ImageMagick)
 ```
 
@@ -48,16 +48,16 @@ src/
   options/               options UI, settings, and docs.ts (in-app docs)
   theme.css              design tokens shared by both pages
 scripts/gen-icons.mjs    logo-source.png to PNG icon set (ImageMagick)
-scripts/gen-screenshots.mjs  README screenshots, captured from the built UI
+scripts/gen-store-shots.mjs  README + Web Store screenshots, captured from the built UI
 build.mjs                esbuild driver and static copier
 test/pac.test.mjs        PAC, parity, and matcher tests
 ```
 
 ## Screenshots
 
-`npm run shots` rewrites `img/screenshots/` by loading the **real** `dist/`
+`npm run shots` rewrites `img/store/` by loading the **real** `dist/`
 pages in headless Chrome behind a small `chrome.*` shim that serves a scripted
-config from memory (`scripts/gen-screenshots.mjs`). Nothing is mocked up by
+config from memory (`scripts/gen-store-shots.mjs`). Nothing is mocked up by
 hand, so a screenshot cannot show a layout the code no longer produces — after
 a UI change, re-run it and commit the result.
 

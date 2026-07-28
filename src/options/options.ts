@@ -2166,7 +2166,7 @@ function watchSyncError(): void {
   });
 }
 
-/** "Exit 1.2.3.4 🇺🇸 · 45 ms" — shared by the live result and the reopen paint. */
+/** "Exit 203.0.113.42 🇺🇸 · 45 ms" — shared by the live result and the reopen paint. */
 /** Watch for connection-test results and paint the open editor's result line. */
 function watchProxyTests(): void {
   chrome.storage.onChanged.addListener((changes, area) => {

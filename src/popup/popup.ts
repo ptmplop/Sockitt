@@ -448,7 +448,7 @@ function detailHead(profile: Profile | undefined): HTMLElement {
 
 /**
  * A quiet one-line readout under the status: where THIS tab actually exits —
- * "Exit via 🇹🇭 · 27.145.178.97 · 237 ms".
+ * "Exit via 🇹🇭 · 203.0.113.42 · 237 ms".
  *
  * Every phase renders exactly one line, and the line exists from the first
  * paint (empty while idle) whenever the setting is on. The check resolves a

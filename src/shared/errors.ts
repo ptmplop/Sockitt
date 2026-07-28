@@ -335,7 +335,7 @@ export function errorAdvice(entry: ProxyErrorEntry): string | null {
   return ERROR_ADVICE.find(([needle]) => code.includes(needle))?.[1] ?? null;
 }
 
-/** "Bangkok — SOCKS5 27.145.178.97:1080" */
+/** "Bangkok — SOCKS5 203.0.113.42:1080" */
 export function describeRef(ref: ProxyRef): string {
   return `${ref.name} — ${ref.endpoint}`;
 }

@@ -85,7 +85,7 @@ const BASE_CASES = [
   ['api.anything.org', null, 'DIRECT'],
   ['cdn.assets.io', 'https://cdn.assets.io/app.js', SOCKS_P1],
   ['10.1.2.3', null, SOCKS_P1],
-  ['11.1.2.3', null, 'DIRECT'],
+  ['192.0.2.9', null, 'DIRECT'],
   ['db.intra.net', null, 'DIRECT'],      // routed to p1 but bypassed
   ['192.168.1.5', null, 'DIRECT'],       // CIDR bypass wins
   ['sub.disabled.io', null, 'DIRECT'],   // disabled rule is inert
@@ -529,9 +529,9 @@ test('each proxy scheme emits the correct PAC directive', () => {
 });
 
 test('fixedServersValue maps scheme through for the fast path', () => {
-  const v = lib.fixedServersValue('https', '1.2.3.4', 8080, ['<local>']);
+  const v = lib.fixedServersValue('https', '203.0.113.42', 8080, ['<local>']);
   assert.equal(v.rules.singleProxy.scheme, 'https');
-  assert.equal(v.rules.singleProxy.host, '1.2.3.4');
+  assert.equal(v.rules.singleProxy.host, '203.0.113.42');
   assert.equal(v.rules.singleProxy.port, 8080);
   assert.deepEqual(v.rules.bypassList, ['<local>']);
   assert.equal(lib.fixedServersValue('socks4', 'h', 1, []).rules.singleProxy.scheme, 'socks4');
