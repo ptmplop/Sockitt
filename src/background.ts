@@ -178,7 +178,7 @@ async function applyActiveInner(signal = true): Promise<void> {
 
   await chrome.proxy.settings.set({ value, scope: 'regular' });
   await applyIncognito(config);
-  const claimGlobal = await claimsGlobalIcon(config);
+  const pinned = await actionIsPinned();
 
   // Independent action/session updates — no ordering dependency between them.
   // APPLIED_KEY lands after settings.set above, so a popup exit-IP check it
@@ -189,12 +189,12 @@ async function applyActiveInner(signal = true): Promise<void> {
       ? chrome.storage.session.set({ [APPLIED_KEY]: { activeId: config.activeId, at: Date.now() } })
       : Promise.resolve(),
     chrome.action.setBadgeText({ text: '' }),
-    chrome.action.setTitle({ title: claimGlobal ? `Sockitt — ${label}` : 'Sockitt' }),
-    paintIcon(claimGlobal ? profile : null),
+    chrome.action.setTitle({ title: pinned ? `Sockitt — ${label}` : 'Sockitt' }),
+    paintIcon(pinned ? profile : null),
     chrome.action.setPopup({ popup: config.settings.quickSwitch ? '' : 'popup.html' }),
     // Independent of the global paint above rather than sequenced after it: a
     // tab's own icon is separate state, and wins wherever it is set.
-    paintScopedTabs(config, claimGlobal),
+    paintScopedTabs(config, pinned),
   ]);
 
   // The session timeline reads this. Appended after settings.set, so it records
@@ -871,27 +871,22 @@ async function paintIcon(profile: Profile | null): Promise<void> {
 }
 
 /**
- * Whether the GLOBAL icon and title may name a profile.
+ * Whether Sockitt has a toolbar button of its own — the only place its icon can
+ * be kept truthful.
  *
- * They are the fallback under every window, so they can only name a route while
- * every window is on it. Once incognito has a profile of its own that stops
- * being true, and the per-tab paints below are what keep each window honest —
- * but they cannot land before Chrome has started this worker, roughly a quarter
- * second after a window appears.
+ * Unpinned, the icon is seen in exactly one place: the extensions ("puzzle")
+ * menu. Chromium's menu row reads the icon when the menu is built, and its only
+ * update subscription is on the DEFAULT icon image, so a per-window repaint
+ * never reaches it — whatever it showed on opening stays until it is opened
+ * again. Nor can a paint be got in first: nothing can be drawn before Chrome has
+ * started this worker, measured at ~264ms after a window appears.
  *
- * That gap is invisible on the pinned toolbar button, which repaints in place
- * the moment the paint lands. It is NOT invisible in the extensions ("puzzle")
- * menu: Chromium's menu row reads the icon when the menu is built and its only
- * update subscription is on the DEFAULT icon image, so a tab-scoped repaint
- * never reaches it — whatever it showed on opening stays until it is reopened.
- * Unpinned, that menu is the only place the icon is ever seen, so the fallback
- * showing there must not be another window's profile. The plain Sockitt mark
- * claims nothing, which is the one thing that is true of every window.
+ * So while unpinned the icon names nothing at all. It is Sockitt's own mark,
+ * which cannot be out of date, and the popup answers what the icon no longer
+ * does. Pinned, the button repaints in place the moment anything lands, and
+ * every window gets the profile it actually routes on.
  */
-async function claimsGlobalIcon(config: Config): Promise<boolean> {
-  const allowed = await chrome.extension.isAllowedIncognitoAccess().catch(() => false);
-  // One scope: the global icon is right for every window, as it always was.
-  if (!incognitoActiveId(config, allowed)) return true;
+async function actionIsPinned(): Promise<boolean> {
   try {
     const { isOnToolbar } = await chrome.action.getUserSettings();
     return isOnToolbar !== false;
@@ -921,16 +916,16 @@ function toolbarFor(config: Config, activeId: string, incognito: boolean): Toolb
   return { imageData, title: incognito ? `Sockitt — ${label} (incognito)` : `Sockitt — ${label}` };
 }
 
-/** One toolbar per scope, computed once per sweep — the tile is two renders. */
-function scopeToolbars(config: Config): { regular: Toolbar; incognito: Toolbar } {
+/** The toolbar an incognito window should wear, computed once per sweep. */
+function incognitoToolbar(config: Config): Toolbar {
   // Being able to see an incognito tab at all means "Allow in Incognito" is
   // granted — Chrome hides them from extensions that don't have it.
   const id = incognitoActiveId(config, true);
-  return {
-    regular: toolbarFor(config, config.activeId, false),
-    incognito: toolbarFor(config, id ?? config.activeId, id !== null),
-  };
+  return toolbarFor(config, id ?? config.activeId, id !== null);
 }
+
+/** Sockitt's own mark, naming nothing — what an unpinned icon shows. */
+const PLAIN_TOOLBAR: Toolbar = { imageData: null, title: 'Sockitt' };
 
 async function applyTabToolbar(tabId: number, toolbar: Toolbar): Promise<void> {
   try {
@@ -943,91 +938,76 @@ async function applyTabToolbar(tabId: number, toolbar: Toolbar): Promise<void> {
 }
 
 /**
- * Whether regular tabs are being given toolbars of their own. Session storage,
- * not a module variable, for the same reason the badge's flag is: the worker is
+ * Whether any tab has been given a toolbar of its own. Session storage, not a
+ * module variable, for the same reason the badge's flag is: the worker is
  * recycled long before the state it painted goes away.
  */
 const TOOLBAR_PAINTING_KEY = 'sockitt-toolbar-painting';
 
 /**
- * Paint the per-tab toolbars.
+ * Give incognito tabs the toolbar of the scope they route on — and take it back
+ * when Sockitt is unpinned.
  *
- * Incognito tabs, always: the pinned button is on screen continuously, and must
- * not flash the regular profile while switching between incognito tabs. Tabs
- * following the regular profile are painted too rather than left to the global
- * icon — there is no reset for a tab-scoped icon, so one already set has to be
- * kept in step with a switch instead of lifted.
+ * Every incognito tab is painted, not just the active one: the pinned button is
+ * on screen continuously and must not flash the regular profile while the user
+ * moves between incognito tabs. Tabs following the regular profile are painted
+ * too rather than left to the global icon, because there is no reset for a
+ * tab-scoped icon — one already set has to be kept in step with a switch
+ * instead of lifted.
  *
- * Regular windows need one only while the global icon has stopped naming a
- * profile, and then only their ACTIVE tab: that is the only tab a window's
- * toolbar — or its row in the extensions menu — ever reads.
- *
- * Once regular tabs have been painted they go on being painted, even after the
- * reason ends. Same no-reset trap: a tile left behind on a tab that never
- * navigates again would sit there through the next switch, showing the profile
- * before it.
+ * That same no-reset trap is why unpinning has to sweep: an icon painted while
+ * pinned would otherwise sit on its tab naming a profile after the toolbar
+ * button it belonged to is gone. Overwriting with the plain mark is the only
+ * way to take it back.
  */
-async function paintScopedTabs(config: Config, claimGlobal: boolean): Promise<void> {
-  const tabs = await chrome.tabs.query({}).catch(() => [] as chrome.tabs.Tab[]);
-  const incognito = tabs.filter((t) => t.incognito && t.id !== undefined);
-
+async function paintScopedTabs(config: Config, pinned: boolean): Promise<void> {
   const store = await chrome.storage.session.get(TOOLBAR_PAINTING_KEY);
   const wasPainting = store[TOOLBAR_PAINTING_KEY] === true;
-  if (!claimGlobal && !wasPainting) {
-    await chrome.storage.session.set({ [TOOLBAR_PAINTING_KEY]: true });
-  }
-  const regular =
-    claimGlobal && !wasPainting
-      ? []
-      : tabs.filter((t) => !t.incognito && t.active && t.id !== undefined);
+  if (!pinned && !wasPainting) return; // nothing painted, nothing to take back
 
-  if (!incognito.length && !regular.length) return;
-  const toolbars = scopeToolbars(config);
-  await Promise.all([
-    ...incognito.map((t) => applyTabToolbar(t.id!, toolbars.incognito)),
-    ...regular.map((t) => applyTabToolbar(t.id!, toolbars.regular)),
-  ]);
+  const tabs = await chrome.tabs.query({}).catch(() => [] as chrome.tabs.Tab[]);
+
+  if (!pinned) {
+    // Sweep every tab, not only the incognito ones: an older version painted
+    // regular tabs too, and those marks outlive the update that stopped.
+    await Promise.all(
+      tabs.filter((t) => t.id !== undefined).map((t) => applyTabToolbar(t.id!, PLAIN_TOOLBAR))
+    );
+    await chrome.storage.session.remove(TOOLBAR_PAINTING_KEY);
+    return;
+  }
+
+  const incognito = tabs.filter((t) => t.incognito && t.id !== undefined);
+  if (!incognito.length) return;
+  if (!wasPainting) await chrome.storage.session.set({ [TOOLBAR_PAINTING_KEY]: true });
+  const toolbar = incognitoToolbar(config);
+  await Promise.all(incognito.map((t) => applyTabToolbar(t.id!, toolbar)));
 }
 
 /** Paint from the stored config — for events that carry none. */
 async function refreshScopedTabs(): Promise<void> {
   try {
     const config = cachedConfig ?? (await loadConfig());
-    await paintScopedTabs(config, await claimsGlobalIcon(config));
+    await paintScopedTabs(config, await actionIsPinned());
   } catch {
     // nothing to paint
   }
 }
 
 /**
- * Cheap sync pre-filter for the tab events: only a split configuration ever
- * needs a per-tab toolbar, so nobody else pays for one on every navigation.
- * A navigation CLEARS the tab's own state, so a tab that stops qualifying
- * cannot be left stale by this — it falls back to the global icon, which by
- * then is the one naming the route.
- */
-function mayNeedTabToolbar(): boolean {
-  return !cachedConfig || !!cachedConfig.settings.incognitoProfileId;
-}
-
-/**
- * Repaint ONE tab, for the navigation and tab-switch paths.
+ * Repaint ONE incognito tab, for the navigation path.
  *
  * Chrome drops tab-scoped action state when a navigation commits — the same
  * reason the per-tab route badge is redrawn from onUpdated — so a tab painted
  * when its window opened loses its mark the moment the user goes anywhere,
- * falling back to the global icon: for an incognito window, the REGULAR
- * profile, which is exactly the answer this feature exists to stop showing.
+ * falling back to the global icon: the REGULAR profile, which is exactly the
+ * answer this feature exists to stop showing.
  */
-async function repaintTabToolbar(tabId: number, incognito: boolean): Promise<void> {
+async function repaintIncognitoTab(tabId: number): Promise<void> {
   try {
+    if (!(await actionIsPinned())) return; // unpinned: the mark, and nothing else
     const config = cachedConfig ?? (await loadConfig());
-    if (!incognito) {
-      const store = await chrome.storage.session.get(TOOLBAR_PAINTING_KEY);
-      if (store[TOOLBAR_PAINTING_KEY] !== true) return; // the global icon says it
-    }
-    const toolbars = scopeToolbars(config);
-    await applyTabToolbar(tabId, incognito ? toolbars.incognito : toolbars.regular);
+    await applyTabToolbar(tabId, incognitoToolbar(config));
   } catch {
     // tab gone
   }
@@ -1229,9 +1209,9 @@ void chrome.storage.session
 void loadConfig()
   .then(async (config) => {
     await applyIncognito(config);
-    // The toolbars too: a window may have opened, or the extension been pinned,
-    // while this worker was not running.
-    await paintScopedTabs(config, await claimsGlobalIcon(config));
+    // The toolbars too: a window may have opened, or the extension been pinned
+    // or unpinned, while this worker was not running.
+    await paintScopedTabs(config, await actionIsPinned());
   })
   .catch(() => undefined);
 
@@ -1375,22 +1355,7 @@ chrome.tabs.onCreated.addListener((tab) => {
   if (tab.incognito) void refreshScopedTabs();
 });
 
-chrome.tabs.onActivated.addListener((info) => {
-  void updateTabBadge(info.tabId);
-  // The window's toolbar reads its ACTIVE tab, so a switch changes which paint
-  // is on show — and a tab that has never been painted has none.
-  if (mayNeedTabToolbar()) void repaintActivatedTab(info.tabId);
-});
-
-/** onActivated carries no incognito flag, so the tab has to be asked. */
-async function repaintActivatedTab(tabId: number): Promise<void> {
-  try {
-    const tab = await chrome.tabs.get(tabId);
-    await repaintTabToolbar(tabId, tab.incognito === true);
-  } catch {
-    // tab gone
-  }
-}
+chrome.tabs.onActivated.addListener((info) => void updateTabBadge(info.tabId));
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   // Repaint on cross-page navigation (changeInfo.url) AND on load status — a
@@ -1399,11 +1364,9 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (!changeInfo.url && !changeInfo.status) return;
   void updateTabBadge(tabId);
   // The tab-scoped ICON goes the same way at the same moment, and takes the
-  // window's whole toolbar with it. Both edges are honoured for the same reason
-  // as above; painting twice is idempotent.
-  if (mayNeedTabToolbar() && (tab.incognito || tab.active)) {
-    void repaintTabToolbar(tabId, tab.incognito === true);
-  }
+  // incognito window's whole toolbar with it. Both edges are honoured for the
+  // same reason as above; painting twice is idempotent.
+  if (tab.incognito) void repaintIncognitoTab(tabId);
 });
 
 // Pinning or unpinning changes whether the global icon may name a profile at

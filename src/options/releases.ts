@@ -28,11 +28,11 @@ interface Release {
 const RELEASES: Release[] = [
   {
     from: '1.21.0',
-    to: '1.21.3',
+    to: '1.21.4',
     date: '30–31 July 2026',
     title: 'Incognito windows say what they are',
     notes: [
-      'While Sockitt is not pinned to the toolbar and incognito has a profile of its own, the icon no longer names a profile browser-wide — it shows the plain Sockitt mark, and each window is given the profile it actually uses. Unpinned, the icon is only ever seen in the extensions (puzzle) menu, and that menu reads the icon once when it opens and never again, so a window whose own icon had not been drawn yet could sit there showing another window’s profile. The mark claims nothing, which is the one thing true of every window; pin Sockitt and the icon names the active profile as before.',
+      'The icon shows the plain Sockitt mark while Sockitt is not pinned to the toolbar. Unpinned, it is only ever seen in Chrome’s puzzle-piece menu, and that menu reads the icon once when it opens and never again — so it could show a profile that has since changed, or the profile of a window you are not in. Nothing an extension can do makes it current, so it now says nothing rather than something that might be wrong, and a banner on the options page explains it. Pin Sockitt and the icon names the profile of whichever window it sits above, incognito included.',
       'The incognito toolbar icon held only until you went somewhere. Chrome drops a tab’s own icon when a navigation commits, and the icon underneath is the browser-wide one — so the first page you opened put the regular profile’s mark back over an incognito window. It is redrawn as each page commits now, the same way the per-tab route badge already was.',
       'The incognito setting says whether Chrome is actually letting Sockitt near incognito, and names the switch — Extensions › Sockitt › Details › Allow in Incognito — with a button that opens that page. It used to mention the requirement only when it was missing, and by replacing the description of what the setting does; whoever had it granted was never told what the setting depends on. Choosing a profile without that access now raises the same warning banner as any other setting that is on but inert.',
       'With an incognito profile set, an incognito window used to show the toolbar icon of the profile your REGULAR windows were on while its own traffic went somewhere else entirely. The icon over an incognito window is now that window’s profile, and so is the tooltip.',

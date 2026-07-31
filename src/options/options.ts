@@ -699,21 +699,32 @@ let tabsPermGranted: boolean | null = null;
  * cannot outlive the change.
  */
 let incognitoAccessGranted: boolean | null = null;
+/**
+ * Whether Sockitt has a toolbar button. Not a permission either, but it fails
+ * the same way: unpinned, Chrome gives the icon nowhere it can be kept current,
+ * so it stops naming the active profile (see the worker's actionIsPinned).
+ */
+let actionPinned: boolean | null = null;
 
 async function refreshPermState(): Promise<void> {
-  const [auth, tabs, incognito] = await Promise.all([
+  const [auth, tabs, incognito, userSettings] = await Promise.all([
     chrome.permissions.contains(AUTH_PERMS).catch(() => false),
     chrome.permissions.contains(TABS_PERMS).catch(() => false),
     chrome.extension.isAllowedIncognitoAccess().catch(() => false),
+    chrome.action.getUserSettings().catch(() => ({ isOnToolbar: true })),
   ]);
-  const incognitoMoved = incognito !== incognitoAccessGranted;
+  const pinned = userSettings.isOnToolbar !== false;
+  // Neither of these is a permission, so neither fires permissions.onAdded — the
+  // change gate below has to know they moved or the banners would not follow.
+  const asideMoved = incognito !== incognitoAccessGranted || pinned !== actionPinned;
   incognitoAccessGranted = incognito;
+  actionPinned = pinned;
   // Told BEFORE the change gate below, not after: this page tracks the answer
   // for its own banner and returns early when nothing moved, so gating the
   // dashboard on that would starve it of the very first answer. setAuthGranted
   // does its own no-op check.
   setAuthGranted(auth);
-  if (auth === authPermGranted && tabs === tabsPermGranted && !incognitoMoved) return;
+  if (auth === authPermGranted && tabs === tabsPermGranted && !asideMoved) return;
   authPermGranted = auth;
   tabsPermGranted = tabs;
   updatePermBanners();
@@ -765,6 +776,11 @@ function incognitoAccessMissing(): boolean {
   return incognitoAccessGranted === false && !!config.settings.incognitoProfileId;
 }
 
+/** No toolbar button, so no icon that can be kept up to date. */
+function actionUnpinned(): boolean {
+  return actionPinned === false;
+}
+
 /**
  * Sockitt's own row on the extensions page, where "Allow in Incognito" lives.
  * A link cannot go there — chrome:// is not navigable from an extension page —
@@ -784,12 +800,18 @@ async function ensureExitIpPermission(): Promise<boolean> {
   return chrome.permissions.request(EXIT_IP_PERMS).catch(() => false);
 }
 
-function warnBanner(message: string, action: string, onclick: () => void): HTMLElement {
+/**
+ * `action` is optional: pinning is done from Chrome's own puzzle-piece menu,
+ * which no extension API can open, so that banner has to say where to go rather
+ * than offer to take you there. A button that only pretended to would be worse
+ * than none.
+ */
+function warnBanner(message: string, action?: string, onclick?: () => void): HTMLElement {
   return el(
     'div',
     { class: 'warn-banner' },
     el('span', {}, message),
-    el('button', { class: 'btn sm', onclick }, action)
+    action ? el('button', { class: 'btn sm', onclick }, action) : null
   );
 }
 
@@ -820,6 +842,13 @@ function permWarningBanners(): HTMLElement[] {
         'Incognito windows are set to use their own profile, but Chrome hasn’t allowed Sockitt in incognito — those windows follow the regular profile instead. Turn on "Allow in Incognito" under Details.',
         'Open Sockitt’s details',
         openExtensionDetails
+      )
+    );
+  }
+  if (actionUnpinned()) {
+    banners.push(
+      warnBanner(
+        'Sockitt isn’t pinned to the toolbar, so its icon shows the plain Sockitt mark instead of the active profile. Unpinned, the icon appears only in Chrome’s puzzle-piece menu, which reads it once when the menu opens and never updates it — it could show a profile that has since changed, or another window’s. To pin: click the puzzle piece in the toolbar, then the pin beside Sockitt.'
       )
     );
   }
@@ -2803,6 +2832,10 @@ void Promise.all([loadConfig(), loadUiPrefs()]).then(([c, prefs]) => {
   // configs, profiles created before auth support, or a grant revoked from
   // chrome://extensions.
   void refreshPermState();
+  // Pinning is done from Chrome's own menu, with this page sitting open behind
+  // it — so the banner has to answer to that, not only to a reload. Chrome 127+;
+  // older builds pick it up the next time this page is opened.
+  chrome.action.onUserSettingsChanged?.addListener(() => void refreshPermState());
   chrome.permissions.onAdded.addListener(() => {
     void refreshPermState();
     if (dashboardMounted()) repaintDashboard();
