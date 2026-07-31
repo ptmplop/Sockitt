@@ -691,18 +691,29 @@ function targetSelect(ownerId: string, value: string, onChange: (v: string) => v
  */
 let authPermGranted: boolean | null = null;
 let tabsPermGranted: boolean | null = null;
+/**
+ * "Allow in Incognito" — Chrome's own switch, not an optional permission, so it
+ * cannot be requested and never fires permissions.onAdded. Tracked here with
+ * the two above because it fails the same way: a setting that is on and inert.
+ * Granting it reloads the extension, which reloads this page, so a stale answer
+ * cannot outlive the change.
+ */
+let incognitoAccessGranted: boolean | null = null;
 
 async function refreshPermState(): Promise<void> {
-  const [auth, tabs] = await Promise.all([
+  const [auth, tabs, incognito] = await Promise.all([
     chrome.permissions.contains(AUTH_PERMS).catch(() => false),
     chrome.permissions.contains(TABS_PERMS).catch(() => false),
+    chrome.extension.isAllowedIncognitoAccess().catch(() => false),
   ]);
+  const incognitoMoved = incognito !== incognitoAccessGranted;
+  incognitoAccessGranted = incognito;
   // Told BEFORE the change gate below, not after: this page tracks the answer
   // for its own banner and returns early when nothing moved, so gating the
   // dashboard on that would starve it of the very first answer. setAuthGranted
   // does its own no-op check.
   setAuthGranted(auth);
-  if (auth === authPermGranted && tabs === tabsPermGranted) return;
+  if (auth === authPermGranted && tabs === tabsPermGranted && !incognitoMoved) return;
   authPermGranted = auth;
   tabsPermGranted = tabs;
   updatePermBanners();
@@ -749,6 +760,23 @@ function badgePermMissing(): boolean {
   return tabsPermGranted === false && config.settings.badgeResult;
 }
 
+/** A profile is chosen for incognito, but Chrome won't let Sockitt near it. */
+function incognitoAccessMissing(): boolean {
+  return incognitoAccessGranted === false && !!config.settings.incognitoProfileId;
+}
+
+/**
+ * Sockitt's own row on the extensions page, where "Allow in Incognito" lives.
+ * A link cannot go there — chrome:// is not navigable from an extension page —
+ * but tabs.create can, and the ?id= form opens the Details view directly rather
+ * than leaving the user to find Sockitt in a list.
+ */
+function openExtensionDetails(): void {
+  void chrome.tabs
+    .create({ url: `chrome://extensions/?id=${chrome.runtime.id}` })
+    .catch(() => undefined);
+}
+
 /** ipconfig.is origin grant, needed by the exit-IP check and the proxy test. */
 async function ensureExitIpPermission(): Promise<boolean> {
   const has = await chrome.permissions.contains(EXIT_IP_PERMS).catch(() => false);
@@ -783,6 +811,15 @@ function permWarningBanners(): HTMLElement[] {
         'The per-tab route badge is switched on, but the optional "tabs" permission hasn’t been granted — the badge stays blank.',
         'Enable badge',
         () => void requestTabsPermission()
+      )
+    );
+  }
+  if (incognitoAccessMissing()) {
+    banners.push(
+      warnBanner(
+        'Incognito windows are set to use their own profile, but Chrome hasn’t allowed Sockitt in incognito — those windows follow the regular profile instead. Turn on "Allow in Incognito" under Details.',
+        'Open Sockitt’s details',
+        openExtensionDetails
       )
     );
   }
@@ -1634,7 +1671,7 @@ function settingsPanel(): HTMLElement {
     scheduleSave();
   };
 
-  const incognito = el('select', { class: 'input' }) as HTMLSelectElement;
+  const incognito = el('select', { class: 'input', style: { maxWidth: '280px' } }) as HTMLSelectElement;
   incognito.append(
     el('option', { value: '' }, 'Same as regular windows'),
     el('option', { value: DIRECT }, 'Direct'),
@@ -1645,6 +1682,10 @@ function settingsPanel(): HTMLElement {
   incognito.onchange = () => {
     s.incognitoProfileId = incognito.value;
     scheduleSave();
+    // Choosing a profile is what makes missing incognito access matter — and
+    // clearing it is what stops it mattering. Neither reaches the banner on its
+    // own, because no permission event fires for Chrome's own switch.
+    updatePermBanners();
   };
   const landing = el('select', { class: 'input' }) as HTMLSelectElement;
   landing.append(
@@ -1662,13 +1703,27 @@ function settingsPanel(): HTMLElement {
     { class: 'note' },
     'Route incognito windows through their own profile; regular windows are unaffected. Those windows show that profile in the toolbar and the popup, and it can be changed from there too.'
   );
+  // The requirement belongs on the field in BOTH states. It used to replace the
+  // description above when access was missing — so whoever had it granted was
+  // never told what the setting depends on (and could not tell that revoking it
+  // would quietly undo this), while whoever had not was told the requirement
+  // instead of what the setting does. A second line says which, and names the
+  // exact switch rather than pointing at a page with dozens of them.
+  const incognitoAccessNote = el('span', { class: 'note' });
   void chrome.extension
     .isAllowedIncognitoAccess()
     .then((allowed) => {
-      if (!allowed) {
-        incognitoNote.textContent =
-          'Requires "Allow in Incognito" for Sockitt at chrome://extensions — until then, incognito follows the regular profile.';
+      if (allowed) {
+        incognitoAccessNote.textContent =
+          'Sockitt is allowed in incognito (Extensions › Sockitt › Details › Allow in Incognito), so this is in force.';
+        return;
       }
+      incognitoAccessNote.className = 'note warn';
+      incognitoAccessNote.setAttribute('role', 'alert');
+      incognitoAccessNote.replaceChildren(
+        'Needs Chrome to allow Sockitt in incognito first — Extensions › Sockitt › Details › Allow in Incognito. Until then incognito windows follow the regular profile. ',
+        el('button', { class: 'linklike', onclick: openExtensionDetails }, 'Open Sockitt’s details')
+      );
     })
     .catch(() => undefined);
 
@@ -1689,9 +1744,11 @@ function settingsPanel(): HTMLElement {
       ),
       quickList,
       field('On browser startup, activate', startup, { style: { maxWidth: '280px' } }),
+      // The width goes on the select, not the field: this is the one field here
+      // carrying two lines of copy, and capping the whole column would set them
+      // in a 280px measure — four lines of amber in a ribbon down the page.
       field('Incognito windows use', incognito, {
-        style: { maxWidth: '280px' },
-        extra: [incognitoNote],
+        extra: [incognitoNote, incognitoAccessNote],
       }),
       toggleRow(
         'Reload tab after switching',

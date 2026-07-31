@@ -28,9 +28,11 @@ interface Release {
 const RELEASES: Release[] = [
   {
     from: '1.21.0',
-    date: '30 July 2026',
+    to: '1.21.1',
+    date: '30–31 July 2026',
     title: 'Incognito windows say what they are',
     notes: [
+      'The incognito setting says whether Chrome is actually letting Sockitt near incognito, and names the switch — Extensions › Sockitt › Details › Allow in Incognito — with a button that opens that page. It used to mention the requirement only when it was missing, and by replacing the description of what the setting does; whoever had it granted was never told what the setting depends on. Choosing a profile without that access now raises the same warning banner as any other setting that is on but inert.',
       'With an incognito profile set, an incognito window used to show the toolbar icon of the profile your REGULAR windows were on while its own traffic went somewhere else entirely. The icon over an incognito window is now that window’s profile, and so is the tooltip.',
       'The popup opened in an incognito window is about that window: it reads out the incognito profile, and picking a profile there sets the incognito one instead of quietly changing the windows you were not looking at. A row at the top puts it back to following your regular profile, and an ‘Incognito’ mark says which window you are in.',
       'Overrides set in an incognito window stay in incognito windows — they used to be the same temporary rules the regular scope was using, so a route chosen in one carried into the other. The per-tab route badge and “reload tab after switching” answer for the incognito scope now too.',
