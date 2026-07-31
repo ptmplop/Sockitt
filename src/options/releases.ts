@@ -27,6 +27,17 @@ interface Release {
 
 const RELEASES: Release[] = [
   {
+    from: '1.21.0',
+    date: '30 July 2026',
+    title: 'Incognito windows say what they are',
+    notes: [
+      'With an incognito profile set, an incognito window used to show the toolbar icon of the profile your REGULAR windows were on while its own traffic went somewhere else entirely. The icon over an incognito window is now that window’s profile, and so is the tooltip.',
+      'The popup opened in an incognito window is about that window: it reads out the incognito profile, and picking a profile there sets the incognito one instead of quietly changing the windows you were not looking at. A row at the top puts it back to following your regular profile, and an ‘Incognito’ mark says which window you are in.',
+      'Overrides set in an incognito window stay in incognito windows — they used to be the same temporary rules the regular scope was using, so a route chosen in one carried into the other. The per-tab route badge and “reload tab after switching” answer for the incognito scope now too.',
+      'The exit-IP line does not run in an incognito window. It could only ever have measured the regular route, so it says where it applies rather than reporting a reading that belongs to another window.',
+    ],
+  },
+  {
     from: '1.20.0',
     to: '1.20.2',
     date: '29 July 2026',

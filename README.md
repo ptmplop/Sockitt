@@ -93,7 +93,9 @@ script.
   exit IP/country/latency (auth included), and restores your configuration. Like
   the exit-IP line, this uses the opt-in IP address lookups (off by default).
 - **Incognito routing.** Optionally give incognito windows their own profile
-  (needs "Allow in Incognito").
+  (needs "Allow in Incognito"). Those windows then say so for themselves: the
+  toolbar icon over one is that profile's, and the popup opened there reads out
+  and switches the incognito profile rather than the active one.
 - **Quick switch.** Cycle a chosen set of profiles from the toolbar button or a
   keyboard shortcut, without opening the popup.
 - **Sync and control.** Optional configuration sync across machines via your

@@ -2,6 +2,7 @@ import { avatarEl, builtinTile, textColorFor } from '../shared/avatar';
 import { EXIT_IP_PERMS, EXIT_IP_URL, checkExitIp, flagSrc } from '../shared/exitip';
 import { compileRule, pacRequestUrl, resolveRoute, testBypass, testCondition } from '../shared/match';
 import { parseRuleList } from '../shared/rulelist';
+import { Scope, incognitoActiveId } from '../shared/scope';
 import {
   APPLIED_KEY,
   OPEN_PAGE_KEY,
@@ -48,6 +49,70 @@ let proxyAlert: ProxyAlert | null = null;
 let tempRules: SwitchRule[] = [];
 /** Left-pane profile filter — only surfaced when there are many profiles. */
 let filterText = '';
+/** Whether this popup was opened from an incognito window (see detectScope). */
+let incognitoWindow = false;
+/** Whether Chrome lets Sockitt drive incognito at all ("Allow in Incognito"). */
+let incognitoAllowed = false;
+
+/* ---- which scope this window is on ---- */
+
+/**
+ * The popup speaks for the window it was opened in. In an incognito window with
+ * its own profile that is NOT the active one — so every readout below (the
+ * detail head, the route, the exit line, the tick in the list) is resolved from
+ * here rather than from config.activeId, which describes windows this user
+ * isn't looking at.
+ *
+ * Null when there is no separate scope: no incognito access, no incognito
+ * profile, or a plain regular window. Then the window rides the regular
+ * settings and the regular answers are the true ones.
+ */
+function scopedId(): string | null {
+  return incognitoWindow ? incognitoActiveId(config, incognitoAllowed) : null;
+}
+
+/** The profile THIS window routes by. */
+function scopeActiveId(): string {
+  return scopedId() ?? config.activeId;
+}
+
+/** True when this window has a proxy scope of its own to read and to set. */
+function ownScope(): boolean {
+  return scopedId() !== null;
+}
+
+/**
+ * What the left list ticks. In an incognito window that is the incognito CHOICE
+ * — '' meaning "same as regular windows", which is a row of its own — so the
+ * list shows one tick, on the thing a click there would change.
+ */
+function selectedId(): string {
+  return incognitoWindow && incognitoAllowed ? config.settings.incognitoProfileId : config.activeId;
+}
+
+/** Which scope's overrides this window reads and writes. */
+function scope(): Scope {
+  return ownScope() ? 'incognito' : 'regular';
+}
+
+/**
+ * Which window this popup belongs to. windows.getCurrent is the authority — it
+ * answers for the window hosting the popup — with the active tab as a fallback
+ * for the case where it can't be read. In spanning mode (see the manifest) the
+ * popup page itself runs in the regular profile, so chrome.extension
+ * .inIncognitoContext is false here even in an incognito window and cannot be
+ * used for this.
+ */
+async function detectScope(): Promise<boolean> {
+  incognitoAllowed = await chrome.extension.isAllowedIncognitoAccess().catch(() => false);
+  try {
+    incognitoWindow = (await chrome.windows.getCurrent()).incognito === true;
+    return true;
+  } catch {
+    incognitoWindow = false;
+    return false;
+  }
+}
 
 /**
  * Settings glyph for the popup's two "open options" buttons — a Feather-style
@@ -74,6 +139,7 @@ type ExitInfo = { ip: string; iso?: string; country?: string; ms: number };
 type ExitState =
   | { phase: 'idle' }
   | { phase: 'no-perm' }
+  | { phase: 'off-scope' }
   | { phase: 'checking' }
   | ({ phase: 'ok' } & ExitInfo)
   | { phase: 'error'; message: string };
@@ -159,7 +225,7 @@ async function probeTabExit(tabUrl: string, tabHost: string, stillCurrent: () =>
  * differ (an override/rule sends the tab elsewhere), probe the tab's own route.
  */
 async function fetchTabExit(stillCurrent: () => boolean): Promise<ExitInfo> {
-  const active = config.profiles.find((p) => p.id === config.activeId);
+  const active = config.profiles.find((p) => p.id === scopeActiveId());
   if (!tab || !active || !tabNeedsProbe(active)) return checkExitIp(6000);
   return probeTabExit(tab.url, tab.host, stillCurrent);
 }
@@ -167,6 +233,18 @@ async function fetchTabExit(stillCurrent: () => boolean): Promise<ExitInfo> {
 async function maybeCheckExit(): Promise<void> {
   if (!config.settings.exitIpCheck) {
     exit = { phase: 'idle' };
+    return;
+  }
+  // The lookup can't be run on this window's route. Sockitt's pages are regular-
+  // profile pages (spanning mode), so a fetch from here — and the worker's own
+  // tab probe, which swaps the REGULAR proxy to measure — both report the
+  // regular scope. Reporting that as "where this tab exits" would be a wrong
+  // answer given confidently, and the probe would churn other windows' proxy to
+  // produce it, so say what is and isn't known instead.
+  if (ownScope()) {
+    exitSeq++; // a check from before the scope was known must not land now
+    exit = { phase: 'off-scope' };
+    updateExitLine();
     return;
   }
   const has = await chrome.permissions.contains(EXIT_IP_PERMS).catch(() => false);
@@ -260,14 +338,21 @@ async function init(): Promise<void> {
   markPopupOpen();
   config = await loadConfig();
   proxyAlert = await loadProxyAlert();
-  await loadOverride(config.activeId);
+  const scopeKnown = await detectScope();
   try {
     const [active] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    // Fallback only: the tab answers for the last focused window, which is the
+    // popup's own — but only windows.getCurrent answers for it by definition, so
+    // a reading from there is never second-guessed.
+    if (!scopeKnown && active?.incognito) incognitoWindow = true;
     const target = tabTarget(active);
     tab = target ? { ...target, id: active?.id } : null;
   } catch {
     tab = null;
   }
+  // After the scope is known: in an incognito window the overrides to load are
+  // that scope's, on that scope's profile.
+  await loadOverride(scopeActiveId(), scope());
   render();
   void maybeCheckExit();
   chrome.storage.onChanged.addListener((changes, area) => {
@@ -298,21 +383,33 @@ async function commitConfig(mutate: (fresh: Config) => boolean | void): Promise<
   return true;
 }
 
+/**
+ * Pick the profile for THIS window. In an incognito window that means setting
+ * the incognito profile ('' = follow the regular one), not activeId: a picker
+ * that changed windows the user cannot see, while the window in front of them
+ * carried on through the incognito proxy, is the switcher looking active and
+ * being inert. Regular windows are untouched either way.
+ */
 async function setActive(id: string): Promise<void> {
+  const picksIncognito = incognitoWindow && incognitoAllowed;
+  // Where the window will route after this change, and on whose overrides.
+  const nextId = picksIncognito ? id || config.activeId : id;
+  const nextScope: Scope = picksIncognito && id ? 'incognito' : 'regular';
   // Load the new profile's override before the single render so the section
   // never flashes the previous profile's state. The background applies the
   // proxy (and reloads the tab if refreshOnSwitch is on) off the storage write.
-  await loadOverride(id);
+  await loadOverride(nextId, nextScope);
   // Recheck the exit IP for the new route, but keep the previous reading shown
   // dimmed (lastExit) rather than blanking to "checking…".
   if (config.settings.exitIpCheck && exit.phase === 'ok') {
     exitSeq++; // invalidate any in-flight check
     exit = { phase: 'checking' };
   }
-  // Re-read and change only activeId, so a background sync/rule-list change that
-  // landed while the popup was open isn't overwritten by our stale snapshot.
+  // Re-read and change only the one field, so a background sync/rule-list change
+  // that landed while the popup was open isn't overwritten by our stale snapshot.
   await commitConfig((fresh) => {
-    fresh.activeId = id;
+    if (picksIncognito) fresh.settings.incognitoProfileId = id;
+    else fresh.activeId = id;
   });
   render();
   wiggleSock();
@@ -323,20 +420,23 @@ async function setActive(id: string): Promise<void> {
  * versions could store several temp rules; collapse to one so the UI only
  * ever manages a single override slot.
  */
-async function loadOverride(profileId: string): Promise<void> {
-  const rules = await loadTempRules(profileId);
+async function loadOverride(profileId: string, on: Scope): Promise<void> {
+  const rules = await loadTempRules(profileId, on);
   tempRules = rules.slice(0, 1);
   // Legacy-state cleanup. Awaited: saveTempRules is a read-modify-write over
   // the shared map, so letting it float would race the user's own override
   // clicks. The branch never fires on the common path (≤1 rule), so first
   // paint doesn't pay for it.
-  if (rules.length > 1) await saveTempRules(profileId, tempRules);
+  if (rules.length > 1) await saveTempRules(profileId, on, tempRules);
 }
 
 async function setOverride(profileId: string, rule: SwitchRule | null): Promise<void> {
   tempRules = rule ? [rule] : [];
   await requestTabReload();
-  await saveTempRules(profileId, tempRules);
+  // This window's scope, not simply the profile's: an override set in an
+  // incognito window drives the incognito settings alone, and never follows the
+  // user back into a regular window.
+  await saveTempRules(profileId, scope(), tempRules);
   scheduleExitCheck(); // the tab's route just changed — re-probe where it exits
 }
 
@@ -397,13 +497,13 @@ function subFor(profile: Profile): string {
 }
 
 function tempRulesFor(profileId: string): SwitchRule[] {
-  return config.activeId === profileId ? tempRules : [];
+  return scopeActiveId() === profileId ? tempRules : [];
 }
 
 /* ---- right-pane detail header: the active profile, compact ---- */
 
 function detailHead(profile: Profile | undefined): HTMLElement {
-  const { activeId } = config;
+  const activeId = scopeActiveId();
   let tile: HTMLElement;
   let name: string;
   let status: string;
@@ -437,6 +537,18 @@ function detailHead(profile: Profile | undefined): HTMLElement {
         'div',
         { class: 'dh-top' },
         el('div', { class: 'dh-name', title: name }, name),
+        // Says which scope the name above belongs to — without it the head
+        // reads as the browser-wide profile, which in here it is not.
+        ownScope()
+          ? el(
+              'span',
+              {
+                class: 'dh-scope',
+                title: 'This incognito window routes through its own profile. Regular windows keep the active one.',
+              },
+              'incognito'
+            )
+          : null,
         el('span', { class: `sdot ${dot}` })
       ),
       el('div', { class: 'dh-status' }, status),
@@ -487,6 +599,16 @@ function exitLine(): HTMLElement | null {
         { class: 'exit-line exit-enable', onclick: () => void enableExitCheck() },
         'Show where this tab exits…'
       );
+    case 'off-scope':
+      return el(
+        'span',
+        {
+          class: 'exit-line dim',
+          title:
+            'Sockitt can only measure the exit IP of regular windows. This window is on the incognito profile, which Chrome keeps separate — the reading would be the regular route’s, not this one’s.',
+        },
+        'Exit check runs in regular windows'
+      );
     case 'checking':
       // Keep the last good reading visible (dimmed) instead of blanking.
       return lastExit
@@ -508,7 +630,7 @@ function profileRow(
   sub: string,
   color?: string
 ): HTMLElement {
-  const active = config.activeId === id;
+  const active = selectedId() === id;
   const row = el(
     'button',
     { class: `row${active ? ' active' : ''}`, onclick: () => setActive(id) },
@@ -938,7 +1060,7 @@ function siteRuleCard(active: SwitchProfile): HTMLElement {
  * controls only where the kind actually supports them.
  */
 function thisTab(profile: Profile | undefined): (Node | null)[] {
-  const { activeId } = config;
+  const activeId = scopeActiveId();
   const noProfiles = config.profiles.length === 0;
 
   if (!tab) {
@@ -1066,11 +1188,37 @@ function updateAlertButton(): void {
   if (btn) actions.prepend(btn);
 }
 
+/**
+ * Names the window the popup is speaking for. Only ever shown in an incognito
+ * window, where what the popup says applies to that scope alone — a switcher
+ * that looks identical in both windows but changes a different setting in each
+ * needs to say which one it is in.
+ */
+function scopeChip(): HTMLElement | null {
+  if (!incognitoWindow || !incognitoAllowed) return null;
+  return el(
+    'span',
+    {
+      class: 'scope-chip',
+      title: ownScope()
+        ? 'Incognito window — routed by its own profile. Picking a profile here changes only incognito windows.'
+        : 'Incognito window — currently following the regular profile. Picking a profile here changes only incognito windows.',
+    },
+    'Incognito'
+  );
+}
+
 function topBar(): HTMLElement {
   return el(
     'div',
     { class: 'topbar' },
-    el('span', { class: 'brand' }, el('img', { class: 'mark', src: 'img/logo-mark.png', alt: '' }), 'Sockitt'),
+    el(
+      'span',
+      { class: 'brand' },
+      el('img', { class: 'mark', src: 'img/logo-mark.png', alt: '' }),
+      'Sockitt',
+      scopeChip()
+    ),
     el(
       'div',
       { class: 'topbar-actions' },
@@ -1108,6 +1256,21 @@ function applyFilter(): void {
   scroll.querySelector('.no-matches')?.classList.toggle('hidden', anyVisible || !q);
 }
 
+/**
+ * The "no separate profile" choice, offered only in an incognito window: the
+ * list needs a row for it, because with the incognito profile cleared there is
+ * nothing else in the list for the tick to sit on — and because it is how the
+ * user undoes a choice made here, without going to the options page for it.
+ * Its subtitle names the profile it currently defers to, so choosing it is not
+ * a choice made blind.
+ */
+function followRegularRow(): HTMLElement {
+  const p = config.profiles.find((x) => x.id === config.activeId);
+  const name = p ? p.name : config.activeId === DIRECT ? 'Direct' : 'System';
+  const tile = p ? avatarEl(p, 27) : builtinTile(config.activeId === DIRECT ? 'D' : 'S', 27);
+  return profileRow('', tile, 'Same as regular windows', `follows ${name}`, p?.color);
+}
+
 function leftPane(groups: Array<[string, Profile[]]>): HTMLElement {
   const total = config.profiles.length;
 
@@ -1118,7 +1281,20 @@ function leftPane(groups: Array<[string, Profile[]]>): HTMLElement {
     profileRow(SYSTEM, builtinTile('S', 27), 'System', 'OS settings')
   );
 
-  const scroll = el('div', { class: 'left-scroll' }, builtins);
+  const scope =
+    incognitoWindow && incognitoAllowed
+      ? // Not a .pgroup: those are the filterable profile groups, and applyFilter
+        // hides any of them holding no matching row — this one holds none by
+        // design. Its own class carries the same display:contents.
+        el(
+          'div',
+          { class: 'scope-group' },
+          el('div', { class: 'section-label' }, 'This incognito window'),
+          followRegularRow()
+        )
+      : null;
+
+  const scroll = el('div', { class: 'left-scroll' }, scope, builtins);
   if (total === 0) {
     scroll.append(
       el(
@@ -1189,7 +1365,7 @@ function rightPane(activeProfile: Profile | undefined): HTMLElement {
 }
 
 function render(): void {
-  const activeProfile = config.profiles.find((p) => p.id === config.activeId);
+  const activeProfile = config.profiles.find((p) => p.id === scopeActiveId());
 
   const groups: Array<[string, Profile[]]> = [
     ['Proxies', config.profiles.filter((p) => p.kind === 'proxy')],

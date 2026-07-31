@@ -2,6 +2,7 @@ import { initialsFor, textColorFor } from './shared/avatar';
 import { pacRequestUrl, resolveRoute } from './shared/match';
 import { compilePac, fixedServersValue, pacDirective, staticTerminal } from './shared/pac';
 import { RULE_LIST_MAX_BYTES } from './shared/rulelist';
+import { incognitoActiveId } from './shared/scope';
 import {
   APPLIED_KEY,
   CONTROL_KEY,
@@ -56,6 +57,8 @@ const ALARM_PREFIX = 'rl:';
 
 let lastRevert = 0;
 let lastActiveId: string | undefined;
+/** The incognito scope's profile as last applied — see the reload in applyActiveInner. */
+let lastIncognitoId: string | undefined;
 /**
  * Open popup lifetime ports. A count, not a flag: when this worker is recycled
  * the popup reconnects, and the new port can arrive before the dead one's
@@ -72,15 +75,29 @@ function hasBypass(bypass: string[]): boolean {
   return bypass.some((b) => b.trim().length > 0);
 }
 
+/**
+ * What a scope's activeId is CALLED, and the profile behind it — the toolbar's
+ * half of settingsValueFor, split out because painting an icon shouldn't have to
+ * compile a PAC to learn a name. settingsValueFor is built on it, so the two
+ * can't drift into naming the same route differently.
+ */
+function labelFor(config: Config, activeId: string): { label: string; profile: Profile | null } {
+  if (activeId === DIRECT) return { label: 'Direct', profile: null };
+  if (activeId === SYSTEM) return { label: 'System', profile: null };
+  const profile = profileById(config, activeId);
+  return profile ? { label: profile.name, profile } : { label: 'System', profile: null };
+}
+
 function settingsValueFor(
   config: Config,
   tempRules: SwitchRule[]
 ): { value: chrome.proxy.ProxyConfig; label: string; profile: Profile | null } {
   const { activeId } = config;
-  if (activeId === DIRECT) return { value: { mode: 'direct' }, label: 'Direct', profile: null };
-  if (activeId === SYSTEM) return { value: { mode: 'system' }, label: 'System', profile: null };
-  const profile = profileById(config, activeId);
-  if (!profile) return { value: { mode: 'system' }, label: 'System', profile: null };
+  const { label, profile } = labelFor(config, activeId);
+  // Direct, System, or an activeId naming a profile that is gone (System too).
+  if (!profile) {
+    return { value: activeId === DIRECT ? { mode: 'direct' } : { mode: 'system' }, label, profile };
+  }
 
   const terminal = staticTerminal(config, profile);
   if (terminal === 'direct') {
@@ -156,7 +173,7 @@ async function applyActive(signal = true): Promise<void> {
 async function applyActiveInner(signal = true): Promise<void> {
   const config = await loadConfig();
   cachedConfig = config;
-  const tempRules = await loadTempRules(config.activeId);
+  const tempRules = await loadTempRules(config.activeId, 'regular');
   const { value, label, profile } = settingsValueFor(config, tempRules);
 
   await chrome.proxy.settings.set({ value, scope: 'regular' });
@@ -197,6 +214,22 @@ async function applyActiveInner(signal = true): Promise<void> {
   const switched = lastActiveId !== undefined && lastActiveId !== config.activeId;
   lastActiveId = config.activeId;
 
+  // The incognito scope switches on its own — from the popup in an incognito
+  // window, or from Settings — and that is a route change like any other, so
+  // "reload after switching" has to answer for it too. Tracked separately
+  // because activeId doesn't move when it happens.
+  const incognitoId = config.settings.incognitoProfileId;
+  const incognitoSwitched = lastIncognitoId !== undefined && lastIncognitoId !== incognitoId;
+  lastIncognitoId = incognitoId;
+
+  // Which windows the change actually reached. A regular switch reaches
+  // incognito windows too while they follow the regular profile; once they have
+  // a profile of their own the two scopes move independently, and reloading a
+  // window on the other one would discard a page for a route change it never saw.
+  let only: 'regular' | 'incognito' | undefined;
+  if (incognitoSwitched && !switched) only = 'incognito';
+  else if (switched && !incognitoSwitched && incognitoId) only = 'regular';
+
   // A this-tab override/rule/bypass change (from the popup) also alters how the
   // active tab routes, but leaves activeId unchanged — so `switched` misses it.
   // The popup sets RELOAD_KEY for those; honour it here, after settings.set, so
@@ -217,8 +250,8 @@ async function applyActiveInner(signal = true): Promise<void> {
       tabId: typeof request?.tabId === 'number' ? request.tabId : undefined,
       url: retryUrl,
     });
-  } else if (config.settings.refreshOnSwitch && (switched || request)) {
-    await reloadActiveTab();
+  } else if (config.settings.refreshOnSwitch && (switched || incognitoSwitched || request)) {
+    await reloadActiveTab({ only });
   }
 
   rebuildCredentials(config);
@@ -516,18 +549,25 @@ function reregisterAuthListener(): void {
  * Relies on the manifest's default "incognito": spanning mode — the single
  * worker sees incognito auth challenges too. Switching to "split" would
  * silently break proxy auth for incognito windows.
+ *
+ * The overrides compiled in are the incognito scope's own (see shared/scope):
+ * one set of temporary rules driving both scopes would carry a route chosen in
+ * an incognito window over into regular ones.
  */
 async function applyIncognito(config: Config): Promise<void> {
   try {
     const allowed = await chrome.extension.isAllowedIncognitoAccess();
     if (!allowed) return;
-    const id = config.settings.incognitoProfileId;
+    const id = incognitoActiveId(config, allowed);
     if (!id) {
       await chrome.proxy.settings.clear({ scope: 'incognito_persistent' });
-      return;
+    } else {
+      const tempRules = await loadTempRules(id, 'incognito');
+      const { value } = settingsValueFor({ ...config, activeId: id }, tempRules);
+      await chrome.proxy.settings.set({ value, scope: 'incognito_persistent' });
     }
-    const { value } = settingsValueFor({ ...config, activeId: id }, []);
-    await chrome.proxy.settings.set({ value, scope: 'incognito_persistent' });
+    // The scope moved; the toolbar over those windows has to move with it.
+    await paintIncognitoTabs(config);
   } catch {
     // Incognito access revoked mid-flight or scope unsupported — regular
     // settings keep spanning incognito, which is the pre-feature behavior.
@@ -662,7 +702,10 @@ async function runTabExitProbe(req: { nonce: number; tabUrl: string; tabHost: st
     // DIRECT / System / no active profile can't be probed with a targeted PAC —
     // the popup handles those with a plain (passive) lookup and never asks here.
     if (!active) throw new Error('active profile does not route');
-    const tempRules = await loadTempRules(config.activeId);
+    // Regular scope: the probe measures by swapping the regular proxy, so it is
+    // only ever asked for a regular window's tab (the popup won't ask from an
+    // incognito one — there is no way to measure that scope from here).
+    const tempRules = await loadTempRules(config.activeId, 'regular');
     const route = resolveRoute(config, active, pacRequestUrl(req.tabUrl), req.tabHost, tempRules);
     const directive = probeDirectiveFor(config, route);
     const exitHost = new URL(EXIT_IP_URL).hostname;
@@ -742,11 +785,16 @@ async function refetchTab(tabId: number, url?: string): Promise<void> {
  * `tabId` names the tab the popup was showing; without one the active tab is
  * used, which is what a plain profile switch means.
  */
-async function reloadActiveTab(target: { tabId?: number; url?: string } = {}): Promise<void> {
+async function reloadActiveTab(
+  target: { tabId?: number; url?: string; only?: 'regular' | 'incognito' } = {}
+): Promise<void> {
   try {
     let tabId = target.tabId;
     if (tabId === undefined) {
       const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      // `only` narrows a reload to the scope that changed; a named tabId doesn't
+      // need it, since the caller asking for that exact tab already knows.
+      if (target.only && tab && (tab.incognito ? 'incognito' : 'regular') !== target.only) return;
       tabId = tab?.id;
     }
     if (tabId === undefined) return;
@@ -786,33 +834,85 @@ async function flushPendingReload(): Promise<void> {
 /** The manifest's own icons — the Sockitt mark, shown when no profile is active. */
 const DEFAULT_ICON = { 16: 'img/icon-16.png', 32: 'img/icon-32.png' };
 
+/** The profile's coloured initials tile, at both toolbar sizes. */
+function tileImageData(profile: Profile): Record<number, ImageData> {
+  const imageData: Record<number, ImageData> = {};
+  for (const size of [16, 32]) {
+    const canvas = new OffscreenCanvas(size, size);
+    const ctx = canvas.getContext('2d')!;
+    ctx.beginPath();
+    ctx.roundRect(0, 0, size, size, size * 0.26);
+    ctx.fillStyle = profile.color;
+    ctx.fill();
+    const initials = initialsFor(profile);
+    ctx.fillStyle = textColorFor(profile.color);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const fontSize = Math.round(size * (initials.length > 2 ? 0.42 : 0.52));
+    ctx.font = `700 ${fontSize}px system-ui, -apple-system, sans-serif`;
+    ctx.fillText(initials, size / 2, size / 2 + size * 0.04, size * 0.9);
+    imageData[size] = ctx.getImageData(0, 0, size, size);
+  }
+  return imageData;
+}
+
 async function paintIcon(profile: Profile | null): Promise<void> {
   try {
     // System/Direct: hand the toolbar back to the manifest icon. setIcon
     // overrides it for the rest of the session, so "no profile" has to restore
     // the mark explicitly — it does not fall back on its own.
     if (!profile) return void (await chrome.action.setIcon({ path: DEFAULT_ICON }));
-
-    const imageData: Record<number, ImageData> = {};
-    for (const size of [16, 32]) {
-      const canvas = new OffscreenCanvas(size, size);
-      const ctx = canvas.getContext('2d')!;
-      ctx.beginPath();
-      ctx.roundRect(0, 0, size, size, size * 0.26);
-      ctx.fillStyle = profile.color;
-      ctx.fill();
-      const initials = initialsFor(profile);
-      ctx.fillStyle = textColorFor(profile.color);
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      const fontSize = Math.round(size * (initials.length > 2 ? 0.42 : 0.52));
-      ctx.font = `700 ${fontSize}px system-ui, -apple-system, sans-serif`;
-      ctx.fillText(initials, size / 2, size / 2 + size * 0.04, size * 0.9);
-      imageData[size] = ctx.getImageData(0, 0, size, size);
-    }
-    await chrome.action.setIcon({ imageData });
+    await chrome.action.setIcon({ imageData: tileImageData(profile) });
   } catch {
     await chrome.action.setBadgeBackgroundColor({ color: profile?.color ?? NEUTRAL });
+  }
+}
+
+/**
+ * Give incognito tabs the toolbar of the scope they actually route on.
+ *
+ * setIcon/setTitle without a tabId are global, so an incognito window inherited
+ * the REGULAR profile's mark and name while its traffic went through the
+ * incognito profile — the icon naming one route and the connection taking
+ * another. A tab-scoped icon is the only per-window toolbar Chrome offers, so
+ * every incognito tab gets painted, and goes on being painted while it follows
+ * the regular profile (id null) — that keeps the override in step with a
+ * regular switch instead of leaving a stale tile no reset API can lift.
+ */
+async function paintIncognitoTabs(config: Config): Promise<void> {
+  const tabs = await chrome.tabs.query({}).catch(() => [] as chrome.tabs.Tab[]);
+  const incognito = tabs.filter((t) => t.incognito && t.id !== undefined);
+  if (!incognito.length) return;
+  // Seeing an incognito tab at all means "Allow in Incognito" is granted —
+  // Chrome hides them from extensions that don't have it.
+  const id = incognitoActiveId(config, true);
+  const { label, profile } = labelFor(config, id ?? config.activeId);
+  const title = id ? `Sockitt — ${label} (incognito)` : `Sockitt — ${label}`;
+  let imageData: Record<number, ImageData> | null = null;
+  try {
+    imageData = profile ? tileImageData(profile) : null;
+  } catch {
+    imageData = null; // canvas unavailable — fall back to the manifest mark
+  }
+  await Promise.all(
+    incognito.map(async (t) => {
+      try {
+        const icon = imageData ? { tabId: t.id!, imageData } : { tabId: t.id!, path: DEFAULT_ICON };
+        await chrome.action.setIcon(icon);
+        await chrome.action.setTitle({ tabId: t.id!, title });
+      } catch {
+        // closed mid-sweep, or a tab whose action state is not ours to set
+      }
+    })
+  );
+}
+
+/** Paint incognito tabs from the stored config — for events that carry none. */
+async function refreshIncognitoIcons(): Promise<void> {
+  try {
+    await paintIncognitoTabs(cachedConfig ?? (await loadConfig()));
+  } catch {
+    // nothing to paint
   }
 }
 
@@ -943,21 +1043,30 @@ async function updateTabBadge(tabId: number, config: Config | null = cachedConfi
   const clear = () => clearTabBadge(tabId);
 
   if (!cfg.settings.badgeResult) return; // feature off — the sweep already cleaned up
-  const active = profileById(cfg, cfg.activeId);
-  // Unconditional profile (proxy/alias/direct): the icon already says it.
-  if (!active || staticTerminal(cfg, active) !== null) return void (await clear());
   try {
-    if (!(await chrome.permissions.contains(TABS_PERMS))) return;
+    // Without "tabs" the route can't be read, so nothing may be claimed about
+    // it: clear rather than return, or a badge painted while the permission was
+    // held would sit on the tab reading out a route no longer being checked.
+    if (!(await chrome.permissions.contains(TABS_PERMS))) return void (await clear());
     const errorStore = await chrome.storage.session.get(ERROR_KEY);
     if (errorStore[ERROR_KEY]) return; // leave the global error badge visible
     const tab = await chrome.tabs.get(tabId);
+    // An incognito tab is routed by the incognito scope, so it has to be read
+    // out from that scope's profile and that scope's overrides — resolving it
+    // against the active profile answered for a route it does not take. (Being
+    // able to see the tab at all means incognito access is granted.)
+    const scopedId = tab.incognito ? incognitoActiveId(cfg, true) : null;
+    const activeId = scopedId ?? cfg.activeId;
+    const active = profileById(cfg, activeId);
+    // Unconditional profile (proxy/alias/direct): the icon already says it.
+    if (!active || staticTerminal(cfg, active) !== null) return void (await clear());
     // The page being loaded, not the one being replaced — otherwise the badge
     // reads out the previous page's route for as long as a navigation takes,
     // which on a host that never answers is half a minute of the wrong answer,
     // and disagrees with the popup's Route readout the whole time.
     const page = tabTarget(tab);
     if (!page) return void (await clear());
-    const tempRules = await loadTempRules(cfg.activeId);
+    const tempRules = await loadTempRules(activeId, scopedId ? 'incognito' : 'regular');
     const route = resolveRoute(cfg, active, pacRequestUrl(page.url), page.host, tempRules);
     const target = profileById(cfg, route.targetId);
     const text = target && !route.bypassed ? initialsFor(target) : 'DIR';
@@ -1133,6 +1242,13 @@ chrome.proxy.settings.onChange.addListener((details) => {
     lastRevert = now;
     await applyActive();
   })();
+});
+
+// A tab-scoped icon can only be set on a tab that exists, so each incognito tab
+// is painted as it appears — including the first tab of a new incognito window,
+// which is what makes the very act of opening one show the right profile.
+chrome.tabs.onCreated.addListener((tab) => {
+  if (tab.incognito) void refreshIncognitoIcons();
 });
 
 chrome.tabs.onActivated.addListener((info) => void updateTabBadge(info.tabId));

@@ -1660,7 +1660,7 @@ function settingsPanel(): HTMLElement {
   const incognitoNote = el(
     'span',
     { class: 'note' },
-    'Route incognito windows through their own profile; regular windows are unaffected.'
+    'Route incognito windows through their own profile; regular windows are unaffected. Those windows show that profile in the toolbar and the popup, and it can be changed from there too.'
   );
   void chrome.extension
     .isAllowedIncognitoAccess()
@@ -2022,7 +2022,7 @@ function inspectorPanel(): HTMLElement {
 
     // Match real routing: the popup's session override participates only when
     // inspecting the profile that is actually active.
-    const temp = startId === config.activeId ? await loadTempRules(config.activeId) : [];
+    const temp = startId === config.activeId ? await loadTempRules(config.activeId, 'regular') : [];
     if (seq !== inspectSeq) return; // a newer run owns the results box
     const trace: TraceEdge[] = [];
     const route = resolveRoute(config, start, matchUrl, u.hostname, temp, new Date(), trace);

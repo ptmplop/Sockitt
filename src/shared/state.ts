@@ -13,6 +13,7 @@ import {
   schemeSupportsAuth,
   uid,
 } from './types';
+import { Scope, tempRuleKey } from './scope';
 
 const KEY = 'sockitt';
 const TEMP_KEY = 'sockitt-temp';
@@ -295,21 +296,33 @@ export async function saveUiPrefs(prefs: UiPrefs): Promise<void> {
 
 type TempRuleMap = Record<string, SwitchRule[]>;
 
-export async function loadTempRules(profileId: string): Promise<SwitchRule[]> {
+/**
+ * Overrides belong to a profile IN A SCOPE — regular windows and incognito
+ * windows each drive their own proxy settings, so each keeps its own overrides
+ * (see shared/scope). The scope is a required argument rather than a default
+ * so a new call site has to say which one it means; guessing wrong here routes
+ * traffic in windows the caller wasn't looking at.
+ */
+export async function loadTempRules(profileId: string, scope: Scope): Promise<SwitchRule[]> {
   try {
     const stored = await chrome.storage.session.get(TEMP_KEY);
     const map = stored[TEMP_KEY] as TempRuleMap | undefined;
-    return map?.[profileId]?.filter(isValidRule) ?? [];
+    return map?.[tempRuleKey(profileId, scope)]?.filter(isValidRule) ?? [];
   } catch {
     return [];
   }
 }
 
-export async function saveTempRules(profileId: string, rules: SwitchRule[]): Promise<void> {
+export async function saveTempRules(
+  profileId: string,
+  scope: Scope,
+  rules: SwitchRule[]
+): Promise<void> {
   const stored = await chrome.storage.session.get(TEMP_KEY);
   const map = (stored[TEMP_KEY] as TempRuleMap | undefined) ?? {};
-  if (rules.length) map[profileId] = rules;
-  else delete map[profileId];
+  const key = tempRuleKey(profileId, scope);
+  if (rules.length) map[key] = rules;
+  else delete map[key];
   await chrome.storage.session.set({ [TEMP_KEY]: map });
 }
 

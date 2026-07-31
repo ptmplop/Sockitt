@@ -221,7 +221,9 @@ export function networkPanel(host: NetworkHost): HTMLElement {
 
   const start = async (): Promise<void> => {
     if (recording) return;
-    tempRules = await loadTempRules(host.config().activeId).catch(() => []);
+    // The options page is a regular window, so the monitor answers for the
+    // regular scope — incognito's own overrides are not what these requests take.
+    tempRules = await loadTempRules(host.config().activeId, 'regular').catch(() => []);
     chrome.webRequest.onBeforeRequest.addListener(onBeforeRequest, FILTER);
     chrome.webRequest.onCompleted.addListener(onCompleted, FILTER, ['responseHeaders']);
     chrome.webRequest.onErrorOccurred.addListener(onErrorOccurred, FILTER);

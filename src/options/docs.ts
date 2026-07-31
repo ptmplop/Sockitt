@@ -412,7 +412,7 @@ function buildDocsPanel(onReleases: () => void): HTMLElement {
       terms([
         ['Quick switch', ['When on, clicking the toolbar icon cycles through the profiles you’ve ticked instead of opening the popup (while it’s on, the popup itself is unavailable). Tick at least two entries — with fewer, the cycle falls back to Direct, System, and every profile. The cycle keyboard shortcut works either way.']],
         ['On browser startup, activate', ['Which profile becomes active when the browser starts. ', code('Last used'), ' keeps whatever was active before.']],
-        ['Incognito windows use', ['Route incognito windows through their own profile while regular windows keep the active one. Requires ', code('Allow in Incognito'), ' for Sockitt at ', code('chrome://extensions'), '; without it (or set to ', code('Same as regular windows'), '), incognito follows the regular profile.']],
+        ['Incognito windows use', ['Route incognito windows through their own profile while regular windows keep the active one. Requires ', code('Allow in Incognito'), ' for Sockitt at ', code('chrome://extensions'), '; without it (or set to ', code('Same as regular windows'), '), incognito follows the regular profile. Once it is set, those windows say so for themselves: the toolbar icon over an incognito window is that profile’s, and the popup opened there reads out — and switches — the incognito profile rather than the active one, marked ', code('Incognito'), ' beside the name. Overrides set there are the incognito scope’s own and never carry into regular windows; the exit-IP readout is the one thing that cannot be measured for that scope, and says so instead of reporting the regular route’s.']],
         ['Reload tab after switching', ['Reload the active tab after you pick a profile (or change this tab’s rule, override, or bypass entry), so the page re-fetches through the new route. The reload waits until you close the popup — Chrome dismisses the popup when the page beneath it navigates, so reloading straight away would close it mid-change. Several changes in one visit collapse into a single reload. A page that never loaded is always requested again, setting or no setting: there is nothing on screen to lose, and the request left hanging is the one you just wrote a rule for.']],
       ]),
       el('h4', { class: 'doc-sub' }, 'Behaviour'),
@@ -436,7 +436,7 @@ function buildDocsPanel(onReleases: () => void): HTMLElement {
         ['Initials', ['1 to 3 characters, drawn on the toolbar icon while the profile is active and on the profile’s avatar everywhere else. Left blank, they’re derived from the name.']],
         ['Colour', ['Tints the profile’s avatar and its toolbar icon, so you can tell at a glance which profile is live.']],
       ]),
-      p('The toolbar icon always reflects the active profile; a red ', code('!'), ' badge appears if the proxy reports an error (with a count, once it repeats) or another extension is controlling proxy settings.')
+      p('The toolbar icon always reflects the profile the window under it is routed by — the active one, or the incognito profile over an incognito window that has its own; a red ', code('!'), ' badge appears if the proxy reports an error (with a count, once it repeats) or another extension is controlling proxy settings.')
     ),
 
     card(
