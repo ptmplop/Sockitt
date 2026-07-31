@@ -839,7 +839,7 @@ function permWarningBanners(): HTMLElement[] {
   if (incognitoAccessMissing()) {
     banners.push(
       warnBanner(
-        'Incognito windows are set to use their own profile, but Chrome hasn’t allowed Sockitt in incognito — those windows follow the regular profile instead. Turn on "Allow in Incognito" under Details.',
+        'Incognito windows are set to use their own profile, but Chrome hasn’t allowed Sockitt in incognito — those windows follow the regular profile instead. Only you can turn that on: no extension is allowed to grant itself incognito access, so this opens Sockitt’s details page and the switch is yours to flip.',
         'Open Sockitt’s details',
         openExtensionDetails
       )
@@ -1750,7 +1750,7 @@ function settingsPanel(): HTMLElement {
       incognitoAccessNote.className = 'note warn';
       incognitoAccessNote.setAttribute('role', 'alert');
       incognitoAccessNote.replaceChildren(
-        'Needs Chrome to allow Sockitt in incognito first — Extensions › Sockitt › Details › Allow in Incognito. Until then incognito windows follow the regular profile. ',
+        'Needs Chrome to allow Sockitt in incognito first — Extensions › Sockitt › Details › Allow in Incognito. That switch is yours alone; no extension can grant itself incognito access, so this opens the page rather than doing it for you. Until then incognito windows follow the regular profile. ',
         el('button', { class: 'linklike', onclick: openExtensionDetails }, 'Open Sockitt’s details')
       );
     })
