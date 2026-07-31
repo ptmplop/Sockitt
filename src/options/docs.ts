@@ -436,7 +436,7 @@ function buildDocsPanel(onReleases: () => void): HTMLElement {
         ['Initials', ['1 to 3 characters, drawn on the toolbar icon while the profile is active and on the profile’s avatar everywhere else. Left blank, they’re derived from the name.']],
         ['Colour', ['Tints the profile’s avatar and its toolbar icon, so you can tell at a glance which profile is live.']],
       ]),
-      p('The toolbar icon always reflects the profile the window under it is routed by — the active one, or the incognito profile over an incognito window that has its own; a red ', code('!'), ' badge appears if the proxy reports an error (with a count, once it repeats) or another extension is controlling proxy settings.')
+      p('The toolbar icon always reflects the profile the window under it is routed by — the active one, or the incognito profile over an incognito window that has its own; a red ', code('!'), ' badge appears if the proxy reports an error (with a count, once it repeats) or another extension is controlling proxy settings. One exception, and only while incognito has a profile of its own: if Sockitt is not pinned to the toolbar, the icon browser-wide is the plain Sockitt mark rather than a profile. Unpinned, the icon is seen only in the extensions (puzzle) menu, which reads it once when the menu opens and never updates it — long enough for a window to be shown another window’s profile with no chance to correct itself. Each window is still given its own, so the menu names the right profile; the mark is what shows in the moment before that lands. Pin Sockitt and it names the active profile throughout.')
     ),
 
     card(
