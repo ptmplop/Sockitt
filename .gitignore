@@ -6,5 +6,10 @@ sockitt.zip
 sockitt*.crx
 .crx-tmp/
 .shots-tmp/
+# gen-store-shots.mjs stages here and deletes it again, so this should never
+# match anything — but the same sync daemon forks the staging tree mid-run into
+# "background 3.js", "img 4/", … and those outlive the cleanup. Glob, and no
+# trailing slash: the conflict copies are both files and directories.
+.store-shots-tmp*
 *.pem
 .DS_Store
