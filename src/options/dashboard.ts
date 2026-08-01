@@ -166,8 +166,10 @@ function subtitleFor(config: Config, p: Profile): string {
       const on = p.rules.filter((r) => r.enabled).length;
       return `${on} rule${on === 1 ? '' : 's'} · default ${nameOf(config, p.defaultTargetId)}`;
     }
-    case 'rulelist':
-      return `${parseRuleList(p.format, p.text).count.toLocaleString()} entries`;
+    case 'rulelist': {
+      const n = parseRuleList(p.format, p.text).count;
+      return `${n.toLocaleString()} entr${n === 1 ? 'y' : 'ies'}`;
+    }
     case 'virtual':
       return `alias → ${nameOf(config, p.targetId)}`;
   }
@@ -1585,39 +1587,67 @@ function ruleListsCard(): { node: HTMLElement; refresh: () => void } {
     for (const list of lists) {
       if (list.kind !== 'rulelist') continue;
       const parsed = parseRuleList(list.format, list.text);
+      // Auto-update needs a URL as well as an interval: the worker only arms an
+      // alarm for a list that has one, and health only calls such a list stale.
+      // A pasted list keeps its default 24 h interval, so reading the interval
+      // alone would promise a refresh here that can never happen.
+      const autoUpdates = Boolean(list.url) && list.updateIntervalH > 0;
       const age = list.lastUpdated ? Date.now() - list.lastUpdated : null;
       const intervalMs = list.updateIntervalH * 3_600_000;
       // How far through its refresh window this list is. Over 1 means overdue.
-      const wear = age !== null && intervalMs > 0 ? age / intervalMs : 0;
+      const wear = autoUpdates && age !== null ? age / intervalMs : 0;
       const stale = wear > 1;
+
+      const source = list.lastUpdated
+        ? `fetched ${relativeTime(list.lastUpdated)}`
+        : list.url
+          ? 'never fetched'
+          : 'pasted';
+      const cadence = autoUpdates
+        ? ` · every ${list.updateIntervalH} h`
+        : list.url
+          ? ' · auto-update off'
+          : ' · no auto-update';
 
       const sub = el(
         'div',
         { class: `dash-rl-sub${stale ? ' stale' : ''}` },
-        `${parsed.count.toLocaleString()} entries · ${
-          list.lastUpdated ? `fetched ${relativeTime(list.lastUpdated)}` : 'never fetched'
-        }${list.updateIntervalH > 0 ? ` · every ${list.updateIntervalH} h` : ' · auto-update off'}`
+        `${parsed.count.toLocaleString()} entr${parsed.count === 1 ? 'y' : 'ies'} · ${source}${cadence}`
       );
 
       const fill = el('i', {});
       fill.style.width = `${Math.min(100, Math.max(3, wear * 100))}%`;
       fill.style.background = stale ? 'var(--amber)' : 'var(--ok)';
 
-      const button = el(
-        'button',
-        {
-          class: 'dash-mini',
-          type: 'button',
-          disabled: !list.url,
-          title: list.url ? `Fetch ${list.url}` : 'This list has no URL — paste its content in the editor',
-          onclick: async () => {
-            (button as HTMLButtonElement).disabled = true;
-            button.textContent = 'Fetching…';
-            await host.refetchRuleList(list.id);
-          },
-        },
-        'Fetch now'
-      );
+      // A list with no source URL has nothing to fetch, but a disabled button is
+      // a dead end: it takes no focus, so the title explaining why never reaches
+      // the keyboard or a touch screen. Offer the repair instead — the editor is
+      // where a URL goes, and that is one click from here.
+      const button = list.url
+        ? el(
+            'button',
+            {
+              class: 'dash-mini',
+              type: 'button',
+              title: `Fetch ${list.url}`,
+              onclick: async () => {
+                (button as HTMLButtonElement).disabled = true;
+                button.textContent = 'Fetching…';
+                await host.refetchRuleList(list.id);
+              },
+            },
+            'Fetch now'
+          )
+        : el(
+            'button',
+            {
+              class: 'dash-mini',
+              type: 'button',
+              title: 'This list has no source URL — add one to fetch it and keep it up to date',
+              onclick: () => host.open(list.id),
+            },
+            'Add URL'
+          );
 
       rows.append(
         el(
@@ -1629,7 +1659,7 @@ function ruleListsCard(): { node: HTMLElement; refresh: () => void } {
             { class: 'dash-rl-id' },
             el('div', { class: 'dash-rl-nm' }, list.name),
             sub,
-            list.updateIntervalH > 0 ? el('div', { class: 'dash-freshbar' }, fill) : null
+            autoUpdates ? el('div', { class: 'dash-freshbar' }, fill) : null
           ),
           button
         )

@@ -1575,6 +1575,15 @@ function ruleListEditor(profile: RuleListProfile): HTMLElement {
     {
       class: 'btn',
       onclick: () => {
+        // Deliberately not disabled when there is no URL: a disabled button
+        // takes no focus, so the reason would only ever reach a mouse. The URL
+        // field is a few rows up, so answer the click by pointing at it. No
+        // repaint on this path — rebuilding the pane would throw the focus away.
+        if (!profile.url) {
+          toast('Set a URL first, or paste the list below');
+          url.focus();
+          return;
+        }
         updateNow.textContent = 'Updating…';
         (updateNow as HTMLButtonElement).disabled = true;
         // refetchRuleList repaints when it settles, which rebuilds this button

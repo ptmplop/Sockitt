@@ -27,6 +27,16 @@ interface Release {
 
 const RELEASES: Release[] = [
   {
+    from: '1.23.0',
+    date: '1 August 2026',
+    title: 'Rule lists stop offering what they cannot do',
+    notes: [
+      'A rule list you pasted has no address to fetch from, and the Overview used to put a greyed-out “Fetch now” beside it with the reason hidden in a tooltip — which only ever reaches a mouse. The button now reads “Add URL” and opens the list, where the field is. Lists that do have a URL are unchanged.',
+      'A pasted list no longer claims it updates every 24 hours. Every rule list is created with that interval, and the Overview was reading it on its own — so a list with nowhere to fetch from advertised a schedule, drew a freshness bar, and eventually turned amber for being overdue. It reads “pasted · no auto-update” now, which is what was happening all along.',
+      '“Update now” in the rule-list editor puts the cursor in the URL field when there is no URL yet, instead of being greyed out or answering with a message and leaving you to find it.',
+    ],
+  },
+  {
     from: '1.22.0',
     date: '1 August 2026',
     title: 'When an update is waiting',
