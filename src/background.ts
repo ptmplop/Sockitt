@@ -49,6 +49,7 @@ import {
   reachableFrom,
   schemeSupportsAuth,
 } from './shared/types';
+import { clearPendingUpdate, savePendingUpdate } from './shared/update';
 
 const NEUTRAL = '#8b93a7';
 const DANGER = '#f5576c';
@@ -1220,6 +1221,31 @@ void loadConfig()
 // (rev already matches), so no echo.
 chrome.runtime.onInstalled.addListener(() => {
   void maybePullSync().then(() => applyActive());
+});
+
+/**
+ * Chrome downloaded a new version but is holding the swap until Sockitt falls
+ * idle — which a worker woken by every alarm, proxy event and popup connection
+ * may not do for days. This fires once, at a worker that will not outlive the
+ * wait, so the version is written down for the options page to raise a banner
+ * about. Nothing here applies it: see shared/update.ts for why that is the
+ * user's to do.
+ *
+ * A listener of its own rather than a line inside the two around it — those
+ * carry the sync-and-apply path, and this is bookkeeping that must not be able
+ * to disturb it.
+ */
+chrome.runtime.onUpdateAvailable.addListener((details) => {
+  void savePendingUpdate(details.version);
+});
+
+/**
+ * The staged version landed, so the note about it is spent. readPendingUpdate
+ * would ignore it anyway once the running version caught up; this just keeps
+ * the record from outliving what it describes.
+ */
+chrome.runtime.onInstalled.addListener((details) => {
+  if (details.reason === 'update') void clearPendingUpdate();
 });
 
 chrome.runtime.onStartup.addListener(() => {

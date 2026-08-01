@@ -82,6 +82,7 @@ import {
   uid,
 } from '../shared/types';
 import { el, relativeTime, toast } from '../shared/ui';
+import { PendingUpdate, UPDATE_KEY, loadPendingUpdate } from '../shared/update';
 
 const app = document.getElementById('app')!;
 const DASH_ID = '@dash';
@@ -705,6 +706,24 @@ let incognitoAccessGranted: boolean | null = null;
  * so it stops naming the active profile (see the worker's actionIsPinned).
  */
 let actionPinned: boolean | null = null;
+/**
+ * A version Chrome has downloaded but not swapped in. Not a permission either,
+ * but it belongs with the three above for the same reason: something is set up
+ * and not taking effect, and nothing on this page would otherwise say so.
+ */
+let pendingUpdate: PendingUpdate | null = null;
+
+/**
+ * Kept apart from refreshPermState: this answer moves on a storage write rather
+ * than on a grant, so it has its own triggers and no business being awaited
+ * alongside four permission checks that run on every one of theirs.
+ */
+async function refreshUpdateState(): Promise<void> {
+  const next = await loadPendingUpdate();
+  if (next?.version === pendingUpdate?.version) return;
+  pendingUpdate = next;
+  updatePermBanners();
+}
 
 async function refreshPermState(): Promise<void> {
   const [auth, tabs, incognito, userSettings] = await Promise.all([
@@ -849,6 +868,20 @@ function permWarningBanners(): HTMLElement[] {
     banners.push(
       warnBanner(
         'Sockitt isn’t pinned to the toolbar, so its icon shows the plain Sockitt mark instead of the active profile. Unpinned, the icon appears only in Chrome’s puzzle-piece menu, which reads it once when the menu opens and never updates it — it could show a profile that has since changed, or another window’s. To pin: click the puzzle piece in the toolbar, then the pin beside Sockitt.'
+      )
+    );
+  }
+  if (pendingUpdate) {
+    // No button, for the same reason the unpinned banner has none: nothing
+    // Sockitt can call would finish this. chrome.runtime.reload() does apply a
+    // staged version, but it would also tear the worker down mid-connection-test
+    // — and a test holds the live proxy configuration and puts it back in a
+    // finally that a reload never reaches. Restarting the browser is both the
+    // safe way and the user's own.
+    const waited = pendingUpdate.at > 0 ? ` It arrived ${relativeTime(pendingUpdate.at)}.` : '';
+    banners.push(
+      warnBanner(
+        `Sockitt ${pendingUpdate.version} has been downloaded, but this window is still running ${chrome.runtime.getManifest().version}. Chrome only swaps a new version in while the extension is idle, and Sockitt wakes often enough — for rule lists, proxy errors, the popup — that it may not offer one for days.${waited} Restart the browser to finish the update.`
       )
     );
   }
@@ -2832,6 +2865,13 @@ void Promise.all([loadConfig(), loadUiPrefs()]).then(([c, prefs]) => {
   // configs, profiles created before auth support, or a grant revoked from
   // chrome://extensions.
   void refreshPermState();
+  // A staged update the worker has already written down, and any that lands
+  // while this page sits open — the wait can run for days, so this page is
+  // quite likely to be the thing that is open when Chrome announces one.
+  void refreshUpdateState();
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && changes[UPDATE_KEY]) void refreshUpdateState();
+  });
   // Pinning is done from Chrome's own menu, with this page sitting open behind
   // it — so the banner has to answer to that, not only to a reload. Chrome 127+;
   // older builds pick it up the next time this page is opened.

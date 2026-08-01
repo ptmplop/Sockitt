@@ -27,6 +27,15 @@ interface Release {
 
 const RELEASES: Release[] = [
   {
+    from: '1.22.0',
+    date: '1 August 2026',
+    title: 'When an update is waiting',
+    notes: [
+      'Sockitt says when a new version has been downloaded but not yet swapped in. Chrome only replaces an extension while it is idle, and Sockitt wakes for rule lists, for proxy errors, and every time the popup opens — so a release can sit downloaded and unapplied for days while the store and the browser both consider it delivered. A banner on the options page names the version waiting, the version this window is running, and how long it has been there. Restarting the browser finishes it.',
+      'Sockitt does not apply the update itself. Chrome offers a way, but the moment Sockitt chose would sooner or later be the middle of a connection test — and a test holds the live proxy configuration and puts it back when it finishes. A restart timed by Sockitt could leave the test’s proxy carrying your traffic with nothing left running to restore it, so the restart stays yours.',
+    ],
+  },
+  {
     from: '1.21.0',
     to: '1.21.5',
     date: '30–31 July 2026',

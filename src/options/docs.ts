@@ -467,6 +467,7 @@ function buildDocsPanel(onReleases: () => void): HTMLElement {
         ['“Exit check failed” in the popup', ['The ', code('ipconfig.is'), ' lookup did not come back: the route is down, ', code('ipconfig.is'), ' is unreachable through it, or the request timed out. Hover the line for the underlying error; a connection test narrows it down.']],
         ['A rule never matches', ['Check the pattern field for a red outline — an invalid or over-complex pattern is kept but inert, and hovering it shows why. Otherwise check rule order (first match wins), and remember that on https the browser hides the path, so URL-path rules behave as host rules.']],
         ['Proxy auth never prompts', ['SOCKS proxies cannot be authenticated at all. For HTTP/HTTPS, look for the ', code('Enable authentication'), ' notice at the top of the options page — without that permission the challenge goes unanswered.']],
+        ['A new version is downloaded but not running', ['Chrome only swaps an extension for its new version while that extension is idle, and Sockitt wakes for rule-list updates, for proxy errors, and every time the popup opens — so an update can sit downloaded and unapplied for days. When that happens a banner at the top of this page says so and names both versions; restarting the browser finishes it. Sockitt will not restart itself, because the moment it picked could be the middle of a connection test — and a test holds the live proxy settings and puts them back only when it finishes.']],
       ])
     ),
 
