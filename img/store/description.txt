@@ -1,71 +1,73 @@
-Sockitt decides, for every request your browser makes, whether it goes straight out to the network or through a proxy, and which proxy that is.
+Sockitt decides, for every request your browser makes, whether it goes straight out to the network or through a proxy — and which proxy that is.
 
 If you juggle more than one proxy (an office HTTP proxy, an ssh -D SOCKS tunnel, an exit in another country) you know the routine: dig through your operating system's network settings, flip everything over, then remember to flip it back. Sockitt replaces that with one click, or with rules that do it for you and then stay out of the way.
 
-Set it up once to route company domains through the office proxy and let everything else go direct. To send one stubborn site through a tunnel without disturbing the rest of your browsing. To keep localhost and intranet hosts off the proxy automatically. Or simply to move your whole browser to a different exit in a single click.
+Route company domains through the office proxy and let everything else go direct. Send one stubborn site through a tunnel without disturbing the rest of your browsing. Keep localhost and intranet hosts off the proxy — new proxy profiles do that from the start. Or simply move your whole browser to a different exit in a single click.
 
-Your rules compile into an optimized PAC script that the browser evaluates per request, so routing costs effectively nothing while you browse.
-
-
-SWITCH IN ONE CLICK
-
-• Proxy profiles for SOCKS5, SOCKS4, HTTP, or HTTPS, each with a host, port, and optional bypass list.
-• Optional username and password authentication for HTTP and HTTPS proxies, with the permission requested only when you add credentials. (Chromium cannot authenticate SOCKS proxies at all.)
-• Built in Direct and System modes, always one click away.
-• Every profile gets a colored initials avatar drawn onto the toolbar icon, so your active route is visible at a glance.
+Your rules compile to an optimised PAC script that the browser evaluates per request, so routing costs effectively nothing while you browse.
 
 
-ROUTE AUTOMATICALLY, SITE BY SITE
+Switch in one click
 
-• Auto switch profiles run an ordered, first match wins rule table.
-• Match on host wildcard (*.example.com), host regex, URL wildcard, URL regex, URL keyword, IPv4 CIDR (10.0.0.0/8), host label count, weekday, or time of day.
-• Send each match to a proxy, to Direct, or on to another profile, a rule list, or an alias.
+• Proxy profiles for SOCKS5, SOCKS4, HTTP or HTTPS, each with a host, a port and its own bypass list.
+• Optional username and password authentication for HTTP and HTTPS proxies, with the permission requested only when you add credentials. (Chromium cannot authenticate SOCKS proxies at all — use an IP allow-list or a local tunnel such as ssh -D.)
+• Built-in Direct and System modes, always one click away.
+• Every profile you create carries a coloured initials avatar, drawn onto the toolbar icon while it is active. Your current route is visible without opening anything, and the plain icon means Direct or System.
+
+
+Route automatically, site by site
+
+• An Auto switch profile is an ordered rule table, and the first match wins.
+• Match on host wildcard (*.example.com), host regex, URL wildcard, URL regex, URL keyword, IP/CIDR (10.0.0.0/8), host levels, weekday or time of day.
+• Send each match to a proxy, to Direct, or on to another profile, a rule list or an alias.
 • Because profiles can point at other profiles, a large setup stays something you edit in one place instead of a rule table you keep rewriting.
 
 
-SUBSCRIBE TO RULE LISTS
+Subscribe to rule lists
 
-• Import AutoProxy/GFWList or plain domain lists by URL with scheduled auto updates, or paste your own.
-• Domain entries compile to a single dictionary lookup, so a list with thousands of entries stays fast.
-
-
-MANAGE THE TAB YOU ARE ON
-
-• The popup shows exactly where the active tab routes, and what decided it.
-• Retarget or delete the matching rule inline, without opening the options page.
-• Set a temporary override for one site that lasts only until you restart the browser.
-• An optional exit IP readout (off by default) shows the country flag, IP address, and round trip latency your current tab exits with.
+• Import an AutoProxy/GFWList or a plain domain list from a URL, on an auto-update schedule, or paste one in.
+• Domain entries compile to a single dictionary lookup, so even a 6,000-entry list costs roughly constant time per request.
+• Whitelist entries always win, and a line that could never match is reported to you rather than quietly compiled into a rule that does nothing.
 
 
-SEE WHERE YOUR TRAFFIC GOES
+Manage the tab you are on
+
+• The popup shows exactly where the active tab routes, and which rule decided it.
+• Retarget or delete that rule inline, without opening the options page.
+• Or set an override for the current site: always temporary, ranked above your permanent rules, and cleared when the browser restarts.
+• An optional exit-IP readout (off by default) shows the flag, IP address and round-trip latency the current tab actually exits with.
+
+
+See where your traffic goes
 
 • The options page opens on an Overview: the active profile, the hop chain it produces, and the exit IP measured through it.
-• A routing map draws how your profiles feed into each other, with the path your traffic takes right now picked out, so an orphaned profile or an accidental route to Direct is something you can see rather than something you have to work out.
-• A configuration health check finds what a rule table hides: patterns that will not compile, rules buried under a catch all so they can never run, duplicates with conflicting targets, credentials without the permission that answers the challenge, rule lists that have stopped updating, and reference loops. Each finding carries the action that fixes it.
+• A routing map draws how your profiles feed into each other with the live path picked out, so an orphaned profile or an accidental route to Direct is something you can see rather than something you have to work out.
+• A configuration health check finds what a rule table hides: patterns that will not compile, rules buried under a catch-all so they can never run, duplicates with conflicting targets, credentials without the permission that answers the challenge, a rule list that has stopped updating, a profile that routes back to itself. Each finding carries the action that fixes it.
 • Optionally, a breakdown of where every open tab routes, resolved locally through your own rules.
-• Everything on this page is read back from your own configuration. Nothing on it watches your browsing; the Network monitor, which does observe requests, is a separate page you have to open and switch on.
+• Everything on this page is read back from your own configuration. Nothing here watches your browsing.
 
 
-BUILT FOR TRUST
+Built for trust
 
-• Minimal default permissions: proxy, storage, activeTab, and alarms. No host permissions at all.
-• Every extra capability is opt in, and is requested only when you switch on the feature that needs it.
-• No analytics, no tracking, no ads, and nothing sent to the developer by default.
-• When a proxy is unreachable, its requests fail rather than quietly retrying direct, so a dead proxy can never leak the traffic you meant to route through it.
-• A red badge tells you when something is wrong instead of pretending to work.
-
-
-POWER FEATURES
-
-• Route inspector: trace any URL through your configuration using the same resolver real routing uses, and see which rule fired, the chain it walked, and where it landed.
-• Network monitor: where the inspector answers for one URL you type, this answers for every request the browser actually makes while the page is open, and the profile your rules send each one through, including the subresources that never reach the address bar. It records only in that page, writes nothing to disk, and stops the moment you leave or press Stop. Off until you open it.
-• Connection tests: confirm a proxy works and see its exit IP, country, and latency, authentication included. Uses the same opt in lookup as the exit IP readout.
-• Aliases: point many rules at one alias, then retarget them all by editing the alias once.
-• Quick switch: cycle a chosen set of profiles from the toolbar button or a keyboard shortcut.
-• Incognito routing: optionally give incognito windows a profile of their own.
-• Sync: mirror your configuration across machines through your browser account. Proxy credentials never leave the device.
+• Minimal default permissions: proxy, storage, activeTab and alarms. No host permissions at all.
+• Every extra capability is opt-in, and is requested only when you switch on the feature that needs it.
+• No analytics, no tracking, no ads. With IP address lookups off, which is the default, Sockitt contacts no developer-operated server at all.
+• When a proxy is unreachable its requests fail rather than quietly retrying direct, so a dead proxy can never leak the traffic you meant to route through it.
+• And you are told: a red mark appears on the toolbar icon, and a Proxy errors page names the error, explains it, and says which proxy was carrying traffic. The mark clears itself once the failures stop.
+• Sync is optional and goes to your own browser account. Proxy credentials are never synced — you enter those on each machine.
 
 
-Built from scratch for Manifest V3, with no frameworks and no runtime dependencies. Works on Chrome, Edge, Brave, Opera, Vivaldi, and other Chromium browsers (Chrome 110 or newer).
+More, once you need it
+
+• Route inspector — trace any URL through your configuration with the same resolver real routing uses, and see which rule fired, the chain it walked, and where it landed.
+• Network monitor — where the inspector answers for one URL you type, this answers for every request the browser actually makes and the profile your rules send each one through, including the subresources that never reach the address bar. It records only while its page is open, writes nothing to disk, and its Stop really detaches. Off until you open it.
+• Connection tests — confirm a proxy is reachable and see its exit IP, country and latency, authentication included. Uses the same opt-in lookup as the exit-IP readout.
+• Aliases — point many rules at one alias, then retarget them all by editing the alias once.
+• Quick switch — cycle a chosen set of profiles from the toolbar button or a keyboard shortcut.
+• Plus a startup profile, a profile of its own for incognito windows, an optional per-tab route badge, an optional tab reload after switching, and a guard that takes proxy control back if another extension grabs it.
+• And a full manual built into the options page, so the answer is never on somebody else's website.
+
+
+Built from scratch for Manifest V3, with no frameworks and no runtime dependencies. Works on Chrome, Edge, Brave, Opera, Vivaldi and other Chromium browsers (Chrome 110 or newer).
 
 Open source, MIT licensed: https://github.com/ptmplop/Sockitt
