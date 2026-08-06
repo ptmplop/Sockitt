@@ -1,7 +1,9 @@
 import { initialsFor, textColorFor } from './shared/avatar';
+import { NEUTRAL, badgeApplies, badgePaintFor, minutesToNextClockChange } from './shared/badge';
 import { pacRequestUrl, resolveRoute } from './shared/match';
 import { compilePac, fixedServersValue, pacDirective, staticTerminal } from './shared/pac';
 import { RULE_LIST_MAX_BYTES } from './shared/rulelist';
+import { livePath } from './shared/health';
 import { incognitoActiveId } from './shared/scope';
 import {
   APPLIED_KEY,
@@ -25,6 +27,7 @@ import {
   ERROR_KEY,
   ProxyErrorSource,
   ProxyRef,
+  asProxyAlert,
   badgeTextFor,
   clearProxyAlert,
   errorSummaryLine,
@@ -51,7 +54,6 @@ import {
 } from './shared/types';
 import { clearPendingUpdate, savePendingUpdate } from './shared/update';
 
-const NEUTRAL = '#8b93a7';
 const DANGER = '#f5576c';
 const REVERT_COOLDOWN_MS = 30_000;
 const ALARM_PREFIX = 'rl:';
@@ -69,6 +71,40 @@ let lastIncognitoId: string | undefined;
 let popupPorts = 0;
 /** Most recently applied config; lets tab events gate without a storage read. */
 let cachedConfig: Config | null = null;
+/**
+ * Serialises applies. Nothing else did: every entry point was a bare
+ * `void applyActive()`, so a rule-list alarm, a sync pull and a user switch
+ * could run concurrently, each having snapshotted config at a different moment.
+ * The proxy settled correctly (last write wins, and they converge), but each
+ * run also repaints the badge from its OWN snapshot — so the run that STARTED
+ * first could finish last and repaint a route the user had already changed.
+ * Chaining makes the last apply to start the last to finish, which is the only
+ * ordering under which its snapshot is by definition the current one. Same
+ * shape as the history and error-log write chains elsewhere in the codebase.
+ */
+let applyChain: Promise<void> = Promise.resolve();
+
+/**
+ * Queue an apply behind any already in flight. See applyChain.
+ *
+ * The testInFlight check has to happen HERE, at dequeue time, not at the call
+ * site: a queued apply may wait behind a long-running one, and a probe can
+ * start in that gap. Running it then would stomp the probe's PAC with the real
+ * configuration mid-measurement. Deferring to reapplyAfterTest is exactly what
+ * the probe's own `finally` is written to pick up.
+ */
+function queueApply(): Promise<void> {
+  applyChain = applyChain
+    .then(() => {
+      if (testInFlight) {
+        reapplyAfterTest = true;
+        return;
+      }
+      return applyActive();
+    })
+    .catch(() => undefined);
+  return applyChain;
+}
 
 /* ---------------- proxy application ---------------- */
 
@@ -133,9 +169,20 @@ function settingsValueFor(
 function applyActiveGuarded(): void {
   if (testInFlight) {
     reapplyAfterTest = true; // the test's finally re-applies fresh config
+    // The badge is not the proxy's to hold. It is pure chrome.action state and
+    // touches nothing a probe owns, but deferring it with the apply left it
+    // contradicting the popup's own Route readout for the length of the probe —
+    // and the popup fires one on open and after every override edit, which is
+    // exactly when the badge is being read.
+    void loadConfig()
+      .then((c) => {
+        cachedConfig = c;
+        return refreshActiveTabBadge(c);
+      })
+      .catch(() => undefined);
     return;
   }
-  void applyActive();
+  void queueApply();
 }
 
 /**
@@ -262,6 +309,7 @@ async function applyActiveInner(signal = true): Promise<void> {
   rebuildCredentials(config);
   registerAuthListener();
   await refreshActiveTabBadge(config);
+  await scheduleBadgeClock(config);
   await scheduleRuleListUpdates(config);
   if (config.settings.syncEnabled) await pushToSync(config);
 }
@@ -288,6 +336,12 @@ async function publishControl(level: string | undefined): Promise<void> {
  * so scheduleRuleListUpdates, which only manages "rl:" alarms, leaves it alone.
  */
 const ERROR_DECAY_ALARM = 'sockitt-error-decay';
+/**
+ * Repaints the route badge on a clock boundary — see scheduleBadgeClock. Named
+ * outside ALARM_PREFIX so scheduleRuleListUpdates, which clears every "rl:"
+ * alarm it does not want, leaves it alone.
+ */
+const BADGE_CLOCK_ALARM = 'sockitt-badge-clock';
 /**
  * No further failure for this long and the alert — badge count included — is
  * dropped. Nothing else tells us a proxy started working again: Chrome reports
@@ -662,7 +716,7 @@ async function runProxyTest(req: {
     await applyActive().catch(() => undefined);
     await chrome.storage.session.remove(TESTING_KEY).catch(() => undefined);
     testInFlight = false;
-    if (reapplyAfterTest) void applyActive();
+    if (reapplyAfterTest) void queueApply();
   }
   try {
     await chrome.storage.session.set({ [TEST_RESULT_KEY]: result });
@@ -740,7 +794,7 @@ async function runTabExitProbe(req: { nonce: number; tabUrl: string; tabHost: st
     await applyActive(pending).catch(() => undefined);
     await chrome.storage.session.remove(TESTING_KEY).catch(() => undefined);
     testInFlight = false;
-    if (reapplyAfterTest) void applyActive();
+    if (reapplyAfterTest) void queueApply();
   }
   await respond(result);
 }
@@ -1088,38 +1142,134 @@ async function updateRuleList(profileId: string): Promise<void> {
 const BADGE_PAINTING_KEY = 'sockitt-badge-painting';
 
 /**
+ * Whether THIS worker has already recorded that badges are painted. Only a
+ * memo for the session write above — the flag itself is the durable record.
+ */
+let paintedBadge = false;
+
+/**
  * Drop the tab's badge OVERRIDE rather than blanking it. Text '' is still an
  * override, and would hide the GLOBAL badge — the red proxy-error '!' included
  * — for this tab alone; null removes it so the global text shows through
  * again. (MV3's own typings omit the documented null, hence the cast.)
+ *
+ * The COLOUR override has to be dealt with separately, and differently: unlike
+ * text it has no null form (`color` is required by the action schema, so
+ * passing null throws), and it outranks the global colour on its own — a tab
+ * that once carried a route badge would otherwise render the global '!' it now
+ * inherits in the last route's colour. DANGER is the right colour to leave
+ * behind because the error badge is the ONLY global text Sockitt ever raises;
+ * every other path blanks it (applyActiveInner).
  */
 async function clearTabBadge(tabId: number): Promise<void> {
-  await chrome.action
-    .setBadgeText({ tabId, text: null } as unknown as chrome.action.BadgeTextDetails)
-    .catch(() => undefined);
+  await Promise.all([
+    chrome.action
+      .setBadgeText({ tabId, text: null } as unknown as chrome.action.BadgeTextDetails)
+      .catch(() => undefined),
+    chrome.action.setBadgeBackgroundColor({ tabId, color: DANGER }).catch(() => undefined),
+  ]);
 }
 
-/** Repaint the focused tab's badge after a profile/temp-rule change. */
+/**
+ * Repaint the route badge on EVERY window's active tab after a profile/rule
+ * change — not just the focused window's.
+ *
+ * A tab-scoped badge is state that outlives navigation, tab switching and the
+ * worker itself, and the only two events wired to repaint it (onActivated,
+ * onUpdated) fire for neither a window focus change nor a background window. A
+ * single-tab refresh therefore left every other window asserting the route of a
+ * profile that was no longer active, indefinitely. `{ active: true }` with no
+ * window filter is the same unfiltered shape paintScopedTabs already relies on
+ * for the tab-scoped icon, and needs no permission beyond the ids.
+ */
 async function refreshActiveTabBadge(config: Config): Promise<void> {
   const on = config.settings.badgeResult;
   const store = await chrome.storage.session.get(BADGE_PAINTING_KEY);
-  const was = store[BADGE_PAINTING_KEY] === true;
-  if (was !== on) await chrome.storage.session.set({ [BADGE_PAINTING_KEY]: on });
 
   if (!on) {
     // Switching the feature off has to undo itself. A tab-scoped badge outlives
     // navigation and every later updateTabBadge returns early once the feature
     // is off, so without this sweep the last route painted would sit on each
     // tab until that tab was closed.
-    if (was) await clearAllTabBadges();
+    //
+    // ABSENT is treated as "unknown, may have painted", not as "nothing to do":
+    // an extension reload drops session storage but NOT the painted badges, and
+    // that path runs no applyActive, so the flag would read clean while badges
+    // sat on every tab. The sweep is recorded only once it has actually run —
+    // writing the flag first would let a worker die between the two and record
+    // a sweep that never happened.
+    //
+    // Gated on the grant as well, so the default configuration — feature off,
+    // "tabs" never granted — does no sweep at all. Nothing can have painted a
+    // badge without that permission, so "unknown" is only genuinely unknown for
+    // someone who has held it.
+    if (
+      store[BADGE_PAINTING_KEY] !== false &&
+      (await chrome.permissions.contains(TABS_PERMS).catch(() => false))
+    ) {
+      await clearAllTabBadges();
+      // Reset the memo with the flag, or a paint after the feature is switched
+      // back on would skip its own record — leaving the NEXT switch-off reading
+      // "already swept" over badges that had since been repainted.
+      paintedBadge = false;
+      await chrome.storage.session.set({ [BADGE_PAINTING_KEY]: false }).catch(() => undefined);
+    }
     return;
   }
   try {
-    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    if (tab?.id !== undefined) await updateTabBadge(tab.id, config);
+    const tabs = await chrome.tabs.query({ active: true });
+    await Promise.all(
+      tabs.map((t) => (t.id === undefined ? undefined : updateTabBadge(t.id, config)))
+    );
   } catch {
     // no active tab
   }
+}
+
+/**
+ * Wake once at the next moment a `time`/`weekday` rule changes its answer, so
+ * the badge stops asserting a route the PAC has already stopped taking.
+ *
+ * These conditions are the only ones whose answer moves without an event: every
+ * other badge trigger is a navigation, a tab switch or a config write. A
+ * ONE-SHOT alarm at the boundary rather than a periodic one — polling every
+ * minute would wake the worker 1440 times a day to change nothing. Each firing
+ * re-arms for the next boundary (see the onAlarm handler).
+ *
+ * Both scopes count: an incognito tab resolves against the incognito profile,
+ * so a time rule live only there still has to move the badge.
+ */
+async function scheduleBadgeClock(config: Config): Promise<void> {
+  // Nothing to wake for unless the feature can actually paint: the setting on
+  // AND the grant it needs held. Without this the alarm outlived a revoke.
+  const armed =
+    config.settings.badgeResult && (await chrome.permissions.contains(TABS_PERMS).catch(() => false));
+  // The incognito scope is counted WITHOUT checking incognito access, on
+  // purpose. Granting that access reloads the extension without firing
+  // onInstalled or onStartup, so a gate evaluated while it was off would leave
+  // the scope with no boundary alarm until the next config write — the exact
+  // staleness this exists to prevent. An extra wake costs nothing; a missing one
+  // is the bug.
+  const live = livePath(config, config.activeId);
+  for (const id of livePath(config, incognitoActiveId(config, true) ?? config.activeId)) {
+    live.add(id);
+  }
+  const minutes = armed ? minutesToNextClockChange(config, live) : null;
+  if (minutes === null) {
+    await chrome.alarms.clear(BADGE_CLOCK_ALARM).catch(() => undefined);
+    return;
+  }
+  // At least a minute out: Chrome clamps shorter delays anyway, and a boundary
+  // that resolved to "now" must not re-arm itself in a tight loop.
+  //
+  // Capped at an hour because the delay is ELAPSED time while the boundary is a
+  // WALL-CLOCK one: a DST shift, a timezone change or a laptop suspend would
+  // otherwise leave a 15-hour wait pointing at the wrong instant. Re-arming
+  // hourly re-reads the clock and self-corrects, at a cost of at most 24 wakes a
+  // day — and only for the profiles that actually carry a time or weekday rule.
+  await chrome.alarms.create(BADGE_CLOCK_ALARM, {
+    delayInMinutes: Math.min(60, Math.max(1, minutes)),
+  });
 }
 
 /** Remove every tab-scoped badge. tabs.query needs no permission for ids. */
@@ -1146,8 +1296,15 @@ async function updateTabBadge(tabId: number, config: Config | null = cachedConfi
     // it: clear rather than return, or a badge painted while the permission was
     // held would sit on the tab reading out a route no longer being checked.
     if (!(await chrome.permissions.contains(TABS_PERMS))) return void (await clear());
-    const errorStore = await chrome.storage.session.get(ERROR_KEY);
-    if (errorStore[ERROR_KEY]) return; // leave the global error badge visible
+    // A FATAL incident owns the toolbar, so DROP this tab's override and let the
+    // global '!' through. Returning instead left the previous route's badge in
+    // place — which both went stale for the length of the incident and hid the
+    // very '!' it meant to preserve, since a tab-scoped badge always outranks
+    // the global one. A non-fatal alert paints no global badge (raiseProxyError
+    // returns before painting unless fatalStreak), so it has no claim on the
+    // toolbar: fall through and keep reading out the true route.
+    const alert = await loadProxyAlert();
+    if (alert?.fatalStreak) return void (await clear());
     const tab = await chrome.tabs.get(tabId);
     // An incognito tab is routed by the incognito scope, so it has to be read
     // out from that scope's profile and that scope's overrides — resolving it
@@ -1156,20 +1313,42 @@ async function updateTabBadge(tabId: number, config: Config | null = cachedConfi
     const scopedId = tab.incognito ? incognitoActiveId(cfg, true) : null;
     const activeId = scopedId ?? cfg.activeId;
     const active = profileById(cfg, activeId);
-    // Unconditional profile (proxy/alias/direct): the icon already says it.
-    if (!active || staticTerminal(cfg, active) !== null) return void (await clear());
     // The page being loaded, not the one being replaced — otherwise the badge
     // reads out the previous page's route for as long as a navigation takes,
     // which on a host that never answers is half a minute of the wrong answer,
     // and disagrees with the popup's Route readout the whole time.
     const page = tabTarget(tab);
-    if (!page) return void (await clear());
+    // Cheap rejections first: no need to read the scope's overrides for a tab
+    // that gets cleared whatever they say. This runs on every navigation.
+    if (!badgeApplies(cfg, active, page)) return void (await clear());
     const tempRules = await loadTempRules(activeId, scopedId ? 'incognito' : 'regular');
-    const route = resolveRoute(cfg, active, pacRequestUrl(page.url), page.host, tempRules);
-    const target = profileById(cfg, route.targetId);
-    const text = target && !route.bypassed ? initialsFor(target) : 'DIR';
-    await chrome.action.setBadgeBackgroundColor({ tabId, color: target?.color ?? NEUTRAL });
-    await chrome.action.setBadgeText({ tabId, text });
+    const paint = badgePaintFor(cfg, active, page, tempRules);
+    if (!paint) return void (await clear());
+    // Several awaits have passed since the feature gate at the top, and the sweep
+    // that undoes a switch-off is one-shot: a paint landing after it would sit
+    // there for good, with the feature off and nothing left to clear it. Recheck
+    // against the live config rather than the snapshot this resolved against.
+    if (cachedConfig && !cachedConfig.settings.badgeResult) return void (await clear());
+    // One await, not two: these are the badge's only writes, and issuing them
+    // separately let a superseded invocation land its colour after a newer one's
+    // text, leaving one profile's initials on another's colour.
+    await Promise.all([
+      chrome.action.setBadgeBackgroundColor({ tabId, color: paint.color }),
+      chrome.action.setBadgeText({ tabId, text: paint.text }),
+    ]);
+    // Record the paint HERE, where it happens. The off-sweep is gated on this
+    // flag, and refreshActiveTabBadge — the only writer until now — is not on
+    // the path the tab listeners take, so badges painted by a navigation or a
+    // tab switch were never accounted for and the sweep skipped them. Memoised
+    // per worker so this costs one session write per lifetime, not one a paint.
+    if (!paintedBadge) {
+      // Set AFTER the write lands, not before: an optimistic memo would suppress
+      // every later attempt, so a single failed write would leave the flag
+      // saying "nothing painted" for the rest of the worker's life — and the
+      // off-sweep this exists to authorise would never run.
+      await chrome.storage.session.set({ [BADGE_PAINTING_KEY]: true });
+      paintedBadge = true;
+    }
   } catch {
     // tab gone or URL unavailable — nothing to paint
   }
@@ -1197,7 +1376,7 @@ void chrome.storage.session
   .then((s) => {
     if (s[TESTING_KEY]) {
       void chrome.storage.session.remove(TESTING_KEY);
-      void applyActive();
+      void queueApply();
     }
   })
   .catch(() => undefined);
@@ -1220,7 +1399,7 @@ void loadConfig()
 // data on wake-up. applyActive's own pushToSync is a no-op right after a pull
 // (rev already matches), so no echo.
 chrome.runtime.onInstalled.addListener(() => {
-  void maybePullSync().then(() => applyActive());
+  void maybePullSync().then(() => queueApply());
 });
 
 /**
@@ -1264,7 +1443,7 @@ chrome.runtime.onStartup.addListener(() => {
       // applyActive via onConfigChanged; it just doesn't masquerade as a user edit.
       await saveConfigRaw(config);
     } else {
-      await applyActive();
+      await queueApply();
     }
   })();
 });
@@ -1327,8 +1506,50 @@ chrome.permissions.onAdded.addListener((added) => {
   // rather than waiting for the next tab switch or navigation, so the grant
   // visibly does something.
   if (added.permissions?.includes('tabs')) {
-    void loadConfig().then((config) => refreshActiveTabBadge(config));
+    void loadConfig().then(async (config) => {
+      await refreshActiveTabBadge(config);
+      // The clock alarm is gated on this grant too, so the grant has to arm it —
+      // nothing else will until the next config write.
+      await scheduleBadgeClock(config).catch(() => undefined);
+    });
   }
+});
+
+/**
+ * The revoke edge, the counterpart the grant above always had and this never
+ * did. A tab-scoped badge outlives the permission that painted it, and
+ * updateTabBadge can only clear a tab some event happens to name — which for a
+ * tab in an unfocused window is neither onActivated (a window focus change
+ * fires no tab event) nor onUpdated. Without this sweep those badges keep
+ * reading out routes Sockitt is no longer allowed to check. tabs.query needs no
+ * permission for ids, so it still works after the grant is gone.
+ */
+chrome.permissions.onRemoved.addListener((removed) => {
+  if (!removed.permissions?.includes('tabs')) return;
+  paintedBadge = false;
+  void (async () => {
+    await clearAllTabBadges();
+    await chrome.storage.session.set({ [BADGE_PAINTING_KEY]: false }).catch(() => undefined);
+    // The clock alarm exists only to repaint a badge that can no longer be
+    // painted; leaving it armed would wake the worker on every boundary forever.
+    await chrome.alarms.clear(BADGE_CLOCK_ALARM).catch(() => undefined);
+  })();
+});
+
+/**
+ * A window coming to the front changes which tab the user is reading the badge
+ * on, and Chrome fires no tab event for it: onActivated means the active tab
+ * changed WITHIN a window, which this is not. Without this, the tab in front of
+ * the user kept whatever route was painted before the last profile change.
+ */
+chrome.windows.onFocusChanged.addListener((windowId) => {
+  if (windowId === chrome.windows.WINDOW_ID_NONE) return;
+  void chrome.tabs
+    .query({ active: true, windowId })
+    .then(([tab]) => {
+      if (tab?.id !== undefined) void updateTabBadge(tab.id);
+    })
+    .catch(() => undefined); // the window closed between the event and the query
 });
 
 chrome.action.onClicked.addListener(() => void cycleProfile());
@@ -1340,6 +1561,15 @@ chrome.commands.onCommand.addListener((command) => {
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ERROR_DECAY_ALARM) {
     void decayProxyAlert();
+  } else if (alarm.name === BADGE_CLOCK_ALARM) {
+    // Re-arm FIRST, and independently of the repaint. The alarm is one-shot and
+    // this handler is its only re-armer, so a repaint that throws would end the
+    // chain for good — the badge would then never move on a clock boundary
+    // again until some unrelated apply happened to rebuild the alarm.
+    void loadConfig().then(async (config) => {
+      await scheduleBadgeClock(config).catch(() => undefined);
+      await refreshActiveTabBadge(config).catch(() => undefined);
+    });
   } else if (alarm.name.startsWith(ALARM_PREFIX)) {
     void updateRuleList(alarm.name.slice(ALARM_PREFIX.length));
   }
@@ -1354,8 +1584,28 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'session' || !changes[ERROR_KEY]) return;
   const { oldValue, newValue } = changes[ERROR_KEY];
-  if (oldValue === undefined || newValue !== undefined) return; // only the cleared edge
-  void restoreBadgeAfterAlert();
+  if (oldValue !== undefined && newValue === undefined) {
+    void restoreBadgeAfterAlert();
+    return;
+  }
+  // The RAISED edge, and only the edge. The '!' is painted globally, so every
+  // tab already carrying a route badge would go on showing it — the per-tab
+  // override wins — and hide the alert entirely. Sweep them once so the error is
+  // what the toolbar says; each tab repaints its route from onActivated/
+  // onUpdated once the incident ends.
+  //
+  // ERROR_KEY is rewritten on EVERY failed request while an incident runs (the
+  // streak counter moves), so testing newValue alone would run a browser-wide
+  // sweep per failure. Only the transition from "no fatal alert" to "fatal
+  // alert" has anything to undo.
+  if (newValue === undefined) return;
+  if (asProxyAlert(oldValue)?.fatalStreak) return; // already swept for this incident
+  if (!asProxyAlert(newValue)?.fatalStreak) return;
+  // Nothing can have been painted with the feature off, so there is nothing to
+  // sweep. Only skip on a POSITIVE reading: a worker woken by this very error
+  // has no cached config, and not knowing is a reason to sweep, not to skip.
+  if (cachedConfig && !cachedConfig.settings.badgeResult) return;
+  void clearAllTabBadges();
 });
 
 chrome.proxy.settings.onChange.addListener((details) => {
@@ -1370,7 +1620,7 @@ chrome.proxy.settings.onChange.addListener((details) => {
     const now = Date.now();
     if (now - lastRevert < REVERT_COOLDOWN_MS) return;
     lastRevert = now;
-    await applyActive();
+    await queueApply();
   })();
 });
 

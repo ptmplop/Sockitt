@@ -27,6 +27,18 @@ interface Release {
 
 const RELEASES: Release[] = [
   {
+    from: '1.25.0',
+    date: '6 August 2026',
+    title: 'A route badge that is always about the page in front of you',
+    notes: [
+      'The per-tab route badge is repainted in every window, not only the one you changed the profile from. Chrome announces nothing when focus merely moves between windows — it only reports a change of tab WITHIN one — so every other window kept the initials of a profile that had stopped routing it, and kept them until that tab happened to be reloaded. Every window’s open tab is repainted on a change now, and bringing a window to the front repaints its own.',
+      'A proxy failure no longer freezes the badge on the last route it read. While a failure was live the badge stopped being updated but stayed on screen, so it went on naming a profile for pages that had since changed — and because a tab’s own badge covers the browser-wide one, it also hid the red error mark it was meant to be leaving visible. The badge now steps aside for as long as the failure lasts, and comes back when it clears.',
+      'Rules that depend on the time of day or the day of the week move the badge when their window opens and closes. The route itself always changed on the clock, but the badge only ever changed when something else happened to redraw it — so a rule that ended at 17:00 could go on naming its profile for the rest of the evening. Sockitt now wakes at the boundary, and only for profiles that actually carry such a rule.',
+      'A site your proxy’s bypass list sends direct reads DIR in grey, rather than DIR in that proxy’s own colour — which was the one combination that looked like the page was going through it.',
+      'Switching the badge off clears the badges it left behind, and so does withdrawing the “tabs” permission it runs on. Both used to leave the last route painted on every tab you had not visited since, with nothing left running that would ever clear it.',
+    ],
+  },
+  {
     from: '1.24.0',
     date: '6 August 2026',
     title: 'What Sync actually needs, and what it will overwrite',
