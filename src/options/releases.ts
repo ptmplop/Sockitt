@@ -27,6 +27,17 @@ interface Release {
 
 const RELEASES: Release[] = [
   {
+    from: '1.24.0',
+    date: '6 August 2026',
+    title: 'What Sync actually needs, and what it will overwrite',
+    notes: [
+      'The Sync setting says what it depends on. It rides on your browser’s own sync rather than any Sockitt server, so it reaches nothing at all unless the browser itself is syncing — and every browser arranges that differently: Chrome through a Google account, Brave through a sync chain you join with a code or QR. It is per browser, too, so Chrome reaches your other Chromes and Brave your other Braves, never each other, even on the same machine.',
+      'A browser with no sync of its own accepts everything Sockitt writes and keeps it locally forever. There is no error to raise and nothing on the page looks wrong, so a machine that never receives anything is worth checking there first — which the setting now says, rather than leaving it to be worked out.',
+      'A warning covers the two ways turning Sync on can lose work. Where a configuration is already synced, this machine adopts it and its own is replaced. Where nothing is synced, this machine’s configuration becomes the shared one and every other machine with Sync on takes it — so setting a machine up with Sync off and switching it on afterwards can overwrite the rest. Switch Sync on first, then make your changes. Turning Sync off deletes the shared copy; every machine keeps what it has.',
+      'The documentation covers the same ground in full: how to set each browser up and where the switches are, what never travels, when Sockitt pulls, and what turning Sync off deletes. The setting links straight to it.',
+    ],
+  },
+  {
     from: '1.23.0',
     date: '1 August 2026',
     title: 'Rule lists stop offering what they cannot do',

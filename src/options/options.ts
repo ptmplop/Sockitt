@@ -1798,6 +1798,34 @@ function settingsPanel(): HTMLElement {
     })
     .catch(() => undefined);
 
+  // Sync reaches nothing unless the BROWSER is syncing, and each browser
+  // arranges that its own way — a machine that never receives anything is far
+  // more often a browser that was never signed in than anything Sockitt did.
+  // Sockitt cannot detect it either: storage.sync accepts every write and keeps
+  // it locally when there is no sync behind it, so this has to be said rather
+  // than reported. The full setup, per browser, lives in the docs.
+  const syncNeeds = el(
+    'span',
+    { class: 'note' },
+    'Your browser has to be syncing for this to reach anything — signed into Chrome’s sync, or joined to a Brave sync chain, with Extensions among the types it carries. It is per browser, so Chrome reaches your other Chromes and Brave your other Braves, never each other. Where the browser has no sync, the configuration stays on this machine and Sockitt cannot tell the difference. ',
+    el(
+      'button',
+      { class: 'linklike', type: 'button', onclick: () => openDocsAt('doc-sync') },
+      'See Docs → Sync'
+    ),
+    ' for how each browser sets that up.'
+  );
+  // Amber only while Sync is OFF. Unlike the incognito requirement above —
+  // which holds in both states, so it is stated in both — this is the
+  // consequence of flipping the switch, and it is only pending while the switch
+  // is armed. Once Sync is on it stays on the page as history, in the ordinary
+  // tone. The toggle's own handler repaints it; nothing here re-renders.
+  const syncWarn = el(
+    'span',
+    { class: s.syncEnabled ? 'note' : 'note warn' },
+    'Switch Sync on before you set a machine up, not after. Turned on with a configuration already in sync, this machine’s is replaced by it; turned on when nothing is synced, this machine’s becomes the shared one and every other machine with Sync on takes it. Turning Sync off deletes the shared copy; each machine keeps what it has.'
+  );
+
   return el(
     'div',
     { class: 'pane' },
@@ -1905,12 +1933,13 @@ function settingsPanel(): HTMLElement {
       syncError ? el('div', { class: 'banner' }, `Sync error: ${syncError}`) : null,
       toggleRow(
         'Sync configuration',
-        'Mirror profiles and rules to your browser account (chrome.storage.sync) so other machines pick them up. Newest change wins. Large rule-list bodies are not synced — set a URL so each machine can refresh its own copy.',
+        'Mirror profiles and rules through your browser’s own sync so your other machines pick them up. Newest change wins.',
         s.syncEnabled,
         async (v) => {
           if (!v) {
             s.syncEnabled = false;
             void clearSync();
+            syncWarn.className = 'note warn';
             return;
           }
           // A remote written by an incompatible schema must not be joined:
@@ -1944,8 +1973,11 @@ function settingsPanel(): HTMLElement {
             return;
           }
           s.syncEnabled = true;
+          syncWarn.className = 'note';
         }
-      )
+      ),
+      syncNeeds,
+      syncWarn
     )
   );
 }
