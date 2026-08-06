@@ -73,6 +73,8 @@ import {
   SCHEME_LABELS,
   SwitchProfile,
   SYSTEM,
+  BADGE_PERMS,
+  NAV_PERMS,
   TABS_PERMS,
   VirtualProfile,
   hasCredentials,
@@ -693,6 +695,13 @@ function targetSelect(ownerId: string, value: string, onChange: (v: string) => v
 let authPermGranted: boolean | null = null;
 let tabsPermGranted: boolean | null = null;
 /**
+ * "webNavigation" — the badge's second grant, tracked apart from "tabs" because
+ * installs that enabled the badge before it existed hold one and not the other.
+ * Without it the badge is correct but late: it cannot see a navigation that
+ * never commits, which is the case it most needs to see.
+ */
+let navPermGranted: boolean | null = null;
+/**
  * "Allow in Incognito" — Chrome's own switch, not an optional permission, so it
  * cannot be requested and never fires permissions.onAdded. Tracked here with
  * the two above because it fails the same way: a setting that is on and inert.
@@ -726,9 +735,10 @@ async function refreshUpdateState(): Promise<void> {
 }
 
 async function refreshPermState(): Promise<void> {
-  const [auth, tabs, incognito, userSettings] = await Promise.all([
+  const [auth, tabs, nav, incognito, userSettings] = await Promise.all([
     chrome.permissions.contains(AUTH_PERMS).catch(() => false),
     chrome.permissions.contains(TABS_PERMS).catch(() => false),
+    chrome.permissions.contains(NAV_PERMS).catch(() => false),
     chrome.extension.isAllowedIncognitoAccess().catch(() => false),
     chrome.action.getUserSettings().catch(() => ({ isOnToolbar: true })),
   ]);
@@ -743,9 +753,11 @@ async function refreshPermState(): Promise<void> {
   // dashboard on that would starve it of the very first answer. setAuthGranted
   // does its own no-op check.
   setAuthGranted(auth);
-  if (auth === authPermGranted && tabs === tabsPermGranted && !asideMoved) return;
+  if (auth === authPermGranted && tabs === tabsPermGranted && nav === navPermGranted && !asideMoved)
+    return;
   authPermGranted = auth;
   tabsPermGranted = tabs;
+  navPermGranted = nav;
   updatePermBanners();
 }
 
@@ -769,12 +781,16 @@ async function requestAuthPermission(): Promise<boolean> {
  * setting and the grant can be brought back into agreement from either side.
  */
 async function requestTabsPermission(): Promise<boolean> {
-  if (await chrome.permissions.contains(TABS_PERMS).catch(() => false)) {
+  if (await chrome.permissions.contains(BADGE_PERMS).catch(() => false)) {
     tabsPermGranted = true;
+    navPermGranted = true;
   } else {
-    const granted = await chrome.permissions.request(TABS_PERMS).catch(() => false);
+    // Both at once: Chrome's "tabs" warning absorbs "webNavigation", so this is
+    // one prompt saying what "tabs" alone already said.
+    const granted = await chrome.permissions.request(BADGE_PERMS).catch(() => false);
     toast(granted ? 'Per-tab badge enabled' : 'Permission needed for the per-tab badge');
-    tabsPermGranted = granted;
+    tabsPermGranted = granted || (await chrome.permissions.contains(TABS_PERMS).catch(() => false));
+    navPermGranted = granted;
   }
   updatePermBanners();
   return tabsPermGranted;
@@ -788,6 +804,15 @@ function authPermMissing(): boolean {
 /** The badge setting is on but the permission that makes it paint isn't. */
 function badgePermMissing(): boolean {
   return tabsPermGranted === false && config.settings.badgeResult;
+}
+
+/**
+ * The badge can paint, but cannot see a navigation start — so it goes stale for
+ * exactly as long as a page takes to fail. The state an install that enabled
+ * the badge before "webNavigation" was asked for sits in.
+ */
+function badgeNavPermMissing(): boolean {
+  return navPermGranted === false && tabsPermGranted === true && config.settings.badgeResult;
 }
 
 /** A profile is chosen for incognito, but Chrome won't let Sockitt near it. */
@@ -851,6 +876,15 @@ function permWarningBanners(): HTMLElement[] {
       warnBanner(
         'The per-tab route badge is switched on, but the optional "tabs" permission hasn’t been granted — the badge stays blank.',
         'Enable badge',
+        () => void requestTabsPermission()
+      )
+    );
+  }
+  if (badgeNavPermMissing()) {
+    banners.push(
+      warnBanner(
+        'The per-tab route badge can’t see a page start loading, only finish. Chrome reports a navigation when it commits, so a site that hangs — the moment you look at the badge to ask why — leaves it naming the previous page’s profile until the load gives up. Granting “webNavigation” fixes that; it asks for “Read your browsing history”, which is the same thing the badge’s existing permission already asks for, so Chrome shows no new warning.',
+        'Fix the badge',
         () => void requestTabsPermission()
       )
     );
@@ -1872,7 +1906,7 @@ function settingsPanel(): HTMLElement {
       ),
       toggleRow(
         'Per-tab route badge',
-        'Show which profile the current tab routes through as a toolbar badge. Requires the optional "tabs" permission.',
+        'Show which profile the current tab routes through as a toolbar badge. Needs the optional "tabs" and "webNavigation" permissions — together they ask for “Read your browsing history” once. Sockitt reads the tab’s address to resolve it locally; nothing is stored or sent.',
         s.badgeResult,
         async (v) => {
           if (!v) {

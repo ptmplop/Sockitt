@@ -77,6 +77,31 @@ export const AUTH_PERMS: chrome.permissions.Permissions = {
  */
 export const TABS_PERMS: chrome.permissions.Permissions = { permissions: ['tabs'] };
 
+/**
+ * "webNavigation" — what tells the badge a navigation has STARTED.
+ *
+ * Chrome announces a navigation through tabs.onUpdated only when it COMMITS, so
+ * a page that never loads produces no tab event at all (measured: zero over ten
+ * seconds, while tab.pendingUrl was set the whole time). The badge therefore
+ * went on naming the previous page's proxy for exactly as long as the new page
+ * hung — which is when someone looks at it. onBeforeNavigate is the only
+ * announcement that window makes.
+ *
+ * Kept apart from TABS_PERMS rather than folded into it, because an install
+ * that granted "tabs" before this existed must not have its badge switched off
+ * by a contains() check it cannot pass.
+ */
+export const NAV_PERMS: chrome.permissions.Permissions = { permissions: ['webNavigation'] };
+
+/**
+ * Both grants the badge wants, requested together: Chrome's kTab warning
+ * absorbs kWebNavigation, so the two ask for "Read your browsing history"
+ * exactly once — the same prompt "tabs" alone already showed.
+ */
+export const BADGE_PERMS: chrome.permissions.Permissions = {
+  permissions: ['tabs', 'webNavigation'],
+};
+
 /** true when the profile carries credentials the auth handler would serve. */
 export function hasCredentials(p: ProxyProfile): boolean {
   return schemeSupportsAuth(p.scheme) && Boolean(p.username || p.password);

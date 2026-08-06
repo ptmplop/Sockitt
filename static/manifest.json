@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Sockitt — Proxy Switcher",
-  "version": "1.25.0",
+  "version": "1.25.1",
   "description": "Fast, minimal proxy switcher (SOCKS5/SOCKS4/HTTP/HTTPS) with rule-based auto routing.",
   "minimum_chrome_version": "110",
   "icons": {
@@ -27,7 +27,7 @@
     "open_in_tab": true
   },
   "permissions": ["proxy", "storage", "activeTab", "alarms"],
-  "optional_permissions": ["tabs", "webRequest", "webRequestAuthProvider"],
+  "optional_permissions": ["tabs", "webNavigation", "webRequest", "webRequestAuthProvider"],
   "optional_host_permissions": ["<all_urls>"],
   "commands": {
     "_execute_action": {

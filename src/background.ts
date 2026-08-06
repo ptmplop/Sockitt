@@ -1513,6 +1513,12 @@ chrome.permissions.onAdded.addListener((added) => {
       await scheduleBadgeClock(config).catch(() => undefined);
     });
   }
+  // The navigation-start listener can only be registered once the API exists,
+  // which is the moment this fires. Registered from an async turn it is not
+  // wake-eligible until the next worker start — the same trade the auth
+  // listener makes — but a worker awake enough to receive this grant is awake
+  // for the navigations that immediately follow it.
+  if (added.permissions?.includes('webNavigation')) registerNavListener();
 });
 
 /**
@@ -1630,6 +1636,40 @@ chrome.proxy.settings.onChange.addListener((details) => {
 chrome.tabs.onCreated.addListener((tab) => {
   if (tab.incognito) void refreshScopedTabs();
 });
+
+/**
+ * Repaint when a navigation STARTS — the case tabs.onUpdated cannot report.
+ *
+ * Measured on Chrome 151: navigating a tab to a host that never answers fires
+ * NO tabs.onUpdated at all (zero events over ten seconds), because that event's
+ * `status: 'loading'` edge is delivered at the COMMIT, and a navigation nothing
+ * answers never commits. Meanwhile tab.pendingUrl already names the new page —
+ * so the badge had the right answer available and no reason to go and look. It
+ * went on reading out the previous page's proxy for the whole hang, which is
+ * precisely when someone looks at the toolbar to ask why nothing is loading.
+ *
+ * onBeforeNavigate is the only announcement made in that window, and by the
+ * time it arrives tab.pendingUrl is set, so updateTabBadge needs no new input —
+ * tabTarget already prefers the pending page over the one being replaced.
+ *
+ * Optional and degradable: without the grant the badge behaves as it did
+ * before, correct on every navigation that completes.
+ */
+let navListenerRegistered = false;
+function registerNavListener(): void {
+  // The API object does not exist until the permission is granted.
+  if (navListenerRegistered || !chrome.webNavigation) return;
+  navListenerRegistered = true;
+  chrome.webNavigation.onBeforeNavigate.addListener((details) => {
+    // Main frame only: a subframe navigating does not change what the TAB is,
+    // and the badge answers for the tab.
+    if (details.frameId !== 0) return;
+    void updateTabBadge(details.tabId);
+  });
+}
+
+// First synchronous turn where possible, so the event can wake a dormant worker.
+registerNavListener();
 
 chrome.tabs.onActivated.addListener((info) => void updateTabBadge(info.tabId));
 
