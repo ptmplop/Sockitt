@@ -9,6 +9,14 @@ Disabled rules (toggled off) and rules with invalid patterns are skipped
 entirely. An invalid pattern is outlined red in the editor and never breaks the
 other rules.
 
+A regex that could backtrack catastrophically counts as invalid too. A
+quantified group that itself holds a quantifier — `(a+)+`, `(.*)*` — is refused
+with *Pattern is too complex (risk of catastrophic backtracking) — simplify it*,
+and any source over 1,000 characters is refused outright. The same guard applies
+to `/regex/` entries in an AutoProxy/GFWList rule list, where such a line lands
+in the `N lines ignored` count with that reason spelled out. Rules are evaluated
+on every request, so a pattern that could stall one is never compiled.
+
 ## Condition types
 
 ### Host wildcard
@@ -114,6 +122,15 @@ over permanent rules, greys out the matching rule while it is set, and is
 cleared when the browser restarts (or when you remove it). Overrides live in
 session storage and are never written to your saved configuration.
 
+An override belongs to the window it was set in. Incognito windows can be given
+their own profile (Settings → *Incognito windows use*, which needs Chrome's own
+**Allow in Incognito** switch); those windows then drive separate proxy
+settings, so each scope keeps its own override slot — set one in an incognito
+window and regular windows never see it, and the reverse. An incognito window
+set to *Same as regular windows*, or any incognito window when Sockitt has not
+been allowed in incognito, has no scope of its own and uses the regular override
+like any other window.
+
 ## Rule lists
 
 A rule-list profile routes URLs matching an online (or pasted) list through a
@@ -170,9 +187,21 @@ The count under the field reports how it was read — `42 entries parsed`, plus
 Ignored lines are never compiled, so on a list showing 0 ignored every entry is
 doing something.
 
+Every ignored line is named underneath the count: its line number, the line as
+you wrote it, and why it could not be read. Click one to select it in the field
+and scroll it into view, so the fix starts where the problem is. The first 20
+unreadable lines are listed; beyond that the panel ends with how many more there
+are. The same panel appears for an AutoProxy list.
+
 Whitelist entries always win, sending the URL to the profile's default target.
-Lists auto-refresh on the interval you set; the URL's host must allow
-cross-origin requests (`raw.githubusercontent.com` does). Performance note:
+
+Auto-refresh needs a URL as well as an interval. Set the interval in hours — 0
+turns it off, 720 is the ceiling, and a new list starts at 24 — and the URL's
+host must allow cross-origin requests (`raw.githubusercontent.com` does). A
+pasted list never refreshes: Overview reads `pasted · no auto-update` for it and
+offers **Add URL**, which opens the list's editor. Pressing **Update now** with
+no URL answers the same way in place — *Set a URL first, or paste the list
+below* — and puts the cursor in the URL field. Performance note:
 `||domain` entries compile into a single dictionary lookup, so even a
 6,000-entry GFWList costs roughly constant time per request.
 
@@ -184,10 +213,14 @@ One entry per line:
 
 | Entry | Meaning |
 |---|---|
-| `<local>` | `localhost`, `127.0.0.1`, `[::1]`, and any dotless hostname (`nas`, `router`) |
+| `<local>` | `localhost`, `127.0.0.1`, `[::1]`, `::1`, and any dotless hostname (`nas`, `router`) |
 | `*.internal.example` | host wildcard, same semantics as above |
 | `10.0.0.0/8` | IPv4 CIDR block |
 | `printer.lan` | exact host |
+
+An IPv6 literal has no dots either, but it is never local: sending `2001:db8::1`
+direct would put a public address out unproxied, so only the loopback forms
+above count.
 
 ## Order matters: a worked example
 

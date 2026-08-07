@@ -337,7 +337,7 @@ function mockSource() {
   };
 
   addEventListener('load', () => {
-    // Options boots on the first profile, so a scene naming another page clicks
+    // Options boots on the Overview, so a scene naming another page clicks
     // its sidebar entry the way a user would rather than reaching into private
     // state. Matched on the .name span — the tile carries the initials as text.
     setTimeout(() => {

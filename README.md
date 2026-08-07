@@ -60,7 +60,12 @@ script.
 - **Proxy profiles.** SOCKS5, SOCKS4, HTTP, or HTTPS servers with a host, port,
   and per-profile bypass list, plus optional username/password authentication
   for HTTP(S) proxies. Each profile has an identity: an initials avatar in a
-  colour of your choice, drawn onto the toolbar icon while it is active.
+  colour of your choice, drawn onto the toolbar icon while it is active — as
+  long as Sockitt is pinned to the toolbar. Unpinned, the icon shows the plain
+  Sockitt mark and names nothing: it then appears only in Chrome's puzzle-piece
+  menu, which reads it once when the menu opens and never repaints it, so a
+  named icon there could show a profile that has since changed, or another
+  window's.
 - **Built-in modes.** *Direct* (no proxy) and *System* (use the OS proxy
   settings).
 - **Auto Switch profiles.** An ordered, first-match-wins rule table. Route by
@@ -95,7 +100,12 @@ script.
 - **Incognito routing.** Optionally give incognito windows their own profile
   (needs "Allow in Incognito"). Those windows then say so for themselves: the
   toolbar icon over one is that profile's, and the popup opened there reads out
-  and switches the incognito profile rather than the active one.
+  and switches the incognito profile rather than the active one. Temporary
+  overrides stay in the scope they were set in — one chosen in an incognito
+  window never follows you back into regular ones, or the reverse. The exit-IP
+  line is the exception: in a window on its own incognito profile it reads
+  *Exit check runs in regular windows*, because Chrome keeps the two scopes
+  apart and the measurement could only be taken on the regular route.
 - **Quick switch.** Cycle a chosen set of profiles from the toolbar button or a
   keyboard shortcut, without opening the popup.
 - **Sync and control.** Optional configuration sync across machines via your
@@ -112,7 +122,12 @@ script.
 
 **From the Chrome Web Store (easiest).**
 [Sockitt — Proxy Switcher](https://chromewebstore.google.com/detail/sockitt-%E2%80%94-proxy-switcher/ebfioiljhjgijbmnnpgadkgmokjbjkca)
-— one click, and it updates itself.
+— one click, and it updates itself. Chrome only swaps a new version in while an
+extension is idle, though, and Sockitt wakes often enough — for rule lists,
+proxy errors, the popup — that a download can sit waiting. When one does, the
+options page says so and names both versions; restart the browser to finish it.
+Sockitt will not restart itself, because a connection test holds your live proxy
+settings while it runs and a reload would leave them where it found them.
 
 **From a release.** Download `sockitt.zip` from the
 [latest release](https://github.com/ptmplop/Sockitt/releases/latest) and unzip
@@ -160,9 +175,13 @@ you configure; enabling IP address lookups (opt-in, below) adds lookups of
 
 Extra capabilities are strictly opt-in and requested only when you use them:
 
-- **Per-tab route badge** requests `tabs`. The Overview's "Where your tabs go"
-  breakdown uses the same grant: tab URLs are resolved locally through your own
-  rules to count them, and nothing is stored or sent.
+- **Per-tab route badge** requests `tabs` and `webNavigation`. Together they ask
+  for "Read your browsing history" once — the same prompt `tabs` alone already
+  showed. `webNavigation` is what tells the badge a navigation has *started*, so
+  a site that never answers stops reading out the previous page's profile. The
+  Overview's "Where your tabs go" breakdown needs only `tabs`. Either way, tab
+  URLs are resolved locally through your own rules, and nothing is stored or
+  sent.
 - **HTTP/HTTPS proxy authentication** requests `webRequest`,
   `webRequestAuthProvider`, and all-sites access, which Chromium needs to answer
   proxy auth challenges. Sockitt asks when you set credentials.
@@ -176,8 +195,15 @@ Extra capabilities are strictly opt-in and requested only when you use them:
   request access to `ipconfig.is`, the IP-echo service they query. Off by
   default; enable them with one setting, which asks for access the first time.
 - **Sync** stores your configuration in your own browser account
-  (`chrome.storage.sync`). Proxy credentials are never synced; enter them on
-  each machine.
+  (`chrome.storage.sync`). Your browser has to be syncing for it to reach
+  anything — signed into Chrome's sync, or joined to a Brave sync chain, with
+  Extensions among the types it carries; where the browser has no sync, the
+  configuration simply stays on that machine. Switch it on before you set a
+  machine up, not after: turned on with a configuration already in sync, this
+  machine's is replaced by it; turned on when nothing is synced, this machine's
+  becomes the shared one and every other machine with Sync on takes it. Turning
+  it off deletes the shared copy, and each machine keeps what it has. Proxy
+  credentials are never synced; enter them on each machine.
 
 The proxy error log lives in `chrome.storage.session` alone: it is gone when the
 browser restarts, is never written to your saved configuration, and is never
@@ -198,7 +224,7 @@ synced. It records proxy addresses and ports, never credentials.
 ```sh
 npm install
 npm run typecheck   # strict TypeScript, no emit
-npm test            # runs generated PAC scripts in a Node VM
+npm test            # unit suites: generated PAC in a Node VM, plus shared modules
 npm run build       # production build to dist/
 npm run watch       # dev build with inline sourcemaps
 npm run zip         # store-ready sockitt.zip

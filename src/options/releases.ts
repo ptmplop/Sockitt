@@ -28,10 +28,11 @@ interface Release {
 const RELEASES: Release[] = [
   {
     from: '1.25.0',
-    to: '1.25.1',
-    date: '6 August 2026',
+    to: '1.25.2',
+    date: '6–7 August 2026',
     title: 'A route badge that is always about the page in front of you',
     notes: [
+      'This page said the route badge needs the “tabs” permission. It needs “webNavigation” as well — which the Settings toggle beside it had been saying since the badge started watching for navigations, so the two disagreed about the one thing you would come here to check.',
       'The badge changes the moment a page starts loading, not when it finishes. Chrome reports a navigation only once it commits, so a site that hangs — which is exactly when you look at the toolbar to ask why — made no report at all, and the badge went on naming the previous page’s profile for as long as the load took to give up. Sockitt now watches for the navigation starting. This needs the optional “webNavigation” permission; Chrome asks for “Read your browsing history”, which is word for word what the badge’s existing permission already asked for, so there is no new warning to accept. If you already had the badge switched on, Settings offers the grant — until then the badge behaves as it did before, right on every page that loads.',
       'The per-tab route badge is repainted in every window, not only the one you changed the profile from. Chrome announces nothing when focus merely moves between windows — it only reports a change of tab WITHIN one — so every other window kept the initials of a profile that had stopped routing it, and kept them until that tab happened to be reloaded. Every window’s open tab is repainted on a change now, and bringing a window to the front repaints its own.',
       'A proxy failure no longer freezes the badge on the last route it read. While a failure was live the badge stopped being updated but stayed on screen, so it went on naming a profile for pages that had since changed — and because a tab’s own badge covers the browser-wide one, it also hid the red error mark it was meant to be leaving visible. The badge now steps aside for as long as the failure lasts, and comes back when it clears.',
