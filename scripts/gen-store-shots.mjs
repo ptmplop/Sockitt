@@ -17,7 +17,7 @@
  */
 import { execFile } from 'node:child_process';
 import { createServer } from 'node:http';
-import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { extname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -124,7 +124,7 @@ const TAB = { id: 7, url: 'https://github.com/ptmplop/Sockitt', active: true };
 
 /* ---------------- the six listing scenes ---------------- */
 
-const POPUP_FRAME = { page: 'popup', frameW: 720, frameH: 520, left: 280, top: 205, radius: 16 };
+const POPUP_FRAME = { page: 'popup', frameW: 720, frameH: 520, left: 280, top: 205, radius: 12 };
 const OPTIONS_FRAME = {
   page: 'options',
   frameW: 1200,
@@ -180,8 +180,9 @@ const SCENES = [
     file: 'screenshot-7-monitor.png',
     clickNav: 'Network monitor',
     title: 'Watch the rules do their work',
+    // One line: the frame starts where a second line would, and hid it.
     subtitle:
-      'Every request the browser makes while the page is open, and the profile your rules send it through — including the subresources that never reach the address bar.',
+      'Every request the browser makes while the page is open, and the profile your rules send it through — subresources included.',
     // Chosen to show the panel earning its place: a rule firing on an API
     // subdomain, a keyword rule catching an intranet host, the default sending
     // the rest direct, and one failure — which is the row you open this for.
@@ -313,7 +314,10 @@ function mockSource() {
       getManifest: () => ({ version: S.version }),
     },
     extension: { isAllowedIncognitoAccess: async () => true },
-    action: { setBadgeText: noop, setTitle: noop, setIcon: noop },
+    // getUserSettings answers "pinned", so the options page has no unpinned
+    // banner to raise in a listing shot. Without it the permission refresh threw
+    // before it reached the auth check the Overview's health card depends on.
+    action: { setBadgeText: noop, setTitle: noop, setIcon: noop, getUserSettings: async () => ({ isOnToolbar: true }) },
     alarms: { create: noop, clear: noop, onAlarm: evt() },
     // Dispatchable, so the network-monitor scene can play traffic through the
     // real panel rather than being handed a table of rows to draw.
@@ -411,33 +415,22 @@ function framePage(scene) {
 <link rel="stylesheet" href="theme.css">
 <style>
   html, body { margin: 0; width: 1280px; height: 800px; overflow: hidden; }
-  body {
-    /* The options page's own brand wash, so the listing frame and the product
-       inside it are lit the same way. */
-    background:
-      radial-gradient(60% 45% at 82% -8%, color-mix(in srgb, var(--accent-2) 16%, transparent), transparent 70%),
-      radial-gradient(55% 45% at 8% -6%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 70%),
-      var(--bg);
-  }
-  .head { position: absolute; left: 48px; top: 26px; right: 48px; }
+  /* The product's own canvas, so the listing frame and the window inside it
+     are one material — the same lavender the options page is set on. */
+  body { background: var(--canvas); }
+  .head { position: absolute; left: 48px; top: 28px; right: 48px; }
   .wordmark { display: flex; align-items: center; gap: 9px; }
-  .wordmark img { width: 18px; height: 18px; border-radius: 26%; }
-  .wordmark span {
-    font-size: 12px;
-    font-weight: 800;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    color: var(--accent-ink);
-  }
+  .wordmark img { width: 22px; height: 22px; border-radius: 28%; }
+  .wordmark span { font-size: 15px; font-weight: 700; letter-spacing: -0.015em; color: var(--text); }
   h1 {
     margin: 12px 0 0;
-    font-size: 30px;
-    font-weight: 800;
-    letter-spacing: -0.022em;
+    font-size: 32px;
+    font-weight: 600;
+    letter-spacing: -0.025em;
     line-height: 1.1;
     color: var(--text);
   }
-  p { margin: 9px 0 0; font-size: 15px; line-height: 1.4; color: var(--text-dim); max-width: 1000px; }
+  p { margin: 8px 0 0; font-size: 15.5px; line-height: 1.45; color: var(--text-dim); max-width: 1000px; }
   .frame {
     position: absolute;
     left: ${scene.left}px;
@@ -447,9 +440,9 @@ function framePage(scene) {
     border-radius: ${radius};
     overflow: hidden;
     box-shadow:
-      0 2px 4px rgba(28, 39, 84, 0.06),
-      0 12px 28px -8px rgba(28, 39, 84, 0.12),
-      0 40px 80px -24px rgba(28, 39, 84, 0.28);
+      0 0 0 1px rgba(22, 23, 47, 0.08),
+      0 2px 4px rgba(22, 23, 47, 0.05),
+      0 24px 56px -20px rgba(22, 23, 47, 0.28);
   }
   .frame iframe { width: ${scene.frameW}px; height: ${scene.frameH}px; border: 0; display: block; }
 </style>
@@ -483,6 +476,7 @@ const MIME = {
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
   '.json': 'application/json',
+  '.woff2': 'font/woff2',
 };
 
 /**
@@ -517,11 +511,17 @@ async function capture(url, out) {
     url,
   ];
   for (const bin of chromeBin()) {
+    // The exit code alone proves nothing: Google Chrome 155 accepts
+    // --screenshot under --headless=new, exits 0, and writes no file — so this
+    // used to print "store shot →" seven times and leave every old image in
+    // place. The old file goes first, and a capture counts only when a new one
+    // is actually on disk.
+    await rm(out, { force: true });
     // execFile, not execFileSync: the static server above shares this event
     // loop, so a blocking child would deadlock against its own page loads.
     try {
       await run(bin, args);
-      return true;
+      if ((await stat(out).catch(() => null))?.size) return true;
     } catch {
       /* try the next candidate */
     }

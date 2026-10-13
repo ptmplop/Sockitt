@@ -1,183 +1,206 @@
-/* Sockitt design tokens + shared components. Light theme. */
+/* Sockitt design tokens + shared components. Light theme, forced.
+   docs/design.md is the spec this file implements — read it first. */
+
+/* ---- type ----
+   Bundled, not system: the same letterforms on every OS, and DM Sans is the
+   closest match to the wordmark's round geometry. block, not swap — the files
+   are local and arrive in milliseconds, and a popup that opens dozens of times
+   a day must not flash its fallback face on every open. Both pages preload the
+   two files, so the block period is never actually reached. Subsets of the
+   upstream releases — static/fonts/README.md says how and why. */
+@font-face {
+  font-family: "DM Sans";
+  font-style: normal;
+  font-weight: 100 1000;
+  font-display: block;
+  src: url("fonts/dm-sans.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: block;
+  src: url("fonts/jetbrains-mono.woff2") format("woff2");
+}
 
 :root {
-  --bg: #eef1f8;
-  --bg-elev: #ffffff;
-  --surface: rgba(20, 26, 44, 0.035);
-  --surface-hover: rgba(20, 26, 44, 0.07);
-  --border: rgba(20, 26, 44, 0.10);
-  --border-strong: rgba(20, 26, 44, 0.18);
-  /* Form controls carry a firmer edge than cards do — at 10% a field on a white
-     card has no boundary at all. */
-  --field-border: rgba(20, 26, 44, 0.15);
-  --text: #1a2033;
-  /* 5.5:1 on white, 4.9:1 on --bg, 5.2:1 on a --surface fill. The old #6b7385
-     was 4.2:1 on --bg, so every secondary line on the page sat under AA. */
-  --text-dim: #61697b;
+  /* ---- planes ----
+     Three, and only three: the canvas the window is made of, the sheet the
+     work sits on, and the quiet wash used for fills inside the sheet. */
+  --canvas: #f3f2f8;
+  --sheet: #ffffff;
+  --wash: #f7f6fb;
+  /* The logo's own lavender. Reserved for the answer to "where is my traffic
+     going" — the Overview route band and the popup's Route line — so it means
+     something wherever it appears. */
+  --lavender: #f2eefd;
 
-  --accent: #6d5dfc;
-  --accent-2: #46c9e5;
-  --accent-soft: rgba(109, 93, 252, 0.10);
+  /* ---- ink ---- */
+  --text: #16172f;      /* the wordmark's navy, softened: 17.5:1 on white */
+  --text-dim: #5a5c76;  /* 6.5:1 on white, 5.8:1 on the canvas, 5.7:1 on lavender */
+  --line: rgba(22, 23, 47, 0.09);
+  --line-strong: rgba(22, 23, 47, 0.15);
+  /* A visible hairline, not a 3:1 boundary (that takes ink at ~48%, a mid-grey
+     frame on every field): fields are identified by their labels. */
+  --field-border: rgba(22, 23, 47, 0.22);
+  --hover: rgba(22, 23, 47, 0.045);
+  --press: rgba(22, 23, 47, 0.08);
 
-  /* Vivid semantics — for fills, dots, borders and tints, never for type. */
-  --danger: #ef4d64;
-  --ok: #17b98a;
-  --amber: #e6920a;
-  /* …and their inks. Each clears 4.5:1 as TEXT on white, on --bg, and on its own
-     12–14% tint; the vivid versions above manage only 2.2–3.6:1 there, which is
-     why the error strings, the success line and the OVERRIDE label all used to
-     read as the faintest things on screen. */
-  --danger-ink: #d2132e;
-  --ok-ink: #0f7c5c;
-  --amber-ink: #9a6207;
-  --accent-ink: #5d4bfc;
+  /* ---- brand: the logo's three colours ---- */
+  --violet: #7543e8;     /* the sock — selection, links, focus, the live route. 5.6:1 on white */
+  --violet-ink: #5b2fd6; /* violet as TEXT on a violet tint — 6.5:1 on lavender */
+  --violet-soft: rgba(117, 67, 232, 0.09);
+  --action: #2d1b70;     /* the sock's shadow — the one primary action, the toggle's "on" */
+  --action-hover: #3b248c;
 
-  --radius: 16px;        /* cards, panels, the popup window */
-  --radius-sm: 10px;     /* buttons, inputs, rows */
-  --radius-xs: 6px;      /* inline code, small icon buttons */
-  --radius-pill: 999px;
-  /* Percentage, not px: holds the squircle proportion constant as the same tile
-     scales 20px → 24px → 72px. Only ever put this on a square box — on a
-     non-square one a % radius resolves per axis and gives elliptical corners. */
-  --radius-tile: 26%;
+  /* ---- status ----
+     Vivid tones are for icons, bars and tints; the inks are for text. Each ink
+     clears 4.5:1 on white and on its own 10–12% tint. */
+  --danger: #e5484d;
+  --danger-ink: #c8102e;
+  --amber: #f5a524;
+  --amber-ink: #8a5300;
+  --amber-icon: #b86e00; /* the vivid amber is 2:1 on white — too faint even for an icon */
+  --ok: #1fa971;
+  --ok-ink: #0b7a52;
 
-  /* Three layers, not one blur: a contact shadow pins the card to the page, a
-     mid layer does the lift, and a wide negative-spread layer does the falloff.
-     One 20px/8% blur reads as fog — cards dissolved into the page's top-right
-     wash rather than sitting above it. */
-  --shadow:
-    0 1px 1px rgba(28, 39, 84, 0.05),
-    0 4px 10px -3px rgba(28, 39, 84, 0.07),
-    0 16px 32px -12px rgba(28, 39, 84, 0.14);
-  --shadow-lg:
-    0 1px 1px rgba(28, 39, 84, 0.06),
-    0 8px 20px -6px rgba(28, 39, 84, 0.10),
-    0 34px 64px -22px rgba(28, 39, 84, 0.24);
-  /* The coloured key glow under a filled, active element. Set --glow-color on
-     the element first; it defaults to the brand accent. */
-  --glow: 0 3px 10px color-mix(in srgb, var(--glow-color, var(--accent)) 32%, transparent);
+  /* ---- legacy names ----
+     Kept so nothing that still reads them breaks — scripts/gen-store-shots.mjs
+     among them. New code uses the names above. */
+  --bg: var(--canvas);
+  --bg-elev: var(--sheet);
+  --surface: var(--wash);
+  --surface-hover: var(--hover);
+  --border: var(--line);
+  --border-strong: var(--line-strong);
+  --accent: var(--violet);
+  --accent-2: var(--violet);
+  --accent-ink: var(--violet-ink);
+  --accent-soft: var(--violet-soft);
 
-  /* A 22% tint reached 1.3:1 against the surfaces it landed on — WCAG 2.2 asks
-     for 3:1. A solid 2px edge is 4.5:1 on white and 4.0:1 on --bg; the soft
-     outer halo keeps it from looking like a hard border. */
-  --ring:
-    0 0 0 2px var(--accent),
-    0 0 0 5px color-mix(in srgb, var(--accent) 25%, transparent);
+  /* ---- shape ---- */
+  --radius-sheet: 14px;
+  --radius: 12px;        /* panels, the popup window */
+  --radius-sm: 8px;      /* buttons, fields, rows */
+  --radius-xs: 6px;      /* small buttons, inline code */
+  --radius-pill: 999px;  /* toggles and scrollbar thumbs only — never a label */
+  /* Percentage, not px: holds the tile proportion constant as the same tile
+     scales 18px → 56px. Only ever on a square box — on a non-square one a %
+     radius resolves per axis and gives elliptical corners. */
+  --radius-tile: 28%;
 
-  /* DECORATION ONLY — never put text on this. One axis everywhere: a 135°
-     gradient's line is 0.707·(w+h) long and the box corners map to 0% and 100%,
-     so even a 3×13 tick runs the full violet→cyan sweep (the rendered ticks
-     sample #7270fa at the top, #4bbce8 at the foot). Per-element axes were
-     tried and measured as no-ops. */
-  --grad: linear-gradient(135deg, var(--accent), var(--accent-2));
-  /* The same sweep taken deep enough to carry white text. Measured across the
-     old primary button, white ran 4.1:1 at the violet end down to 2.2:1 at the
-     cyan one — the most prominent control in the product failed AA along its
-     whole length. Both hues are unchanged; only the lightness moves, so the
-     violet end is indistinguishable from --accent. Worst point is 5.2:1, and
-     4.8:1 under the :hover brightness. */
-  --grad-ink: linear-gradient(135deg, #6150fc, #14778d);
+  /* Elevation is for things that float over the page. Panels have none. */
+  --shadow-sm: 0 1px 2px rgba(22, 23, 47, 0.06);
+  --shadow: 0 1px 2px rgba(22, 23, 47, 0.05), 0 4px 12px -4px rgba(22, 23, 47, 0.10);
+  --shadow-lg: 0 2px 6px rgba(22, 23, 47, 0.06), 0 18px 40px -16px rgba(22, 23, 47, 0.28);
 
-  /* Comfortable reading measure. Body copy is capped at this; the cards holding
-     it stay full width. */
+  /* Focus: a 2px violet ring held off the control by a 2px gap of sheet. As a
+     box-shadow rather than an outline because several containers clip and the
+     scroll-margin rule below already budgets for this exact reach (4px). */
+  --ring: 0 0 0 2px var(--sheet), 0 0 0 4px var(--violet);
+  --ring-field: 0 0 0 3px rgba(117, 67, 232, 0.22);
+
   --measure: 66ch;
 
-  /* The dark chrome — the options sidebar and the popup top bar are meant to be
-     one material, so they share these rather than each picking their own darks. */
-  --chrome-1: #171c28;
-  --chrome-2: #0f131b;
-  --chrome-edge: rgba(0, 0, 0, 0.30);
+  --font: "DM Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
-  /* The button's material, as tokens. Every state re-points these instead of
-     declaring box-shadow, so :focus-visible stays the single owner of that
-     property — declaring it on .btn.primary / .btn.ghost silently erased the
-     focus ring on exactly the buttons that most need one. */
-  --btn-face: linear-gradient(180deg, #ffffff 0%, #f4f6fb 100%);
-  --btn-face-hover: linear-gradient(180deg, #ffffff 0%, #eaeef7 100%);
-  --btn-edge: rgba(20, 26, 44, 0.14);
-  --btn-edge-hover: var(--border-strong);
-  --btn-lift: 0 1px 1.5px rgba(28, 39, 84, 0.07);
-  --btn-lift-hover: 0 2px 5px rgba(28, 39, 84, 0.10);
+  --scrollbar-thumb: rgba(22, 23, 47, 0.18);
+  --scrollbar-thumb-hover: rgba(22, 23, 47, 0.30);
 
-  /* Tokenised so the dark chrome can invert it — a 20%-black thumb on the
-     near-black sidebar is no more visible than the 7% it replaced. */
-  --scrollbar-thumb: rgba(20, 26, 44, 0.20);
-  --scrollbar-thumb-hover: rgba(20, 26, 44, 0.32);
+  /* ---- icons, as masks ----
+     Painted with background: currentColor, so an icon takes the colour of the
+     text it sits in — the status words carry theirs without a second rule. */
+  --i-alert: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z'/%3E%3Cpath d='M12 9v4M12 17h.01'/%3E%3C/svg%3E");
+  --i-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
+  --i-check-circle: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9.5'/%3E%3Cpath d='m8 12.4 2.7 2.7L16.2 9.5'/%3E%3C/svg%3E");
+  --i-info: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9.5'/%3E%3Cpath d='M12 11v5.5M12 7.5h.01'/%3E%3C/svg%3E");
+  --i-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h14M13 6l6 6-6 6'/%3E%3C/svg%3E");
+  --i-clock: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9.5'/%3E%3Cpath d='M12 7v5l3 2'/%3E%3C/svg%3E");
+  --i-incognito: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 11h18M5 11l1.6-5.2A2 2 0 0 1 8.5 4.4h7a2 2 0 0 1 1.9 1.4L19 11'/%3E%3Ccircle cx='7.5' cy='16.5' r='3'/%3E%3Ccircle cx='16.5' cy='16.5' r='3'/%3E%3Cpath d='M10.5 16.5c1-.7 2-.7 3 0'/%3E%3C/svg%3E");
+  --i-stop: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='6' y='6' width='12' height='12' rx='2.5' fill='%23000'/%3E%3C/svg%3E");
+  --i-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
 
-  --mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
   color-scheme: light;
+  accent-color: var(--violet);
 }
 
 * { box-sizing: border-box; }
 
 body {
   margin: 0;
-  background: var(--bg);
+  background: var(--canvas);
   color: var(--text);
-  font: 13.5px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font: 400 14px/1.5 var(--font);
+  font-optical-sizing: auto;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-button, input, select { font: inherit; color: inherit; }
+button, input, select, textarea { font: inherit; color: inherit; }
 
-/* Native controls we do not restyle (the quick-switch checkboxes) should still
-   be brand-coloured rather than Chrome default blue. */
-:root { accent-color: var(--accent); }
+/* A mask icon: an empty element painted in its text colour. */
+.ic {
+  display: inline-block;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  background: currentColor;
+  -webkit-mask: var(--i) center / contain no-repeat;
+  mask: var(--i) center / contain no-repeat;
+}
 
 /* ---- shared type tiers ----
-   The uppercase label with a gradient tick is one object that both pages draw.
-   It used to be written five times at five sizes, weights and trackings; these
-   two tiers are the canonical values, and the page files now only set colour,
+   The objects both pages draw as a heading-above-content. They used to be
+   tracked uppercase in two tiers at 9.5–11px; they are sentence case now, and
+   these two rules are the canonical values — the page files only set colour,
    spacing and layout on these selectors. */
 
-/* Tier 1 — card and section eyebrows. */
-.panel h3,
+/* Panel titles — the heading every card on both pages opens with. */
+.panel h3 {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  text-transform: none;
+}
+
+/* Tier 1 — group labels, table heads and the popup's section names. */
 .nav .section-label,
 .rule-head,
 .doc-table th,
 .section-label,
 .ts-label {
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.085em;
-  text-transform: uppercase;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
-/* Tier 2 — inline caps chips and pills. */
+/* Tier 2 — inline qualifiers beside a value. Plain words, never capsules. */
 .side .brand-sub,
 .sm-label,
 .route-tag,
 .err-tag,
 .ts-state {
-  font-size: 9.5px;
-  font-weight: 800;
-  letter-spacing: 0.085em;
-  text-transform: uppercase;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
-/* The gradient tick that marks a card or section eyebrow — one definition for
-   both surfaces. Deliberately NOT .nav .section-label: the sidebar's group
-   labels are caps type with no tick, which is why this cannot just hang off an
-   unscoped .section-label. */
-.panel h3::before,
-.ts-label::before,
-.pane-left .section-label::before {
-  content: "";
-  flex: none;
-  width: 3px;
-  height: 13px;
-  border-radius: 2px;
-  background: var(--grad);
-}
-
-/* Figures that are compared down a column or re-render in place must not dance. */
-input.input,
-select.input,
-.mono,
-.exit-line,
-.err-when,
-.doc-version,
-.route-tag { font-variant-numeric: tabular-nums; }
+/* Figures that are compared down a column or re-render in place must not
+   dance. Only on elements that hold figures alone: DM Sans's tnum also gives
+   the space a figure's width, so on a sentence it opens up every word gap.
+   (Mono needs nothing — every glyph in it is one width already.) */
+.dash-stat-fig,
+.dash-ring-val,
+.dash-donut-mid b,
+.dash-legend-v,
+.err-count,
+.alert-count,
+.nav-item .badge.alert,
+.rl-reject-no { font-variant-numeric: tabular-nums; }
+.dash-stat-fig small { font-variant-numeric: normal; }
 
 /* ---- brand mark: the Sockitt sock on its own light tile ---- */
 .mark {
@@ -186,17 +209,7 @@ select.input,
   object-fit: cover;
   border-radius: var(--radius-tile);
   flex: none;
-  box-shadow:
-    inset 0 0 0 1px var(--border),
-    0 1px 3px rgba(28, 39, 84, 0.12);
-}
-.mark.hero-mark {
-  width: 72px;
-  height: 72px;
-  box-shadow:
-    inset 0 0 0 1px var(--border),
-    0 16px 36px -12px color-mix(in srgb, var(--accent) 50%, transparent),
-    0 2px 4px rgba(28, 39, 84, 0.10);
+  box-shadow: inset 0 0 0 1px var(--line);
 }
 
 .brand {
@@ -205,106 +218,97 @@ select.input,
   gap: 8px;
   font-size: 15px;
   font-weight: 700;
-  letter-spacing: 0.02em;
 }
 
-/* ---- controls ---- */
+/* ---- buttons ----
+   States re-point these tokens instead of declaring box-shadow, so
+   :focus-visible stays the single owner of that property — declaring it on a
+   variant silently erases the focus ring on exactly the buttons that need it. */
 .btn {
+  --btn-face: var(--sheet);
+  --btn-face-hover: var(--wash);
+  --btn-edge: var(--field-border);
+  --btn-edge-hover: rgba(22, 23, 47, 0.30);
+  --btn-ink: var(--text);
+  --btn-lift: var(--shadow-sm);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 7px 14px;
+  gap: 7px;
+  min-height: 32px;
+  padding: 5px 13px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--btn-edge);
-  /* A flat 3.5%-black wash composited to #fafafb on a white card, which read as
-     "disabled" beside the gradient primary. A lit surface plus a contact shadow
-     makes the secondary button a pressable object again. */
   background: var(--btn-face);
+  color: var(--btn-ink);
   box-shadow: var(--btn-lift);
   cursor: pointer;
-  font-weight: 600;
-  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s, color 0.15s, transform 0.06s;
+  font-size: 13.5px;
+  font-weight: 550;
+  line-height: 1.2;
+  transition: background-color 0.12s, border-color 0.12s, color 0.12s, transform 0.06s;
   white-space: nowrap;
 }
-.btn:hover {
-  background: var(--btn-face-hover);
-  border-color: var(--btn-edge-hover);
-  box-shadow: var(--btn-lift-hover);
-}
-/* Presses and variants re-point the lift tokens. Nothing below :focus-visible
-   may declare box-shadow on a .btn — at equal specificity it would erase the
-   ring, which is exactly what .btn.primary and .btn.ghost used to do. */
-.btn:active {
-  transform: translateY(0.5px) scale(0.985);
-  --btn-lift: none;
-  --btn-lift-hover: none;
-}
+.btn:hover { background: var(--btn-face-hover); border-color: var(--btn-edge-hover); }
+.btn:active { transform: translateY(0.5px); }
 .btn:focus-visible { outline: none; box-shadow: var(--ring); }
+/* The one filled action a view has. */
 .btn.primary {
-  /* --grad-ink, not --grad: white on the vivid sweep measures 4.1:1 at the
-     violet end and 2.2:1 at the cyan one. */
-  --btn-face: var(--grad-ink);
-  --btn-face-hover: var(--grad-ink);
-  --btn-edge: transparent;
-  --btn-edge-hover: transparent;
-  --btn-lift: var(--glow);
-  --btn-lift-hover: 0 5px 14px color-mix(in srgb, var(--accent) 38%, transparent);
-  color: #fff;
+  --btn-face: var(--action);
+  --btn-face-hover: var(--action-hover);
+  --btn-edge: var(--action);
+  --btn-edge-hover: var(--action-hover);
+  --btn-ink: #ffffff;
 }
-.btn.primary:hover { filter: brightness(1.06); }
-.btn.danger { color: var(--danger-ink); }
+.btn.danger { --btn-ink: var(--danger-ink); }
 .btn.danger:hover:not(:disabled) {
-  --btn-face-hover: color-mix(in srgb, var(--danger) 12%, #fff);
-  --btn-edge-hover: var(--danger);
+  --btn-face-hover: color-mix(in srgb, var(--danger) 8%, #fff);
+  --btn-edge-hover: color-mix(in srgb, var(--danger) 55%, transparent);
 }
 .btn.ghost {
   --btn-face: transparent;
-  --btn-face-hover: var(--surface-hover);
+  --btn-face-hover: var(--hover);
   --btn-edge: transparent;
   --btn-edge-hover: transparent;
+  --btn-ink: var(--text-dim);
   --btn-lift: none;
-  --btn-lift-hover: none;
-  color: var(--text-dim);
 }
 .btn.ghost:hover { color: var(--text); }
-.btn.icon { padding: 6px; width: 30px; height: 30px; }
+.btn.ghost.danger { --btn-ink: var(--danger-ink); }
+.btn.icon { padding: 0; width: 32px; min-height: 32px; height: 32px; }
+.btn.icon svg { display: block; }
 
 /* One disabled treatment for every control. Neutralising the hover tokens is
-   what stops a dead button gaining a fill and a border under the pointer —
-   louder than its live state, which is what it used to do. */
+   what stops a dead button gaining a fill and a border under the pointer. */
 .btn:disabled,
 .btn[disabled] {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: default;
   transform: none;
-  filter: none;
   --btn-face-hover: var(--btn-face);
   --btn-edge-hover: var(--btn-edge);
-  --btn-lift: none;
-  --btn-lift-hover: none;
 }
 .input:disabled,
-.toggle:disabled { opacity: 0.55; cursor: default; }
+.toggle:disabled { opacity: 0.5; cursor: default; }
 
+/* ---- fields ---- */
 .input, select.input {
   width: 100%;
-  padding: 7px 10px;
+  min-height: 34px;
+  padding: 6px 11px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--field-border);
-  /* Fields read as wells, buttons as raised surfaces — the two used to share the
-     same 3.5% wash, so neither said what it was. */
-  background: var(--bg-elev);
-  box-shadow: inset 0 1px 2px rgba(20, 26, 44, 0.045);
+  background: var(--sheet);
+  font-size: 14px;
   outline: none;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color 0.12s, box-shadow 0.12s;
 }
-.input:hover:not(:disabled) { border-color: rgba(20, 26, 44, 0.24); }
+.input:hover:not(:disabled) { border-color: rgba(22, 23, 47, 0.34); }
 .input:focus {
-  border-color: var(--accent);
-  box-shadow: var(--ring);
+  border-color: var(--violet);
+  box-shadow: var(--ring-field);
 }
-.input::placeholder { color: color-mix(in srgb, var(--text-dim) 82%, #fff); opacity: 1; }
+.input::placeholder { color: #6b6d85; opacity: 1; } /* 5.1:1 — some fields have no other label */
 /* The popup's profile filter is type="search", and Chromium's raw clear glyph is
    the one bit of UA chrome left once the field wears the .input skin. */
 .input[type="search"]::-webkit-search-cancel-button {
@@ -317,62 +321,46 @@ select.input,
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3.5 3.5l5 5M8.5 3.5l-5 5' stroke='%23000' stroke-width='1.6' stroke-linecap='round' fill='none'/%3E%3C/svg%3E") center / 12px no-repeat;
 }
 .input.invalid { border-color: var(--danger); }
-.input.mono { font-family: var(--mono); font-size: 12px; }
-select.input { cursor: pointer; appearance: auto; }
+.input.invalid:focus { box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 22%, transparent); }
+.input.mono { font-family: var(--mono); font-size: 13px; }
+textarea.input { line-height: 1.6; }
+/* A drawn chevron instead of the platform's: the native arrow differs per OS
+   and sat a few pixels off-centre in the 34px field. */
+select.input {
+  cursor: pointer;
+  appearance: none;
+  padding-right: 32px;
+  background: var(--sheet) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235a5c76' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") right 10px center / 14px no-repeat;
+}
 
+/* ---- panels ---- */
 .card {
-  /* Lit from above: the surface falls a shade towards its foot and the bottom
-     border darkens, so the card reads as a plane rather than a rectangle. */
-  background: linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%);
-  border: 1px solid var(--border);
-  border-bottom-color: rgba(20, 26, 44, 0.13);
+  background: var(--sheet);
+  border: 1px solid var(--line);
   border-radius: var(--radius);
-  box-shadow: var(--shadow);
 }
 
-.dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  flex: none;
-  box-shadow: 0 0 8px color-mix(in srgb, currentColor 60%, transparent);
-}
-
-/* ---- initials avatar (DiceBear-initials style, generated locally) ---- */
+/* ---- profile tile ----
+   The toolbar icon in miniature: the profile's own colour, flat, initials in
+   the UI face. No sheen and no glow — the colour is the identity, and a
+   highlight only muddied the pale ones. The inset rim is what keeps a lime or
+   amber tile from dissolving into white. */
 .avatar {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: none;
   border-radius: var(--radius-tile);
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  font-weight: 650;
+  letter-spacing: 0.01em;
   user-select: none;
   position: relative;
-  overflow: hidden;
   line-height: 1;
-}
-/* A diagonal sheen that dies before halfway, a soft floor, and an inner rim —
-   the same light direction as the cards. The old top-down white wash to 60% was
-   the gel-button recipe, and at 64px it dated the whole product; the rim is what
-   lets a 20px tile hold its edge on both white cards and the near-black nav. */
-.avatar::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  /* The rim below is an INSET shadow, which follows this element's own radius —
-     without inheriting it, the ring draws square and the tile's overflow slices
-     it into four detached straight segments. */
-  border-radius: inherit;
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0.05) 44%, transparent 58%),
-    linear-gradient(0deg, rgba(0, 0, 0, 0.12) 0%, transparent 52%);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
-  pointer-events: none;
+  box-shadow: inset 0 0 0 1px rgba(22, 23, 47, 0.08);
 }
 .avatar.builtin {
-  background: linear-gradient(135deg, #5f6779, #414759);
-  color: #f2f4f9;
+  background: #5c6079;
+  color: #ffffff;
 }
 
 .muted { color: var(--text-dim); }
@@ -381,17 +369,17 @@ select.input { cursor: pointer; appearance: auto; }
 /* ---- toggle switch ---- */
 .toggle {
   position: relative;
-  width: 34px;
+  width: 36px;
   height: 20px;
   flex: none;
+  margin: 0;
   appearance: none;
   border-radius: var(--radius-pill);
-  background: var(--surface-hover);
-  border: 1px solid var(--border);
+  background: rgba(22, 23, 47, 0.18);
   cursor: pointer;
-  transition: background 0.18s;
+  transition: background-color 0.16s;
 }
-/* The control is 34×20 for looks; the hit area is padded out to the 24px WCAG
+/* The control is 36×20 for looks; the hit area is padded out to the 24px WCAG
    2.2 minimum without moving anything around it. */
 .toggle::before {
   content: "";
@@ -403,17 +391,17 @@ select.input { cursor: pointer; appearance: auto; }
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
-  background: var(--text-dim);
-  transition: transform 0.18s, background 0.18s;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(22, 23, 47, 0.25);
+  transition: transform 0.16s;
 }
-/* background-origin, because with a transparent border the default padding-box
-   origin tiles the gradient into the 1px ring — painting a cyan hairline on the
-   violet edge and a violet one on the cyan edge. */
-.toggle:checked { background: var(--grad); background-origin: border-box; border-color: transparent; }
-.toggle:checked::after { transform: translateX(14px); background: #fff; }
+.toggle:hover:not(:disabled) { background: rgba(22, 23, 47, 0.26); }
+.toggle:checked { background: var(--action); }
+.toggle:checked:hover:not(:disabled) { background: var(--action-hover); }
+.toggle:checked::after { transform: translateX(16px); }
 .toggle:focus-visible { outline: none; box-shadow: var(--ring); }
 
 /* ---- toast ---- */
@@ -422,75 +410,105 @@ select.input { cursor: pointer; appearance: auto; }
   bottom: 18px;
   left: 50%;
   translate: -50% 0;
-  padding: 8px 16px;
-  border-radius: var(--radius-pill);
-  background: var(--bg-elev);
-  border: 1px solid var(--border-strong);
-  box-shadow: var(--shadow);
-  font-weight: 600;
+  padding: 9px 16px;
+  border-radius: var(--radius-sm);
+  background: var(--text);
+  color: #ffffff;
+  box-shadow: var(--shadow-lg);
+  font-size: 13.5px;
+  font-weight: 500;
   opacity: 0;
-  transition: opacity 0.2s, translate 0.2s;
+  transition: opacity 0.18s, translate 0.18s;
   pointer-events: none;
   z-index: 50;
 }
 .toast.show { opacity: 1; translate: -50% -4px; }
 
-/* ---- banners ----
-   One component, two severities: the border and the tint come from --tone, the
-   text from --tone-ink. */
+/* ---- callouts ----
+   One component, two severities. A tinted panel led by an icon, the message in
+   regular weight: the old banners set three-line warnings in bold amber, which
+   is the hardest way there is to read a paragraph. --tone paints the tint, the
+   edge and the icon; the text stays ink. */
 .banner,
 .warn-banner {
   --tone: var(--danger);
-  --tone-ink: var(--danger-ink);
+  --tone-icon: var(--danger-ink);
   display: flex;
-  gap: 8px;
-  align-items: center;
-  padding: 8px 12px;
-  border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--tone) 12%, #fff);
-  border: 1px solid color-mix(in srgb, var(--tone) 45%, transparent);
-  color: var(--tone-ink);
-  font-weight: 600;
-  font-size: 12px;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 11px 14px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--tone) 7%, #fff);
+  border: 1px solid color-mix(in srgb, var(--tone) 30%, transparent);
+  color: var(--text);
+  font-size: 13.5px;
+  line-height: 1.55;
 }
+.banner::before,
+.warn-banner::before {
+  content: "";
+  flex: none;
+  width: 17px;
+  height: 17px;
+  margin-top: 2px;
+  background: var(--tone-icon);
+  -webkit-mask: var(--i-alert) center / contain no-repeat;
+  mask: var(--i-alert) center / contain no-repeat;
+}
+.banner { color: var(--danger-ink); font-weight: 550; }
 /* warning variant: something needs attention but nothing is broken */
 .warn-banner {
   --tone: var(--amber);
-  --tone-ink: var(--amber-ink);
-  gap: 12px;
-  justify-content: space-between;
-  margin-bottom: 14px;
+  --tone-icon: var(--amber-icon);
+  margin-bottom: 12px;
 }
-.warn-banner .btn { flex: none; }
+.warn-banner > span { flex: 1; min-width: 0; max-width: 92ch; }
+/* Several at once are one panel with ruled rows, not a stack of boxes. */
+.warn-banner:has(+ .warn-banner) {
+  margin-bottom: 0;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  border-bottom-color: color-mix(in srgb, var(--amber) 18%, transparent);
+}
+.warn-banner + .warn-banner { border-top: 0; border-top-left-radius: 0; border-top-right-radius: 0; }
+/* The options page holds them in one block (updatePermBanners): inside a
+   page's column the column's gap spaces the block; above a page with no title
+   the block keeps its own margin. */
+.perm-banners { display: flex; flex-direction: column; }
+.perm-banners > .warn-banner { margin-bottom: 0; }
+.content > .perm-banners { margin-bottom: 14px; }
+.warn-banner .btn { flex: none; margin-left: auto; align-self: center; }
 
-/* --ring reaches 5px past the border box, but sequential focus scrolling aligns
-   the BORDER box with the scrollport edge — so a control at the fold of
-   .left-scroll, .detail-scroll or .side gets its ring sliced. Layout-inert:
-   this only shifts where scrolling stops. */
+/* The ring reaches 4px past the border box, but sequential focus scrolling
+   aligns the BORDER box with the scrollport edge — so a control at the fold of
+   a scroller gets its ring sliced. Layout-inert: this only shifts where
+   scrolling stops. */
 .btn,
 .row,
 .nav-item,
 .side-link,
 .chain-chip.link,
+.dash-mini,
+.net-chip,
 .grip,
 .swatch,
 .toggle,
 .input,
 .quick-item input { scroll-margin: 10px; }
 
-::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track,
 ::-webkit-scrollbar-corner { background: transparent; }
-/* 7% alpha was effectively invisible; at 20% the thumb reads as a control
-   without becoming furniture. */
 ::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
+  border: 2px solid transparent;
+  background-clip: padding-box;
   border-radius: var(--radius-pill);
 }
 ::-webkit-scrollbar-thumb:hover,
-::-webkit-scrollbar-thumb:active { background: var(--scrollbar-thumb-hover); }
+::-webkit-scrollbar-thumb:active { background: var(--scrollbar-thumb-hover); background-clip: padding-box; }
 
-/* Honour the OS setting globally, not just for the three named keyframes. */
+/* Honour the OS setting globally, not just for the named keyframes. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

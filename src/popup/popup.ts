@@ -1094,7 +1094,9 @@ function thisTab(profile: Profile | undefined): (Node | null)[] {
   if (activeId === SYSTEM || !profile) {
     return [
       thisTabHead(tab),
-      routeReadout(null, 'Following your OS proxy settings.'),
+      // A route line like Direct's, on the same lavender: the answer here is
+      // "the OS decides", and it deserves the answer's surface.
+      routeReadout({ tile: builtinTile('S', 20), name: 'System', tag: 'OS settings' }, null),
       el('p', { class: 'sm-hint' }, 'Sockitt can’t inspect the OS PAC’s per-site rules, so it won’t show a route here.'),
     ];
   }
@@ -1378,7 +1380,9 @@ function render(): void {
 
   // Re-apply any active filter, then keep the active profile visible.
   applyFilter();
-  app.querySelector('.left-scroll .row.active')?.scrollIntoView({ block: 'nearest' });
+  // Centred, not 'nearest': nearest left the active row flush against a fold,
+  // with the rows either side of it sliced by the list's edges.
+  app.querySelector('.left-scroll .row.active')?.scrollIntoView({ block: 'center' });
 }
 
 void init();

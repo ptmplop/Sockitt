@@ -1,6 +1,9 @@
 /* Two-pane popup window: a fixed rounded rectangle (Chrome caps popups at
    800×600, so 720×520 leaves headroom). Transparent html so the browser
-   window's square corners don't show behind the rounded body. */
+   window's square corners don't show behind the rounded body.
+
+   The same frame as the options page, at popup scale: the header and the
+   switcher sit on the canvas, and the "this tab" pane is an inset sheet. */
 html { background: transparent; }
 
 body {
@@ -9,124 +12,120 @@ body {
   margin: 0;
   border-radius: var(--radius);
   overflow: hidden;
-  background: var(--bg);
+  background: var(--canvas);
+  font-size: 13.5px;
 }
 #app { height: 100%; display: flex; flex-direction: column; min-height: 0; }
 
-/* ---- top bar ----
-   The same dark material as the options sidebar — both pull --chrome-* from
-   theme.css rather than each picking their own darks. Dark tokens are scoped
-   here so the brand and cog adapt, while the rest of the popup stays light. */
+/* ---- top bar ---- */
 .topbar {
-  --surface-hover: rgba(255, 255, 255, 0.10);
-  --border: rgba(255, 255, 255, 0.10);
-  --border-strong: rgba(255, 255, 255, 0.20);
-  --text: #e8ebf3;
-  --text-dim: #98a0b4;
-  /* Violet is only ~4:1 on near-black; cyan is 9:1. */
-  --ring:
-    0 0 0 2px var(--accent-2),
-    0 0 0 5px color-mix(in srgb, var(--accent-2) 25%, transparent);
-  --scrollbar-thumb: rgba(255, 255, 255, 0.20);
-  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.32);
-  color-scheme: dark;
-
   height: 48px;
   flex: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 10px 0 14px;
-  border-bottom: 1px solid var(--chrome-edge);
-  /* A violet glow behind the sock, fading out well before the cog. */
-  background:
-    radial-gradient(90% 200% at 6% 0%, rgba(109, 93, 252, 0.24), transparent 62%),
-    linear-gradient(180deg, var(--chrome-1), var(--chrome-2));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 6px 16px -8px rgba(15, 19, 27, 0.45);
+  padding: 0 8px 0 19px;
   color: var(--text);
 }
-.topbar .brand { display: flex; align-items: center; gap: 9px; font-size: 16px; font-weight: 800; letter-spacing: -0.01em; }
-.topbar .mark { width: 24px; height: 24px; }
+/* The mark on the profile-tile column and the wordmark on the name column. */
+.topbar .brand { display: flex; align-items: center; gap: 9px; font-size: 16px; font-weight: 700; letter-spacing: -0.015em; }
+.topbar .mark { width: 28px; height: 28px; }
 .topbar-actions { display: flex; align-items: center; gap: 2px; }
-/* Which window this popup is speaking for. A quiet outline pill, not a coloured
-   badge: it qualifies the name beside it, and must not read as an alert. */
+/* Which window this popup is speaking for. A word with a glyph, not a badge:
+   it qualifies the name beside it, and must not read as an alert. */
 .scope-chip {
-  margin-left: -2px;
-  padding: 2px 7px;
-  border: 1px solid var(--border-strong);
-  border-radius: 999px;
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 4px;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0;
   color: var(--text-dim);
-  background: var(--surface-hover);
   cursor: default;
 }
-.topbar .cog { width: 30px; height: 30px; color: var(--text-dim); }
+.scope-chip::before,
+.dh-scope::before {
+  content: "";
+  width: 15px;
+  height: 15px;
+  flex: none;
+  background: currentColor;
+  -webkit-mask: var(--i-incognito) center / contain no-repeat;
+  mask: var(--i-incognito) center / contain no-repeat;
+}
+.topbar .cog { color: var(--text-dim); }
 .topbar .cog svg { width: 18px; height: 18px; display: block; }
-.topbar .cog:hover { color: var(--text); background: var(--surface-hover); }
+.topbar .cog:hover { color: var(--text); }
 
 /* Proxy-failure indicator. It lives INSIDE the fixed-height top bar rather than
    in the flow below it, so a failure never changes the height of anything —
-   the panes and the card beneath keep the exact geometry they had. */
-/* Descendant-qualified so it outranks .btn.ghost's dimmed colour, exactly as
-   .topbar .cog above has to. */
+   the panes and the card beneath keep the exact geometry they had.
+   Descendant-qualified so it outranks .btn.ghost's dimmed colour. It holds
+   still: a red triangle and a count say enough without breathing at you. */
 .topbar .alert-btn {
   width: auto;
-  min-width: 30px;
-  height: 30px;
+  min-width: 32px;
   padding: 0 8px;
   gap: 5px;
-  /* Lifted off the base --danger, which is tuned for the light panes and reads
-     muddy on the dark bar. */
-  color: #ff8496;
+  color: var(--danger-ink);
 }
-.topbar .alert-btn:hover { color: #ff9aa9; background: color-mix(in srgb, #ff7d90 18%, transparent); }
+.topbar .alert-btn:hover { color: var(--danger-ink); background: color-mix(in srgb, var(--danger) 10%, transparent); }
 .alert-btn .alert-ico { display: inline-flex; }
 .alert-btn .alert-ico svg { width: 18px; height: 18px; display: block; }
-.alert-count { font-size: 11.5px; font-weight: 800; font-variant-numeric: tabular-nums; }
-/* A slow breath, not a flash: enough to catch the eye on open, never enough to
-   nag while the user works. */
-@keyframes alert-breathe {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.45; }
-}
-.alert-btn .alert-ico { animation: alert-breathe 2.4s ease-in-out infinite; }
-@media (prefers-reduced-motion: reduce) {
-  .alert-btn .alert-ico { animation: none; }
-}
+.alert-count { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
 
 /* ---- body split ---- */
 .body { flex: 1; min-height: 0; display: flex; }
 
-/* ---- left pane: the switcher ---- */
+/* ---- left pane: the switcher, on the canvas ---- */
 .pane-left {
   width: 300px;
   flex: none;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: color-mix(in srgb, var(--bg) 55%, var(--bg-elev));
 }
 .left-scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 10px 10px 6px;
+  /* 5px at the top, not less: the first row's focus ring reaches 4px past it,
+     and this box clips. */
+  padding: 5px 8px 6px 10px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
   scrollbar-gutter: stable;
-  /* A scrim at each end that only shows while there is more list that way, so a
-     long profile list says so instead of ending flush at the fold. */
+  /* Chrome 110–114 (the manifest's floor) has no scroll-driven animations, so
+     it keeps the old edge cue: a soft shadow at an end with more list beyond
+     it. Replaced below wherever the row fade can run. */
   background:
-    linear-gradient(color-mix(in srgb, var(--bg) 55%, var(--bg-elev)) 30%, transparent) top / 100% 22px no-repeat,
-    linear-gradient(transparent, color-mix(in srgb, var(--bg) 55%, var(--bg-elev)) 70%) bottom / 100% 22px no-repeat,
-    radial-gradient(farthest-side at 50% 0, rgba(20, 26, 44, 0.10), transparent) top / 100% 9px no-repeat,
-    radial-gradient(farthest-side at 50% 100%, rgba(20, 26, 44, 0.10), transparent) bottom / 100% 9px no-repeat;
-  background-attachment: local, local, scroll, scroll;
+    radial-gradient(farthest-side at 50% 0, rgba(22, 23, 47, 0.10), transparent) top / 100% 8px no-repeat,
+    radial-gradient(farthest-side at 50% 100%, rgba(22, 23, 47, 0.10), transparent) bottom / 100% 8px no-repeat;
+}
+/* A long list fades the rows themselves at a fold — and only at a fold that has
+   more list beyond it — so it says there is more instead of slicing a row in
+   half. The old scrims were backgrounds, painted UNDER rows that are
+   transparent, so they smudged the cut and faded no text at all. Driven by the
+   list's own scroll position; a list that does not scroll has no active
+   timeline and is not faded. Chrome 115+; older builds keep the hairline. */
+@property --fade-top { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@property --fade-bottom { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@supports (animation-timeline: scroll()) {
+  .left-scroll {
+    background: none;
+    -webkit-mask-image: linear-gradient(#0000, #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), #0000);
+    mask-image: linear-gradient(#0000, #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), #0000);
+    animation: list-edges linear both;
+    animation-timeline: scroll(self);
+  }
+  @keyframes list-edges {
+    0% { --fade-top: 0px; --fade-bottom: 24px; }
+    8% { --fade-top: 24px; }
+    92% { --fade-bottom: 24px; }
+    100% { --fade-top: 24px; --fade-bottom: 0px; }
+  }
 }
 
 /* filter/grouping helpers */
@@ -136,69 +135,49 @@ body {
    .pgroup, under its own class so applyFilter — which hides any .pgroup holding
    no matching row — leaves it alone; it holds no filterable rows by design. */
 .scope-group { display: contents; }
-.scope-group .section-label { margin-top: 2px; }
+.scope-group .section-label { margin-top: 4px; }
 .left-filter {
   flex: none;
-  margin: 10px 10px 0;
+  margin: 2px 10px 8px 10px;
   width: auto;
+  min-height: 34px;
   height: 34px;
   padding: 0 11px;
-  font-size: 12.5px;
+  font-size: 13.5px;
 }
-.no-matches {
-  margin: 12px 8px;
-  padding: 18px 16px;
-  border: 1px dashed var(--border-strong);
+.no-matches,
+.empty-block {
+  margin: 12px 4px;
+  padding: 20px 16px;
   border-radius: var(--radius);
+  background: var(--sheet);
+  border: 1px solid var(--line);
   text-align: center;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-dim);
 }
-
 .empty-block {
-  margin: 14px 8px;
-  padding: 20px 16px;
-  border: 1px dashed var(--border-strong);
-  border-radius: var(--radius);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 7px;
-  text-align: center;
+  gap: 6px;
 }
-.empty-block .eb-title { font-weight: 700; font-size: 13px; }
-.empty-block .eb-text { font-size: 12px; color: var(--text-dim); line-height: 1.45; }
-.empty-block .btn { margin-top: 5px; }
+.empty-block .eb-title { font-weight: 600; font-size: 14px; color: var(--text); }
+.empty-block .eb-text { font-size: 13px; color: var(--text-dim); line-height: 1.5; }
+.empty-block .btn { margin-top: 8px; }
 
-.builtin-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 2px; }
-/* Direct and System are the resting state, not a call to action — a hairline and
-   the pane's own surface, so the coloured profile rows below stay the loudest
-   thing in the switcher. */
-.builtin-grid .row {
-  background: var(--bg-elev);
-  border-color: var(--border);
-  box-shadow: 0 1px 1.5px rgba(28, 39, 84, 0.05);
-  padding: 8px 9px;
-}
-.builtin-grid .row:hover { border-color: var(--border-strong); }
-.builtin-grid .row .sub { font-family: inherit; }
-.builtin-grid .row.active {
-  --glow-color: var(--accent);
-  background: var(--grad);
-  color: #fff;
-  border-color: transparent;
-  box-shadow: var(--glow);
-}
-.builtin-grid .row.active .sub { color: #fff; opacity: 0.85; }
-.builtin-grid .row.active .avatar { box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.9); }
+/* Direct and System, side by side: the two modes that are not profiles. They
+   are rows like every other — the pair is set apart by its layout alone. */
+.builtin-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; margin-bottom: 2px; }
+.builtin-grid .row .sub { font-family: inherit; font-size: 12.5px; }
 
-/* Section headers: the options-page gradient-bar motif. */
+/* Section headers: the profile kinds, as plain labels. */
 .section-label {
   display: flex;
   align-items: center;
   gap: 8px;
   color: var(--text-dim);
-  margin: 9px 6px 3px;
+  margin: 12px 9px 4px;
 }
 
 /* ---- profile rows ---- */
@@ -206,116 +185,121 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 9px;
+  min-height: 44px;
+  padding: 6px 9px;
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
   background: transparent;
   cursor: pointer;
   text-align: left;
   width: 100%;
-  transition: background 0.13s, color 0.13s, box-shadow 0.13s;
+  transition: background-color 0.12s, border-color 0.12s;
 }
-.row:hover { background: var(--surface-hover); }
+.row:hover { background: var(--hover); }
 .row:focus-visible { outline: none; box-shadow: var(--ring); }
-.row .avatar { width: 27px; height: 27px; font-size: 10px; flex: none; }
-.row .meta { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
-.row .title { font-weight: 600; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* 10px mono needs the line box the rest of the row can spare. */
-.row .sub { font-size: 10.5px; line-height: 1.35; color: var(--text-dim); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.row .check { margin-left: auto; width: 14px; text-align: center; flex: none; font-weight: 800; }
-
-/* Selected row: filled in the profile's own colour, ink auto-picked for contrast. */
-.row.active {
-  --glow-color: var(--row-color, var(--accent));
-  background: var(--row-color, var(--accent));
-  color: var(--row-ink, #fff);
-  border-color: transparent;
-  box-shadow: var(--glow);
+.row .avatar { flex: none; }
+.row .meta { display: flex; flex-direction: column; min-width: 0; gap: 0; }
+.row .title { font-weight: 550; font-size: 13.5px; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .sub { font-size: 12px; line-height: 1.35; color: var(--text-dim); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The tick, drawn rather than typed: the glyph is not in the bundled face, and
+   the fallback's tick sat on a different baseline in every OS. */
+.row .check {
+  margin-left: auto;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  font-size: 0;
+  color: var(--violet);
+  background: currentColor;
+  -webkit-mask: var(--i-check) center / contain no-repeat;
+  mask: var(--i-check) center / contain no-repeat;
 }
-.row.active:hover { filter: brightness(1.04); }
-.row.active .sub { color: var(--row-ink, #fff); opacity: 0.78; }
-.row.active .check { color: var(--row-ink, #fff); }
-/* The tile keeps its own colour and takes a light rim, so it separates from the
-   same-coloured fill without being repainted into a near-white chip — which is
-   what used to leave pale profile colours as ~2.5:1 initials. */
-.row.active .avatar { box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.9); }
 
-.left-foot { flex: none; border-top: 1px solid var(--border); padding: 8px; }
-.foot-manage { width: 100%; justify-content: center; gap: 8px; font-size: 12.5px; }
+/* The profile in use is a piece of the sheet lifted out of the canvas — the
+   same treatment the options sidebar gives the page you are on. The tile beside
+   the name already wears the profile's colour; a whole row filled with it made
+   a lime or amber profile the loudest thing in the window. */
+.row.active {
+  background: var(--sheet);
+  border-color: var(--line);
+  box-shadow: var(--shadow-sm);
+}
+.row.active .title { font-weight: 650; }
+.row.active:hover { background: var(--sheet); border-color: var(--line-strong); }
+.row.active:focus-visible { box-shadow: var(--ring); } /* after .active, or its lift wins */
+
+.left-foot { flex: none; padding: 6px 8px 8px; border-top: 1px solid var(--line); }
+.foot-manage { width: 100%; justify-content: center; gap: 8px; font-size: 13.5px; }
 .foot-ico { display: inline-flex; align-items: center; }
-.foot-ico svg { width: 15px; height: 15px; display: block; }
+.foot-ico svg { width: 16px; height: 16px; display: block; }
 
-/* ---- right pane: this tab ---- */
+/* ---- right pane: this tab, on the sheet ---- */
 .pane-right {
   flex: 1;
   min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  border-left: 1px solid var(--border);
-  background: var(--bg);
+  margin: 0 8px 8px 0;
+  background: var(--sheet);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(22, 23, 47, 0.04);
+  overflow: hidden;
 }
 
 /* compact identity strip (not a big hero — the active row already carries it) */
 .detail-head {
   flex: none;
   display: flex;
-  /* Top-align so the avatar tile lines up with the title row rather than being
+  /* Top-align so the tile lines up with the title row rather than being
      centred against the taller meta column (name + status + exit line). */
   align-items: flex-start;
   gap: 12px;
-  padding: 14px 18px;
-  border-bottom: 1px solid var(--border);
-  /* The profile's colour reaches further across the strip and lands a hairline
-     of itself on the bottom edge, so the identity is stated rather than hinted. */
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--tint) 22%, transparent), transparent 72%),
-    var(--bg-elev);
-  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--tint) 28%, transparent);
+  padding: 15px 16px 13px;
+  border-bottom: 1px solid var(--line);
 }
-.detail-head .avatar { width: 40px; height: 40px; font-size: 15px; }
 .dh-meta { min-width: 0; flex: 1; }
-.dh-top { display: flex; align-items: center; gap: 8px; }
-.dh-name { font-size: 16px; font-weight: 800; letter-spacing: -0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dh-status { font-size: 12px; color: var(--text-dim); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dh-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.dh-name { font-size: 17px; font-weight: 600; letter-spacing: -0.015em; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dh-status { font-size: 13px; color: var(--text-dim); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Qualifies the profile name: this is the incognito scope's profile, not the
-   browser-wide one. Sized to sit under the name without competing with it. */
+   browser-wide one. A word and a glyph, sized to sit beside the name. */
 .dh-scope {
   flex: none;
-  padding: 1px 6px;
-  border: 1px solid var(--border-strong);
-  border-radius: 999px;
-  font-size: 10px;
-  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12.5px;
+  font-weight: 500;
   color: var(--text-dim);
+  /* The markup says "incognito"; the header and the docs both say Incognito. */
+  text-transform: capitalize;
   cursor: default;
 }
 
-/* live routing status dot */
-.sdot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
-.sdot.on { background: var(--ok); box-shadow: 0 0 7px color-mix(in srgb, var(--ok) 70%, transparent); }
-.sdot.warn { background: var(--amber); box-shadow: 0 0 7px color-mix(in srgb, var(--amber) 70%, transparent); }
-.sdot.off { background: var(--text-dim); }
+/* The live-routing dot is gone: the status line under the name already says
+   what it said, in words. */
+.sdot { display: none; }
 
 /* Exit-IP line under the status: "Exit via 🇹🇭 · 27.145.178.97 · 237 ms".
    One row in every phase, at a FIXED height — the reading lands a second or
    two after the popup opens, and a row that grew then would shift the card
-   below it under the user's cursor. 18px clears both the 11px text and the
-   15px flag, so no phase can outgrow the space held for it. */
+   below it under the user's cursor. 20px clears both the text and the 15px
+   flag, so no phase can outgrow the space held for it. */
 .exit-line {
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 18px;
-  margin-top: 3px;
+  height: 20px;
+  margin-top: 4px;
   max-width: 100%;
-  font-size: 11px;
+  font-size: 12.5px;
   color: var(--text-dim);
   overflow: hidden;
   white-space: nowrap;
 }
-/* Halving the opacity of live text took it to ~2:1; 0.72 still reads as
-   "superseded, a fresh reading is coming". */
+/* 0.72 still reads as "superseded, a fresh reading is coming". */
 .exit-line.dim { opacity: 0.72; }
 .exit-line.err { color: var(--danger-ink); }
 /* "Exit via" — labels the readout so it can't be read as the profile's own
@@ -325,6 +309,8 @@ body {
 .exit-ip {
   min-width: 0;
   font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -333,64 +319,73 @@ body {
   height: 15px;
   flex: none;
   display: block;
-  border-radius: 2.5px;
+  border-radius: 3px;
   object-fit: cover;
   /* hairline ring so white/pale flags (Japan, Poland…) don't bleed into the pane */
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 0 0 1px rgba(22, 23, 47, 0.14);
 }
 button.exit-enable {
   font-family: inherit;
   background: none;
   border: none;
   padding: 0;
-  color: var(--accent-ink);
-  font-weight: 600;
+  color: var(--violet-ink);
+  font-weight: 550;
   cursor: pointer;
   text-align: left;
 }
-button.exit-enable:hover { text-decoration: underline; }
+button.exit-enable:hover { text-decoration: underline; text-underline-offset: 2px; }
 button.exit-enable:focus-visible { outline: none; box-shadow: var(--ring); border-radius: var(--radius-xs); }
 
 .detail-scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 16px 18px 18px;
+  padding: 14px 16px 16px;
   display: flex;
   flex-direction: column;
   gap: 12px;
   scrollbar-gutter: stable;
 }
 /* Never shrink to fit — scroll instead. A flex item's automatic minimum size is
-   its content, EXCEPT when it clips its own overflow: .site-mgr sets
-   overflow:hidden (to round its inner rows), which drops that floor to zero. So
-   in a short pane the card silently compressed and swallowed its own bottom
-   padding, leaving the last control sitting on the card's border. */
+   its content, EXCEPT when it clips its own overflow, which drops that floor to
+   zero — the route card used to clip, and in a short pane it compressed and
+   swallowed its own bottom padding. Nothing here clips now; the rule stays so
+   nothing that does later can do it again. */
 .detail-scroll > * { flex: none; }
 
-/* Stacked: the label is an eyebrow, the host sits on its own full-width line
-   below it so the whole pane (~383px, ~48 mono chars) is available — real
-   hostnames show in full instead of clipping to fit beside the label. */
-.this-site-head { display: flex; flex-direction: column; align-items: stretch; gap: 5px; }
+/* Stacked: the label sits above, the host on its own full-width line below it
+   so the whole pane is available — real hostnames show in full instead of
+   clipping to fit beside the label. */
+.this-site-head { display: flex; flex-direction: column; align-items: stretch; gap: 3px; }
 .ts-label {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   color: var(--text-dim);
 }
-/* "loading": the host below is a navigation still in flight, not the page on
+/* "Loading": the host below is a navigation still in flight, not the page on
    screen. Amber, like the other temporary state in this pane (the override). */
 .ts-state {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   color: var(--amber-ink);
-  background: color-mix(in srgb, var(--amber) 14%, #fff);
-  border: 1px solid color-mix(in srgb, var(--amber) 40%, transparent);
-  padding: 1px 7px;
-  border-radius: var(--radius-pill);
+  text-transform: capitalize;
+  cursor: default;
+}
+.ts-state::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  background: currentColor;
+  -webkit-mask: var(--i-clock) center / contain no-repeat;
+  mask: var(--i-clock) center / contain no-repeat;
 }
 .ts-host {
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text);
   max-width: 100%;
@@ -404,106 +399,110 @@ button.exit-enable:focus-visible { outline: none; box-shadow: var(--ring); borde
 /* ---- field-group card (route / rule / override) ---- */
 .site-mgr {
   padding: 0;
-  /* The focus ring is a 5px outer shadow and this card used to clip it, so a
-     keyboard user tabbing into the rule select saw the ring sliced off on three
-     sides. Clipping the inner rows' corners is what the radius already does. */
-  overflow: clip;
-  overflow-clip-margin: 6px;
-  border-color: color-mix(in srgb, var(--accent) 24%, var(--border));
+  border-radius: 10px;
 }
-.sm-field { padding: 13px 16px; display: flex; flex-direction: column; gap: 8px; }
-.sm-field + .sm-field { border-top: 1px solid var(--border); }
-/* 0.4 put the overridden rule's own label at 1.7:1 — the user could no longer
-   read the rule the override was replacing. */
-.sm-field.greyed { opacity: 0.62; }
+/* The tinted first and last rows round their own outer corners. Clipping them
+   to the card instead (overflow: clip) had to leave a margin for focus rings,
+   and that margin let the square corners of a tinted row paint over the
+   card's rounded edge. Longhands, so a one-row card gets all four. */
+.site-mgr > .sm-field:first-child { border-top-left-radius: 9px; border-top-right-radius: 9px; }
+.site-mgr > .sm-field:last-child { border-bottom-left-radius: 9px; border-bottom-right-radius: 9px; }
+.sm-field { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.sm-field + .sm-field { border-top: 1px solid var(--line); }
+/* The overridden rule must stay readable — it is what the override replaces.
+   One step of de-emphasis (a quieter ground, quieter ink), never opacity: the
+   field's, a disabled select's and a disabled button's multiplied to 0.28, and
+   the rule being replaced was the one thing on the card nobody could read. */
+.sm-field.greyed { background: var(--wash); }
+.sm-field.greyed .sm-label::after { content: " · overridden"; font-weight: 500; }
+.sm-field.greyed .sm-pattern { color: var(--text-dim); }
+.sm-field.greyed :is(.input, .btn):disabled { opacity: 1; color: var(--text-dim); }
+.sm-field.greyed .input:disabled { border-color: var(--line-strong); background-color: transparent; }
 .sm-lead { display: flex; align-items: baseline; gap: 8px; }
-.sm-label { color: var(--accent-ink); }
+.sm-label { color: var(--text-dim); font-weight: 600; }
 .sm-label.temp { color: var(--amber-ink); }
-.sm-note { margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 600; font-size: 10px; color: var(--text-dim); }
+.sm-note { margin-left: auto; font-size: 12px; font-weight: 500; color: var(--text-dim); }
 
-/* The conclusion band: what this tab does right now, on its own tinted ground so
-   it reads as the answer and the two bands below it read as the controls. */
+/* The answer: what this tab does right now, on the same lavender the Overview's
+   route band uses, so the two read as the same object. */
 .sm-field.route {
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  background: var(--lavender);
 }
-.route-val { display: flex; align-items: center; gap: 9px; min-width: 0; font-weight: 600; }
-.route-val .avatar { width: 20px; height: 20px; font-size: 8px; flex: none; }
+.route-val { display: flex; align-items: center; gap: 8px; min-width: 0; font-weight: 600; }
+.route-val .avatar { flex: none; }
 .route-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* How it got there — "rule", "default", "all traffic" — as a quiet word after
+   the name. */
 .route-tag {
   flex: none;
   color: var(--text-dim);
-  background: var(--bg-elev);
-  border: 1px solid var(--border-strong);
-  padding: 2px 8px;
-  border-radius: var(--radius-pill);
 }
+.route-tag::before { content: "·"; margin-right: 6px; }
 /* An override is temporary — say so here too, not only in the band below. */
-.route-tag.temp {
-  color: var(--amber-ink);
-  border-color: color-mix(in srgb, var(--amber) 45%, transparent);
-  background: color-mix(in srgb, var(--amber) 14%, #fff);
-}
-.route-sentence { font-size: 13px; color: var(--text); }
+.route-tag.temp { color: var(--amber-ink); font-weight: 600; }
+.route-sentence { font-size: 13.5px; color: var(--text); line-height: 1.5; }
 
 .sm-ctl { display: flex; align-items: center; gap: 8px; }
-.sm-ctl select.input { flex: 1; min-width: 0; height: 34px; }
-.sm-ctl .btn.sm { flex: none; height: 34px; }
-/* Was 30px in a row of 34px controls. */
-.sm-ctl .btn.icon { width: 34px; height: 34px; }
+.sm-ctl select.input { flex: 1; min-width: 0; min-height: 32px; height: 32px; padding-top: 0; padding-bottom: 0; font-size: 13.5px; }
+.sm-ctl .btn.sm { flex: none; height: 32px; }
+.sm-ctl .btn.icon { width: 32px; height: 32px; }
+/* The matched rule's pattern, set like a read-only field. */
 .sm-pattern {
   flex: none;
   max-width: 42%;
-  height: 34px;
-  line-height: 32px;
-  padding: 0 12px;
+  height: 32px;
+  line-height: 30px;
+  padding: 0 11px;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 12.5px;
   color: var(--text);
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--wash);
+  border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.btn.sm { padding: 7px 12px; font-size: 12px; flex: none; }
-.input.sm { padding: 7px 9px; }
+.btn.sm { min-height: 32px; padding: 4px 12px; font-size: 13px; flex: none; }
+.input.sm { min-height: 32px; padding: 4px 10px; }
+select.input.sm { padding-right: 32px; } /* clear of the drawn chevron */
 
-/* override / bypass chip */
-.sm-field.override.set { background: color-mix(in srgb, var(--amber) 9%, transparent); }
+/* override / bypass entry */
+.sm-field.override.set { background: color-mix(in srgb, var(--amber) 6%, #fff); }
 .ov-chip {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   flex: 1;
   min-width: 0;
-  padding: 7px 10px;
+  min-height: 32px;
+  padding: 5px 11px;
   border-radius: var(--radius-sm);
-  border: 1px dashed color-mix(in srgb, var(--amber) 55%, transparent);
-  background: var(--bg-elev);
-  font-weight: 600;
-  font-size: 12px;
+  border: 1px solid color-mix(in srgb, var(--amber) 45%, transparent);
+  background: var(--sheet);
+  font-weight: 550;
+  font-size: 13px;
 }
-.ov-chip .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: none; max-width: 45%; }
+.ov-chip .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: none; max-width: 45%; font-size: 12.5px; }
 .ov-chip .ov-arrow { color: var(--text-dim); flex: none; }
 .ov-chip .ov-target { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ov-remove { flex: none; }
 
-.sm-hint { font-size: 12px; line-height: 1.5; color: var(--text-dim); margin: 0; }
+.sm-hint { font-size: 12.5px; line-height: 1.55; color: var(--text-dim); margin: 0; }
 
-/* Flat buttons in the popup — no raised/3d shadow. Scoped to the resting state
-   so it cannot also erase the focus ring, which is a box-shadow too. */
+/* Flat buttons in the popup's panes. Scoped to the resting state so it cannot
+   also erase the focus ring, which is a box-shadow too. */
 .pane-right .btn:not(:focus-visible),
 .pane-left .btn:not(:focus-visible) { box-shadow: none; }
-.pane-right .btn.primary:not(:focus-visible),
-.pane-left .btn.primary:not(:focus-visible) { box-shadow: var(--glow); }
 
-/* ---- sock wiggle on switch ---- */
+/* ---- sock wiggle on switch ----
+   The one flourish: the mark answers a switch. Motion for a state change, never
+   at rest. */
 @keyframes sock-wiggle {
   0% { transform: rotate(0); }
   25% { transform: rotate(-14deg) scale(1.08); }

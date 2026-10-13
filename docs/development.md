@@ -58,7 +58,10 @@ src/
   options/               options UI: dashboard.ts (Overview), network.ts
                          (network monitor), docs.ts (in-app docs),
                          releases.ts (release history), settings, editors
-  theme.css              design tokens shared by both pages
+  theme.css              design tokens and shared components for both pages
+                         (the spec is docs/design.md — read it before UI work)
+static/fonts/            DM Sans + JetBrains Mono, subset from upstream; the
+                         README there says how they were cut, and why not npm
 scripts/gen-icons.mjs    logo-source.png to PNG icon set (ImageMagick)
 scripts/gen-store-shots.mjs  README + Web Store screenshots, captured from the built UI
 build.mjs                esbuild driver and static copier
@@ -97,7 +100,7 @@ rather than a grid of empty states.
 
 Every scene is composed on a 1280×800 canvas — the size the store requires, so
 this is a 1x capture — with the headline above and the real UI in an `<iframe>`
-below, lit by the options page's own brand wash. The rounded corners are the
+below, set on the options page's own canvas colour. The rounded corners are the
 frame's: it clips the iframe with `border-radius` and `overflow: hidden`, so
 nothing here depends on a transparent capture. The popup scene fills a 720×520
 frame, exactly what `popup.css` pins; the options scenes use a 1200×670 frame

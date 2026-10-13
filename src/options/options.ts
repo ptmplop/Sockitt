@@ -142,9 +142,14 @@ const NAV_ICON = {
     '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
 };
 
-/** Neutral tile holding a nav-icon SVG — same tile as builtinTile, crisp glyph. */
+/**
+ * A nav glyph in a box the size of a profile tile. No tile of its own — a grey
+ * square behind every page icon made the extension's own pages read as more
+ * profiles — but the same footprint, so every label in the sidebar starts on
+ * one line whether its row leads with a page icon or a profile's initials.
+ */
 function iconTile(svg: string, size: number): HTMLElement {
-  const node = el('span', { class: 'avatar builtin', innerHTML: svg });
+  const node = el('span', { class: 'nav-ic', innerHTML: svg });
   node.style.width = node.style.height = `${size}px`;
   return node;
 }
@@ -170,6 +175,34 @@ function field(
     control,
     ...(opts.extra ?? [])
   );
+}
+
+/** What one profile of each kind is called. */
+const KIND_ONE: Record<Profile['kind'], string> = {
+  proxy: 'Proxy',
+  switch: 'Auto switch',
+  rulelist: 'Rule list',
+  virtual: 'Alias',
+};
+
+/**
+ * The title a page opens on — the Overview's own head, so the first line holds
+ * still as you move down the sidebar instead of jumping between a 24px title
+ * and a panel heading 20px further down. An editor names the profile it edits.
+ */
+function pageHead(title: string, sub?: string): HTMLElement {
+  return el(
+    'div',
+    { class: 'dash-head page-head' },
+    el('h2', { class: 'dash-title' }, title),
+    sub ? el('span', { class: 'dash-head-sub' }, sub) : null
+  );
+}
+
+/** The head every editor opens on: the profile's name, and what kind it is. */
+function editorHead(profile: Profile): HTMLElement {
+  const kind = profile.kind === 'proxy' ? `${SCHEME_LABELS[profile.scheme]} proxy` : KIND_ONE[profile.kind];
+  return pageHead(profile.name, config.activeId === profile.id ? `${kind} · active` : kind);
 }
 
 let config: Config;
@@ -325,7 +358,8 @@ function sidebar(): HTMLElement {
       },
       avatarEl(p, 22),
       el('span', { class: 'name' }, p.name),
-      config.activeId === p.id ? el('span', { class: 'badge' }, 'ACTIVE') : null
+      // A word, not a capsule: it qualifies the name beside it.
+      config.activeId === p.id ? el('span', { class: 'badge' }, 'Active') : null
     );
 
   const groups = PROFILE_KINDS.flatMap((kind) => {
@@ -560,6 +594,7 @@ function identityPanel(profile: Profile): HTMLElement {
       scheduleSave();
       renderPreview();
       refreshSidebar();
+      app.querySelector('.content .page-head .dash-title')?.replaceChildren(profile.name);
     },
   }) as HTMLInputElement;
 
@@ -931,10 +966,18 @@ function permWarningBanners(): HTMLElement[] {
 function updatePermBanners(): void {
   const content = document.querySelector('.content');
   if (!content) return;
-  content.querySelectorAll(':scope > .warn-banner').forEach((n) => n.remove());
-  // Prepend in reverse so the banners keep permWarningBanners' order above the
-  // panel, whatever else the content column already holds.
-  for (const banner of permWarningBanners().reverse()) content.prepend(banner);
+  content.querySelectorAll('.perm-banners').forEach((n) => n.remove());
+  const banners = permWarningBanners();
+  if (!banners.length) return;
+  // One block, so several read as one ruled panel rather than being spaced
+  // apart by the page column's gap. Under the page's title, not above it: four
+  // warnings stacked over a page you had not yet been told the name of read
+  // as an error page. A page with no title (the first-run welcome) still
+  // takes them at the top.
+  const group = el('div', { class: 'perm-banners' }, ...banners);
+  const head = content.querySelector(':scope > .pane > :is(.page-head, .dash-head, .doc-head)');
+  if (head) head.after(group);
+  else content.prepend(group);
 }
 
 function proxyEditor(profile: ProxyProfile): HTMLElement {
@@ -1106,6 +1149,7 @@ function proxyEditor(profile: ProxyProfile): HTMLElement {
   return el(
     'div',
     { class: 'pane' },
+    editorHead(profile),
     identityPanel(profile),
     el(
       'div',
@@ -1310,6 +1354,7 @@ function switchEditor(profile: SwitchProfile): HTMLElement {
   return el(
     'div',
     { class: 'pane' },
+    editorHead(profile),
     identityPanel(profile),
     el(
       'div',
@@ -1631,6 +1676,7 @@ function ruleListEditor(profile: RuleListProfile): HTMLElement {
   return el(
     'div',
     { class: 'pane' },
+    editorHead(profile),
     identityPanel(profile),
     el(
       'div',
@@ -1683,6 +1729,7 @@ function virtualEditor(profile: VirtualProfile): HTMLElement {
   return el(
     'div',
     { class: 'pane' },
+    editorHead(profile),
     identityPanel(profile),
     el(
       'div',
@@ -1863,6 +1910,7 @@ function settingsPanel(): HTMLElement {
   return el(
     'div',
     { class: 'pane' },
+    pageHead('Settings'),
     el(
       'div',
       { class: 'card panel' },
@@ -2261,10 +2309,10 @@ function inspectorPanel(): HTMLElement {
   return el(
     'div',
     { class: 'pane' },
+    pageHead('Route inspector'),
     el(
       'div',
       { class: 'card panel' },
-      el('h3', {}, 'Route inspector'),
       el(
         'p',
         { class: 'note' },
@@ -2491,6 +2539,7 @@ function errorsPanel(): HTMLElement {
   return el(
     'div',
     { class: 'pane' },
+    pageHead('Proxy errors'),
     errorStatusCard(),
     newest ? errorMeaningCard(newest) : null,
     el(
@@ -2557,6 +2606,7 @@ function repaintErrorsPage(): void {
 
   const fresh = errorsPanel();
   pane.replaceWith(fresh);
+  updatePermBanners(); // they lived in the pane just replaced
   const log = fresh.querySelector('.err-log');
   if (log) log.scrollTop = scrollTop;
   if (focused) fresh.querySelector<HTMLElement>(`[data-err-action="${focused}"]`)?.focus();
@@ -2666,10 +2716,12 @@ function watchPageRequests(): void {
 /* ---------- render ---------- */
 
 function emptyPane(): HTMLElement {
+  // No logo here: the mark already heads the sidebar beside it, and a large
+  // one in the middle of the page is decoration standing where the first
+  // instruction should be.
   return el(
     'div',
     { class: 'card hero' },
-    el('img', { class: 'mark hero-mark', src: 'img/logo-mark.png', alt: '' }),
     el('h2', {}, 'Route traffic your way'),
     el('p', {}, 'Create a proxy profile (SOCKS5, SOCKS4, HTTP, or HTTPS), then add an Auto switch profile to route sites by rule — host wildcards, regex, CIDR blocks, keywords, or time windows.'),
     el(
@@ -2684,9 +2736,24 @@ function emptyPane(): HTMLElement {
 let sideNode: HTMLElement;
 
 function refreshSidebar(): void {
+  // Rebuilt on every name keystroke and every burst of proxy errors; a
+  // keyboard user in the nav must not be dropped to the top of the page by it.
+  const focused = sideNode.contains(document.activeElement) ? document.activeElement : null;
+  const key = focused ? `${focused.tagName}|${focused.getAttribute('class') ?? ''}|${focused.textContent ?? ''}` : '';
   const fresh = sidebar();
   sideNode.replaceWith(fresh);
   sideNode = fresh;
+  markCurrent();
+  if (focused) {
+    [...fresh.querySelectorAll<HTMLElement>('button, a')]
+      .find((n) => `${n.tagName}|${n.getAttribute('class') ?? ''}|${n.textContent ?? ''}` === key)
+      ?.focus({ preventScroll: true });
+  }
+}
+
+/** Expose the selected nav item to assistive tech (mirrors popup .row's aria-pressed). */
+function markCurrent(): void {
+  sideNode.querySelector('.nav-item.selected')?.setAttribute('aria-current', 'page');
 }
 
 function editorFor(profile: Profile): HTMLElement {
@@ -2730,11 +2797,14 @@ function render(): void {
       'div',
       { class: 'layout' },
       sideNode,
-      el('div', { class: 'content' }, ...permWarningBanners(), content)
+      // The sheet is the white plane the work sits on; .content inside it is
+      // the measured column. Two elements because the sheet spans the whole
+      // column while the content stops at its max-width.
+      el('main', { class: 'sheet' }, el('div', { class: 'content' }, content))
     )
   );
-  // Expose the selected nav item to assistive tech (mirrors popup .row's aria-pressed).
-  sideNode.querySelector('.nav-item.selected')?.setAttribute('aria-current', 'page');
+  updatePermBanners();
+  markCurrent();
 
   // Remember where we were, for the "reopen the last page" landing option.
   // Done here rather than at each call site so a new navigation path cannot

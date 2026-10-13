@@ -27,6 +27,21 @@ interface Release {
 
 const RELEASES: Release[] = [
   {
+    from: '1.26.0',
+    date: '13 October 2026',
+    title: 'A new look, with the route at the top of the Overview',
+    notes: [
+      'Sockitt has been redrawn. Every page keeps its layout — each control is where it was — but both the options page and the popup are set in the logo’s own colours now: a light frame with the work on one white sheet, the sock’s violet for whatever is selected, and its deep shadow for the one main action on a page. Text is DM Sans, and addresses, patterns and timings are JetBrains Mono, whose zero carries a dot, so it can never be mistaken for the letter O in an IP. Both typefaces ship inside the extension; nothing is fetched to show them.',
+      'The Overview opens on the route itself: the active profile at full size, the path its traffic takes drawn as a line in that profile’s colour, and the exit address beside it. Below it, cards that sit side by side share one surface, and a routing map three profiles deep gets the full width instead of being shrunk to fit.',
+      'The route line dashed the wrong link. The link into an Auto switch profile is always taken — it is the link out of it, decided request by request, that depends on the page — and that is the one drawn dashed now, the way the documentation always described it.',
+      'Every page opens on its title, and a profile’s editor is headed with the profile’s name. Warnings about missing permissions sit under the title as one panel, each led by an icon and set as plain text, rather than three lines of bold amber stacked above the page.',
+      'Status is said in words and icons rather than badges and coloured dots — Routing, Proxy failing, Active, Loading, Incognito — and nothing moves while you are not doing anything: the Overview no longer replays its map and health ring every time it refreshes.',
+      'The Overview keeps your place: when it refreshes — every 30 seconds, and whenever a failing proxy reports — keyboard focus stays on the control you were on. Profiles on the routing map show when they are focused, and screen readers can reach them.',
+      'In the popup, a rule that a temporary override is standing in for says “overridden” and stays readable, instead of fading to a grey that was hard to make out; System gets a route line like every other profile; and a long profile list opens with the active one in the middle.',
+      'Narrow windows hold together: the route line shortens long names instead of running out of its band, the tab breakdown wraps under its ring, the network monitor keeps every column at 1280px, and initials on blue and red profiles are dark enough to read.',
+    ],
+  },
+  {
     from: '1.25.0',
     to: '1.25.2',
     date: '6–7 August 2026',

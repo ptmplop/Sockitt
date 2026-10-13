@@ -76,6 +76,8 @@ let host: DashboardHost;
 let root: HTMLElement | null = null;
 /** One repaint function per card. Rebuilt whenever the panel is constructed. */
 let refreshers: Array<() => void> = [];
+/** The card each refresher repaints, by index; the head line's refresher has none. */
+let cardNodes: HTMLElement[] = [];
 /**
  * Bumped on every panel build. Async card fills compare against it before
  * touching the DOM, so a permission check or a tab query that resolves after
@@ -121,7 +123,8 @@ interface NodeInfo {
   builtin: boolean;
 }
 
-const BUILTIN_COLOR = '#4a5162';
+/** Matches .avatar.builtin in theme.css, so Direct reads the same everywhere. */
+const BUILTIN_COLOR = '#5c6079';
 
 function nodeInfo(config: Config, id: string): NodeInfo {
   if (id === DIRECT) {
@@ -199,12 +202,20 @@ function cardHead(title: string, ...trailing: (Node | string | null | false)[]):
 /* ---------------- hero: the live route console ---------------- */
 
 /** The hop chain the active profile actually produces, as display rows. */
-function chainFor(config: Config): { label: string; sub?: string; conditional: boolean }[] {
+interface Hop {
+  label: string;
+  sub?: string;
+  conditional: boolean;
+  /** The profile (or built-in) this hop is, so it can wear its tile. */
+  id?: string;
+}
+
+function chainFor(config: Config): Hop[] {
   const id = config.activeId;
   if (id === DIRECT) return [{ label: 'Internet', conditional: false }];
-  if (id === SYSTEM) return [{ label: 'System proxy', sub: 'set by your OS', conditional: false }, { label: 'Internet', conditional: false }];
+  if (id === SYSTEM) return [{ label: 'System proxy', sub: 'set by your OS', conditional: false, id: SYSTEM }, { label: 'Internet', conditional: false }];
 
-  const hops: { label: string; sub?: string; conditional: boolean }[] = [];
+  const hops: Hop[] = [];
   const seen = new Set<string>();
   let cursor: string | undefined = id;
 
@@ -213,10 +224,10 @@ function chainFor(config: Config): { label: string; sub?: string; conditional: b
     const p: Profile | undefined = profileById(config, cursor);
     if (!p) break;
     if (p.kind === 'proxy') {
-      hops.push({ label: p.name, sub: `${SCHEME_LABELS[p.scheme]} ${p.host}:${p.port}`, conditional: false });
+      hops.push({ label: p.name, sub: `${SCHEME_LABELS[p.scheme]} ${p.host}:${p.port}`, conditional: false, id: p.id });
       cursor = undefined;
     } else if (p.kind === 'virtual') {
-      hops.push({ label: p.name, sub: 'alias', conditional: false });
+      hops.push({ label: p.name, sub: 'alias', conditional: false, id: p.id });
       cursor = p.targetId;
     } else {
       // A switch or rule-list profile picks per request; the chain stops being
@@ -226,6 +237,7 @@ function chainFor(config: Config): { label: string; sub?: string; conditional: b
         label: p.name,
         sub: `routes per request → ${[...targets].join(' · ')}`,
         conditional: true,
+        id: p.id,
       });
       cursor = undefined;
     }
@@ -287,20 +299,33 @@ function heroCard(): { node: HTMLElement; refresh: () => void } {
     const hops = chainFor(config);
     const flow = el('div', { class: 'flow' });
     flow.append(
-      el('span', { class: 'hop start', innerHTML: ICON.you }, el('span', {}, 'You'))
+      el('span', { class: 'hop start' }, el('span', { class: 'hop-ic', innerHTML: ICON.you }), el('span', {}, 'You'))
     );
+    // A link is dashed when the hop it LEAVES decides per request. It used to
+    // take the dash from the hop it arrived at, which drew "You ┄ Office
+    // routing ── Internet": the one link that is always taken looked
+    // conditional, and the one that depends on the request looked fixed.
+    let leavingConditional = false;
     for (const hop of hops) {
-      flow.append(el('span', { class: `wire${hop.conditional ? ' conditional' : ''}` }));
-      const isEnd = hop.label === 'Internet';
+      flow.append(el('span', { class: `wire${leavingConditional ? ' conditional' : ''}` }));
+      leavingConditional = hop.conditional;
+      const isEnd = hop.label === 'Internet' && !hop.id;
       const chip = el(
         'span',
         { class: `hop${isEnd ? ' term' : ''}` },
-        isEnd ? el('span', { class: 'hop-ic', innerHTML: ICON.globe }) : null,
+        isEnd
+          ? el('span', { class: 'hop-ic', innerHTML: ICON.globe })
+          : hop.id
+            ? tileFor(config, hop.id, 20)
+            : null,
         el('span', { class: 'hop-name' }, hop.label)
       );
       if (hop.sub) chip.title = hop.sub;
       flow.append(chip);
     }
+    // The line is drawn in the active profile's own colour — the same colour
+    // its tile and its toolbar icon wear — so the route reads as that profile's.
+    node.style.setProperty('--route-color', info.color);
 
     const control = controlPill();
     node.replaceChildren(
@@ -502,18 +527,26 @@ function switcherRow(): HTMLElement {
   };
 
   const active = nodeInfo(config, config.activeId);
+  // Hidden while the select already says what the browser uses — which is
+  // nearly always, and then this would be the profile's name a fourth time in
+  // one band. It shows in the gap between picking and applying, the moment the
+  // select and the browser disagree, which is what it exists for.
+  const readout = el(
+    'div',
+    { class: 'hero-active', title: active.sub, hidden: true },
+    el('span', { class: 'hero-active-tag' }, 'Active'),
+    tileFor(config, config.activeId, 20),
+    el('span', { class: 'hero-active-name' }, active.name)
+  );
+  select.addEventListener('change', () => {
+    readout.hidden = select.value === host.config().activeId;
+  });
   return el(
     'div',
     { class: 'hero-switch' },
     el('label', { class: 'hero-switch-lbl', htmlFor: select.id }, 'Switch'),
     select,
-    el(
-      'div',
-      { class: 'hero-active', title: active.sub },
-      el('span', { class: 'hero-active-tag' }, 'Active'),
-      tileFor(config, config.activeId, 20),
-      el('span', { class: 'hero-active-name' }, active.name)
-    )
+    readout
   );
 }
 
@@ -567,7 +600,9 @@ function statTile(opts: {
 }): HTMLElement {
   const tile = el(
     'button',
-    { class: `card dash-stat${opts.tone ? ' ' + opts.tone : ''}`, type: 'button', onclick: opts.onclick },
+    // Not a .card: the five figures are one strip divided by hairlines (the
+    // strip is the surface), never five floating tiles.
+    { class: `dash-stat${opts.tone ? ' ' + opts.tone : ''}`, type: 'button', onclick: opts.onclick },
     el('span', { class: 'dash-stat-lbl' }, opts.label),
     el(
       'span',
@@ -629,25 +664,21 @@ function sparkline(log: ProxyErrorEntry[]): SVGElement {
   const points = counts.map((v, i) => [i * step, H - (v / max) * (H - 3) - 1] as const);
 
   const line = points.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
-  const grad = svg('linearGradient', { id: 'dash-spark-g', x1: '0', y1: '0', x2: '0', y2: '1' });
-  grad.append(
-    svg('stop', { offset: '0', 'stop-color': '#ef4d64', 'stop-opacity': '0.28' }),
-    svg('stop', { offset: '1', 'stop-color': '#ef4d64', 'stop-opacity': '0' })
-  );
+  // Just the line: no wash under it and no dot at its end — both read as
+  // decoration, and the line alone already says when the failures came.
+  // non-scaling-stroke, because preserveAspectRatio="none" stretches the box to
+  // the cell and would thicken the diagonals.
   node.append(
-    svg('defs', {}, grad),
-    svg('path', { d: `${line} L${W},${H} L0,${H} Z`, fill: 'url(#dash-spark-g)' }),
     svg('path', {
       d: line,
       fill: 'none',
-      stroke: '#ef4d64',
+      stroke: '#e5484d',
       'stroke-width': '1.6',
       'stroke-linejoin': 'round',
       'stroke-linecap': 'round',
+      'vector-effect': 'non-scaling-stroke',
     })
   );
-  const last = points[points.length - 1];
-  if (last) node.append(svg('circle', { cx: last[0].toFixed(1), cy: last[1].toFixed(1), r: '2.4', fill: '#ef4d64' }));
   return node;
 }
 
@@ -674,11 +705,14 @@ function statStrip(): { node: HTMLElement; refresh: () => void } {
 
     // Written out rather than suffixed with "s" — "3 proxys", "2 switchs" and
     // "1 virtual" were what deriving them from the stored kind produced.
+    // One ramp of the brand violet rather than four unrelated hues: the bar
+    // says how the profiles divide, and a rainbow made it the loudest thing in
+    // the strip.
     const kinds: Array<[Profile['kind'], string, string, string]> = [
-      ['proxy', '#46c9e5', 'proxy', 'proxies'],
-      ['switch', '#2dd4a7', 'switch', 'switches'],
-      ['rulelist', '#f472b6', 'list', 'lists'],
-      ['virtual', '#ffb020', 'alias', 'aliases'],
+      ['proxy', '#7543e8', 'proxy', 'proxies'],
+      ['switch', '#2d1b70', 'switch', 'switches'],
+      ['rulelist', '#b49fe6', 'list', 'lists'],
+      ['virtual', '#5c6079', 'alias', 'aliases'],
     ];
     const byKind = kinds.map(
       ([kind, color]) => [config.profiles.filter((p) => p.kind === kind).length, color] as [number, string]
@@ -686,7 +720,9 @@ function statStrip(): { node: HTMLElement; refresh: () => void } {
     const kindFoot = kinds
       .map(([, , one, many], i) => [byKind[i]?.[0] ?? 0, one, many] as const)
       .filter(([n]) => n > 0)
-      .map(([n, one, many]) => `${n} ${n === 1 ? one : many}`)
+      // A no-break space: in a narrow cell "1" wrapped onto one line and its
+      // noun onto the next.
+      .map(([n, one, many]) => `${n}\u00a0${n === 1 ? one : many}`)
       .join(' · ');
 
     const errorCount = log.reduce((sum, e) => sum + e.count, 0);
@@ -708,8 +744,8 @@ function statStrip(): { node: HTMLElement; refresh: () => void } {
           ? `${rules.enabled} on · ${rules.invalid} invalid`
           : `${rules.enabled} on · ${rules.total - rules.enabled} off`,
         visual: segments([
-          [rules.enabled, '#6d5dfc'],
-          [rules.total - rules.enabled, 'rgba(20,26,44,.15)'],
+          [rules.enabled, '#7543e8'],
+          [rules.total - rules.enabled, 'rgba(22,23,47,.14)'],
         ]),
         tone: rules.invalid ? 'crit' : undefined,
         onclick: () => host.open('@inspect'),
@@ -749,14 +785,21 @@ function statStrip(): { node: HTMLElement; refresh: () => void } {
         figure: String(report.score),
         unit: '/100',
         foot: report.issues.length
-          ? `${report.counts.error} error · ${report.counts.warn} warning · ${report.counts.info} note`
+          ? [
+              [report.counts.error, 'error'],
+              [report.counts.warn, 'warning'],
+              [report.counts.info, 'note'],
+            ]
+              .map(([n, word]) => `${n}\u00a0${word}${n === 1 ? '' : 's'}`)
+              .join(' · ')
           : 'everything checks out',
-        visual: segments([
-          [report.counts.error * 3, '#ef4d64'],
-          [report.counts.warn * 2, '#e6920a'],
-          [report.counts.info, '#46c9e5'],
-          [Math.max(1, report.score / 8), 'rgba(20,26,44,.10)'],
-        ]),
+        // The score itself, under the score — it used to plot the mix of
+        // findings, which put a 7% sliver under "97" and an empty track under
+        // "100", the opposite of what the figure above it says.
+        visual: meter(
+          report.score / 100,
+          report.counts.error ? 'var(--danger)' : report.counts.warn ? 'var(--amber-icon)' : undefined
+        ),
         tone: report.counts.error ? 'crit' : report.counts.warn ? 'warn' : undefined,
         onclick: () => document.getElementById('dash-health')?.scrollIntoView({ block: 'center', behavior: motionOk() ? 'smooth' : 'auto' }),
       })
@@ -772,24 +815,46 @@ function motionOk(): boolean {
 
 /* ---------------- routing map ---------------- */
 
-const NODE_W = 190;
+// 232 wide with 64 between columns: two columns (2 × 232 + 64, plus the focus
+// margin) sit at 1:1 in the 7/12 card at 1440px, and a whole
+// "SOCKS5 proxy.corp.io:1080" fits the 12px mono line.
+const NODE_W = 232;
 const NODE_H = 46;
-const GAP_X = 82;
+const GAP_X = 64;
 const GAP_Y = 16;
 /** Space a node's two text lines have: box width, less the tile and the padding. */
 const NODE_TEXT_W = NODE_W - 40 - 10;
 
+/** Shared by every fitText call; a canvas needs no place in the document. */
+let measureCtx: CanvasRenderingContext2D | null = null;
+
 /**
  * Ellipsise to fit. SVG text neither wraps nor clips to its parent, so a long
  * endpoint ("HTTPS proxy.fra.example:8443") runs straight out of its box and
- * across whatever is beside it. Measured by average advance rather than by
- * getComputedTextLength, which needs the node to be in the document — these are
+ * across whatever is beside it. Measured on a canvas in the faces the
+ * stylesheet sets, not estimated: per-character averages were tuned for the
+ * old system fonts, and in DM Sans a 22-character name ran 16px past its box.
+ * getComputedTextLength would need the node in the document, and these are
  * built before the panel is mounted.
  */
-function fitText(text: string, perChar: number): string {
-  const max = Math.floor(NODE_TEXT_W / perChar);
-  return text.length <= max ? text : `${text.slice(0, Math.max(1, max - 1))}…`;
+function fitText(text: string, font: string): string {
+  measureCtx ??= document.createElement('canvas').getContext('2d');
+  if (!measureCtx) return text;
+  measureCtx.font = font;
+  if (measureCtx.measureText(text).width <= NODE_TEXT_W) return text;
+  let lo = 1;
+  let hi = text.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (measureCtx.measureText(`${text.slice(0, mid)}…`).width <= NODE_TEXT_W) lo = mid;
+    else hi = mid - 1;
+  }
+  return `${text.slice(0, lo)}…`;
 }
+
+/** The two label styles the stylesheet gives map nodes (.dash-node text.t1 / .t2). */
+const NODE_FONT_NAME = '600 12.5px "DM Sans", sans-serif';
+const NODE_FONT_SUB = '450 12px "JetBrains Mono", monospace';
 
 /**
  * Distance from a profile to a terminal, following its targets. Proxies and the
@@ -809,12 +874,26 @@ function depthOf(config: Config, id: string, visiting = new Set<string>()): numb
   return deepest + 1;
 }
 
+/**
+ * A map three or more columns deep takes the full width, and Config health goes
+ * full width under it. Squeezed into a 7/12 card a deep map was scaled to 72%,
+ * its labels down to 9px. Classes rather than a style, so the bento's rule that
+ * joins a 7 + 5 pair into one surface sees the change.
+ */
+function setMapDepth(mapCard: HTMLElement, deep: boolean): void {
+  mapCard.classList.toggle('dash-c7', !deep);
+  mapCard.classList.toggle('dash-c12', deep);
+  const health = mapCard.parentElement?.querySelector<HTMLElement>('#dash-health');
+  health?.classList.toggle('dash-c5', !deep);
+  health?.classList.toggle('dash-c12', deep);
+}
+
 function routingMap(): { node: HTMLElement; refresh: () => void } {
   const holder = el('div', { class: 'dash-map-wrap' });
   // The hover hint rides the eyebrow, not the legend: as a fourth legend item
   // it wrapped to a line of its own on every width the card actually gets.
   const node = card(
-    'dash-c7',
+    'dash-c7 dash-map-card',
     cardHead('Routing map', 'hover a line or a profile'),
     holder,
     el('div', { class: 'dash-map-legend' })
@@ -836,6 +915,7 @@ function routingMap(): { node: HTMLElement; refresh: () => void } {
         )
       );
       legend.replaceChildren();
+      setMapDepth(node, false);
     };
 
     // Every node that takes part: all profiles, plus Direct if anything points
@@ -875,42 +955,34 @@ function routingMap(): { node: HTMLElement; refresh: () => void } {
     const width = (maxDepth + 1) * NODE_W + maxDepth * GAP_X;
     const height = rows * NODE_H + (rows - 1) * GAP_Y;
     const live = livePath(config, config.activeId);
+    setMapDepth(node, maxDepth >= 2);
+    // Drawn in, the first time only: a repaint (every 30 s, and on every burst
+    // of errors) used to replay the whole entrance — motion at rest.
+    const first = !holder.querySelector('svg.dash-map');
 
     const sheet = svg('svg', {
       class: 'dash-map',
       // Its natural size, so the stylesheet can scale the map down into a
-      // narrow card without ever stretching it past 1:1.
-      width: width + 4,
-      height: height + 4,
-      viewBox: `-2 -2 ${width + 4} ${height + 4}`,
-      role: 'img',
+      // narrow card without ever stretching it past 1:1. 6px of margin all
+      // round holds each node's focus ring inside the scroll box.
+      width: width + 12,
+      height: height + 12,
+      viewBox: `-6 -6 ${width + 12} ${height + 12}`,
+      // group, not img: img makes its children presentational, and the nodes
+      // are buttons a screen reader has to be able to reach.
+      role: 'group',
       'aria-label': 'How your profiles route into each other',
     });
+    // Scaled down it may go, but not below 85% — past that the labels are too
+    // small to read, and the box scrolls instead. 85 is what lets a three-column
+    // map still fit the full-width card at a 1080px window.
+    sheet.style.minWidth = `${Math.round((width + 12) * 0.85)}px`;
 
-    const defs = svg('defs', {});
-    // userSpaceOnUse, spanning the map — NOT the default objectBoundingBox.
-    //
-    // An edge between two nodes on the same row is a perfectly flat curve, so
-    // its bounding box is zero high, and a gradient in bounding-box units is by
-    // spec not rendered at all on a degenerate box: the line simply vanished.
-    // It only bit the live edges, because those are the only ones painted with
-    // the gradient — which is why the map looked right until you switched to
-    // the very profile whose routing it was drawing.
-    const hot = svg('linearGradient', {
-      id: 'dash-edge-hot',
-      gradientUnits: 'userSpaceOnUse',
-      x1: '0',
-      y1: '0',
-      x2: String(width),
-      y2: '0',
-    });
-    hot.append(
-      svg('stop', { offset: '0', 'stop-color': '#6d5dfc' }),
-      svg('stop', { offset: '1', 'stop-color': '#46c9e5' })
-    );
-    defs.append(hot);
-    sheet.append(defs);
-
+    // Edges take their colour from the stylesheet, by class: the live path in
+    // the brand violet, everything else in a quiet grey. A solid stroke, not a
+    // gradient — a gradient in the default bounding-box units is not rendered
+    // at all on a perfectly flat edge (a zero-height box), which is exactly
+    // the shape an edge between two nodes on the same row takes.
     // Edges first so nodes paint over their endpoints.
     const edgeNodes: SVGPathElement[] = [];
     for (const p of config.profiles) {
@@ -953,7 +1025,6 @@ function routingMap(): { node: HTMLElement; refresh: () => void } {
         const path = svg('path', {
           class: `dash-edge${isLive ? ' live' : ''}`,
           d: `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`,
-          stroke: isLive ? 'url(#dash-edge-hot)' : '#a8adbd',
         });
         // Dashed means "only sometimes". An edge that is also the fallback is
         // always taken when nothing else matches, so it draws solid.
@@ -1006,6 +1077,7 @@ function routingMap(): { node: HTMLElement; refresh: () => void } {
       });
       group.dataset.id = id;
       group.append(
+        svg('rect', { class: 'fr', x: at.x - 4, y: at.y - 4, width: NODE_W + 8, height: NODE_H + 8, rx: '14' }),
         svg('rect', { class: 'bx', x: at.x, y: at.y, width: NODE_W, height: NODE_H, rx: '11' }),
         svg('rect', { x: at.x + 11, y: at.y + 13, width: 20, height: 20, rx: '5', fill: info.color }),
         svg(
@@ -1016,14 +1088,12 @@ function routingMap(): { node: HTMLElement; refresh: () => void } {
             'text-anchor': 'middle',
             'font-size': '8.5',
             'font-weight': '700',
-            fill: info.builtin ? '#f2f4f9' : textColorFor(info.color),
+            fill: info.builtin ? '#ffffff' : textColorFor(info.color),
           },
           info.initials
         ),
-        // 6.3 and 5.7 are the measured average advances of the two type styles
-        // this card uses (11.5px bold sans, 9.5px mono).
-        svg('text', { class: 't1', x: at.x + 40, y: at.y + 21 }, fitText(info.name, 6.3)),
-        svg('text', { class: 't2', x: at.x + 40, y: at.y + 34 }, fitText(info.sub, 5.7))
+        svg('text', { class: 't1', x: at.x + 40, y: at.y + 20 }, fitText(info.name, NODE_FONT_NAME)),
+        svg('text', { class: 't2', x: at.x + 40, y: at.y + 35 }, fitText(info.sub, NODE_FONT_SUB))
       );
       group.append(svg('title', {}, `${info.name} — ${info.sub}`));
 
@@ -1074,7 +1144,7 @@ function routingMap(): { node: HTMLElement; refresh: () => void } {
       el('span', {}, el('b', {}, 'Colour'), ' the path traffic takes right now')
     );
 
-    if (motionOk()) {
+    if (first && motionOk()) {
       edgeNodes.forEach((path, i) => {
         if (path.hasAttribute('stroke-dasharray')) return;
         const len = path.getTotalLength();
@@ -1103,32 +1173,28 @@ function healthCard(): { node: HTMLElement; refresh: () => void } {
   const refresh = (): void => {
     const config = host.config();
     const report = auditConfig(config, { authGranted, now: Date.now() });
+    // The sweep is an entrance, played once. Repaints come every 30 s and on
+    // every burst of errors, and replaying it each time was motion at rest.
+    const first = !node.querySelector('.dash-ring');
 
     const CIRC = 2 * Math.PI * 33;
     const arc = svg('circle', {
+      class: 'arc',
       cx: '39',
       cy: '39',
       r: '33',
       fill: 'none',
-      stroke: 'url(#dash-ring)',
-      'stroke-width': '9',
+      'stroke-width': '8',
       'stroke-linecap': 'round',
       'stroke-dasharray': CIRC.toFixed(1),
       'stroke-dashoffset': (CIRC * (1 - report.score / 100)).toFixed(1),
     });
-    const grad = svg('linearGradient', { id: 'dash-ring', x1: '0', y1: '0', x2: '1', y2: '1' });
-    grad.append(
-      svg('stop', { offset: '0', 'stop-color': '#6d5dfc' }),
-      svg('stop', { offset: '1', 'stop-color': '#46c9e5' })
-    );
     const ring = svg('svg', { width: '78', height: '78', viewBox: '0 0 78 78' });
     ring.setAttribute('aria-hidden', 'true');
-    ring.append(
-      svg('defs', {}, grad),
-      svg('circle', { cx: '39', cy: '39', r: '33', fill: 'none', stroke: 'rgba(20,26,44,.09)', 'stroke-width': '9' }),
-      arc
-    );
-    if (motionOk()) {
+    // The arc's colour follows the score's band (.dash-ring.warn / .crit), so a
+    // bad configuration does not wear the brand's colour.
+    ring.append(svg('circle', { class: 'track', cx: '39', cy: '39', r: '33', fill: 'none', 'stroke-width': '8' }), arc);
+    if (first && motionOk()) {
       arc.animate(
         [{ strokeDashoffset: `${CIRC}` }, { strokeDashoffset: arc.getAttribute('stroke-dashoffset')! }],
         { duration: 800, easing: 'cubic-bezier(.4,0,.2,1)' }
@@ -1147,7 +1213,12 @@ function healthCard(): { node: HTMLElement; refresh: () => void } {
       el(
         'div',
         { class: 'dash-health-top' },
-        el('div', { class: 'dash-ring' }, ring, el('span', { class: 'dash-ring-val' }, String(report.score))),
+        el(
+          'div',
+          { class: `dash-ring${report.counts.error ? ' crit' : report.counts.warn ? ' warn' : ''}` },
+          ring,
+          el('span', { class: 'dash-ring-val' }, String(report.score))
+        ),
         el(
           'div',
           { class: 'dash-health-sum' },
@@ -1566,7 +1637,7 @@ function timelineCard(): { node: HTMLElement; refresh: () => void } {
 /* ---------------- rule lists ---------------- */
 
 function ruleListsCard(): { node: HTMLElement; refresh: () => void } {
-  const node = card('dash-c6', cardHead('Rule lists'));
+  const node = card('dash-c7', cardHead('Rule lists'));
 
   const refresh = (): void => {
     const config = host.config();
@@ -1726,10 +1797,14 @@ function testerCard(): { node: HTMLElement; refresh: () => void } {
           : active.kind === 'virtual'
             ? 'alias'
             : 'nothing matched — the default target';
+    // The answer first — where it goes — and why on the line under it. With the
+    // reason between the two names, the destination (the one thing this card
+    // is for) wrapped onto a line of its own in every state.
     verdict.replaceChildren(
       el('span', { class: 'chain-chip' }, tileFor(config, config.activeId, 18), nodeInfo(config, config.activeId).name),
-      el('span', { class: 'dash-arrow' }, why),
-      el('span', { class: 'chain-chip' }, tileFor(config, target, 18), info.name)
+      el('span', { class: 'dash-arrow', role: 'img', ariaLabel: 'routes to' }),
+      el('span', { class: 'chain-chip' }, tileFor(config, target, 18), info.name),
+      el('span', { class: 'dash-why' }, why)
     );
   };
 
@@ -1738,7 +1813,7 @@ function testerCard(): { node: HTMLElement; refresh: () => void } {
   });
 
   const node = card(
-    'dash-c6',
+    'dash-c5',
     cardHead('Try a URL'),
     el(
       'div',
@@ -1787,6 +1862,7 @@ export function dashboardPanel(h: DashboardHost): HTMLElement {
 
   const bento = el('div', { class: 'dash-bento' }, ...cards.map((c) => c.node));
   refreshers = cards.map((c) => c.refresh);
+  cardNodes = cards.map((c) => c.node);
 
   const headSub = el('span', { class: 'dash-head-sub' });
   const panel = el(
@@ -1831,6 +1907,13 @@ export function dashboardPanel(h: DashboardHost): HTMLElement {
 
   void measureSync();
   void runExitCheck();
+  // The map's labels are measured on a canvas, which uses whatever face has
+  // loaded at that moment. On a cold open the bundled ones can land just after
+  // first paint, so measure again once they have: a label sized against the
+  // fallback ran 38px out of its node.
+  void document.fonts?.ready.then(() => {
+    if (mine === generation) repaintDashboard();
+  });
 
   clearInterval(relTimer);
   relTimer = setInterval(() => {
@@ -1862,7 +1945,40 @@ async function measureSync(): Promise<void> {
  */
 export function repaintDashboard(): void {
   if (!root?.isConnected) return;
-  for (const refresh of refreshers) refresh();
+  refreshers.forEach((refresh, i) => {
+    const card = cardNodes[i];
+    const focused = document.activeElement;
+    if (!card || !(focused instanceof Element) || focused === card || !card.contains(focused)) {
+      refresh();
+      return;
+    }
+    // The card is rebuilt wholesale, which takes the focused control out of the
+    // document and drops a keyboard user to the top of the page — every 30 s,
+    // and on every burst of errors. So repaint, then put focus back on the
+    // control that took its place. Not skipping the card instead: the control
+    // focused is very often the one just pressed (Fix, Measure), and its card
+    // has to show what that did.
+    const key = focusKey(focused);
+    refresh();
+    if (card.contains(document.activeElement)) return; // the refresh kept it
+    const twin = [...card.querySelectorAll<HTMLElement | SVGElement>('*')].find((n) => focusKey(n) === key);
+    if (twin) twin.focus({ preventScroll: true });
+    else {
+      // What was focused is gone (a fixed finding's button): stay in the card.
+      card.tabIndex = -1;
+      card.focus({ preventScroll: true });
+    }
+  });
+}
+
+/** What a control is, independent of the node that happens to draw it. */
+function focusKey(node: Element): string {
+  const data = (node as HTMLElement).dataset ?? {};
+  const cls = (node.getAttribute('class') ?? '')
+    .split(/\s+/)
+    .filter((c) => !['muted', 'faded', 'active'].includes(c))
+    .join(' ');
+  return [node.tagName, cls, data.id ?? data.profile ?? '', (node.textContent ?? '').trim().slice(0, 80)].join('|');
 }
 
 /** True when the dashboard is the mounted page. */

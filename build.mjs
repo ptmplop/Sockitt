@@ -17,6 +17,7 @@ async function cleanDist() {
     (await readdir('dist')).map((entry) => rm(`dist/${entry}`, { recursive: true, force: true }))
   );
   await mkdir('dist/img', { recursive: true });
+  await mkdir('dist/fonts', { recursive: true });
 }
 
 await cleanDist();
@@ -52,6 +53,11 @@ async function copyStatic() {
     // Country flag SVGs (flag-icons, MIT) vendored from node_modules so the
     // popup's exit readout shows a real flag on every OS with no network call.
     cp('node_modules/flag-icons/flags/4x3', 'dist/flags', { recursive: true }),
+    // The two UI faces (SIL OFL 1.1) with their licences, as the OFL asks.
+    // Vendored subsets, not an npm package — static/fonts/README.md says why.
+    ...['dm-sans.woff2', 'jetbrains-mono.woff2', 'DM-Sans-OFL.txt', 'JetBrains-Mono-OFL.txt'].map((f) =>
+      cp(`static/fonts/${f}`, `dist/fonts/${f}`)
+    ),
   ]);
 }
 

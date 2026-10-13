@@ -16,8 +16,14 @@ export function initialsFor(profile: Pick<Profile, 'name' | 'initials'>): string
   return (words[0]![0]! + words[1]![0]!).toUpperCase();
 }
 
-/** The dark ink option — 85% black over the tile, so a trace of the hue shows through. */
-const DARK_INK = 'rgba(10,14,22,0.85)';
+/**
+ * The dark ink option — near-black over the tile, with a trace of the hue
+ * showing through. 90%, not the 85% it was: at 85% the blue swatch's initials
+ * measured 4.46:1, just under AA, and every palette colour clears it at 90%
+ * (lowest 4.54) without any of them changing which ink they get.
+ */
+const DARK_INK_ALPHA = 0.9;
+const DARK_INK = `rgba(10,14,22,${DARK_INK_ALPHA})`;
 const DARK_INK_RGB = [10, 14, 22] as const;
 
 /** sRGB channel -> linear light. */
@@ -50,7 +56,7 @@ export function textColorFor(background: string): string {
   if (!m) return '#fff';
   const bg = [m[1], m[2], m[3]].map((h) => parseInt(h!, 16));
   // The dark option is translucent, so compare the colour it actually composites to.
-  const dark = DARK_INK_RGB.map((c, i) => 0.85 * c + 0.15 * bg[i]!);
+  const dark = DARK_INK_RGB.map((c, i) => DARK_INK_ALPHA * c + (1 - DARK_INK_ALPHA) * bg[i]!);
   return contrast([255, 255, 255], bg) >= contrast(dark, bg) ? '#fff' : DARK_INK;
 }
 
