@@ -163,7 +163,7 @@ function ruleCount(n: number): string {
 
 /** The line under the active profile's name: what kind of thing it is, in a sentence. */
 function summaryOf(config: Config, id: string): Array<Node | string> {
-  if (id === DIRECT) return ['No proxy — every request goes straight out'];
+  if (id === DIRECT) return ['No proxy - every request goes straight out'];
   if (id === SYSTEM) return ['Your operating system’s proxy settings decide'];
   const p = profileById(config, id);
   if (!p) return ['Unknown profile'];
@@ -376,7 +376,7 @@ function traceSentence(config: Config, layout: YardLayout, t: YardTrace, host_: 
   const hostNode = el('b', { class: 'mono host' }, host_);
   if (!active) {
     return config.activeId === SYSTEM
-      ? [hostNode, ' goes wherever your operating system’s settings send it — Sockitt cannot see those rules.']
+      ? [hostNode, ' goes wherever your operating system’s settings send it - Sockitt cannot see those rules.']
       : [hostNode, ' goes straight out: Direct is active.'];
   }
   // Where it finally lands, through any chain of profiles past this map.
@@ -634,7 +634,7 @@ function keySection(): { node: HTMLElement; refresh: () => void } {
         )
       );
     } else if (exitError) {
-      tail.push(el('button', { class: 'linklike', type: 'button', title: exitError, onclick: () => void runExitCheck(true) }, 'Exit lookup failed — retry'));
+      tail.push(el('button', { class: 'linklike', type: 'button', title: exitError, onclick: () => void runExitCheck(true) }, 'Exit lookup failed - retry'));
     }
     const kept = items.filter((n): n is HTMLElement => n !== null);
     if (tail.length) kept.push(el('span', { class: 'yard-key-acts' }, ...tail));
@@ -737,7 +737,7 @@ function sessionSection(): { node: HTMLElement; refresh: () => void } {
       const said: string[] = [];
       history.forEach((entry, i) => {
         const until = history[i + 1]?.at ?? now;
-        const seg = paintRoute(el('i', { title: `${nameOf(config, entry.id)} — ${hm(entry.at)} to ${i === history.length - 1 ? 'now' : hm(until)}` }), colourOf(config, entry.id));
+        const seg = paintRoute(el('i', { title: `${nameOf(config, entry.id)} - ${hm(entry.at)} to ${i === history.length - 1 ? 'now' : hm(until)}` }), colourOf(config, entry.id));
         seg.style.flex = String(Math.max(until - entry.at, span / 200));
         bar.append(seg);
         said.push(`${nameOf(config, entry.id)} from ${hm(entry.at)}`);

@@ -262,7 +262,7 @@ export function errorHeadline(entry: ProxyErrorEntry): string {
  */
 export function errorSummaryLine(entry: ProxyErrorEntry, max = 120): string {
   const headline = errorHeadline(entry);
-  const full = entry.details && entry.details !== headline ? `${headline} — ${entry.details}` : headline;
+  const full = entry.details && entry.details !== headline ? `${headline} - ${entry.details}` : headline;
   return full.length > max ? `${full.slice(0, max - 1)}…` : full;
 }
 
@@ -278,15 +278,15 @@ const ERROR_ADVICE: Array<[string, string]> = [
   ],
   [
     'ERR_TUNNEL_CONNECTION_FAILED',
-    'The proxy answered but refused to open a tunnel to the site — typically an HTTP(S) proxy that blocks CONNECT to that host or port, or one that needs credentials.',
+    'The proxy answered but refused to open a tunnel to the site - typically an HTTP(S) proxy that blocks CONNECT to that host or port, or one that needs credentials.',
   ],
   [
     'ERR_PROXY_AUTH_UNSUPPORTED',
-    'The proxy demanded an authentication scheme the browser will not use over this protocol. SOCKS proxies cannot be authenticated by Chromium at all — use an IP allow-list or a local tunnel instead.',
+    'The proxy demanded an authentication scheme the browser will not use over this protocol. SOCKS proxies cannot be authenticated by Chromium at all - use an IP allow-list or a local tunnel instead.',
   ],
   [
     'ERR_PROXY_AUTH_REQUESTED',
-    'The proxy asked for a username and password. Set them in the proxy profile — and grant the authentication permission when Sockitt asks, or the challenge goes unanswered.',
+    'The proxy asked for a username and password. Set them in the proxy profile - and grant the authentication permission when Sockitt asks, or the challenge goes unanswered.',
   ],
   [
     'ERR_PROXY_CERTIFICATE_INVALID',
@@ -294,7 +294,7 @@ const ERROR_ADVICE: Array<[string, string]> = [
   ],
   [
     'ERR_PAC_SCRIPT_FAILED',
-    'The generated routing script threw while deciding a route. This points at a rule pattern rather than at the server — the detail below usually names it, and the Inspector will reproduce it.',
+    'The generated routing script threw while deciding a route. This points at a rule pattern rather than at the server - the detail below usually names it, and the Inspector will reproduce it.',
   ],
   [
     'ERR_PAC_STATUS_NOT_OK',
@@ -302,7 +302,7 @@ const ERROR_ADVICE: Array<[string, string]> = [
   ],
   [
     'ERR_MANDATORY_PROXY_CONFIGURATION_FAILED',
-    'The route could not be used and Sockitt routes are mandatory, so the requests failed instead of quietly going direct. That part is by design — it is what stops a dead proxy leaking your traffic.',
+    'The route could not be used and Sockitt routes are mandatory, so the requests failed instead of quietly going direct. That part is by design - it is what stops a dead proxy leaking your traffic.',
   ],
   [
     'ERR_SOCKS_CONNECTION_HOST_UNREACHABLE',
@@ -329,7 +329,7 @@ const ERROR_ADVICE: Array<[string, string]> = [
 
 export function errorAdvice(entry: ProxyErrorEntry): string | null {
   if (entry.source === 'apply') {
-    return 'Sockitt could not hand these settings to the browser, so the previous route is still in force. This usually means a profile is malformed — an empty proxy host, or a rule the compiler rejected.';
+    return 'Sockitt could not hand these settings to the browser, so the previous route is still in force. This usually means a profile is malformed - an empty proxy host, or a rule the compiler rejected.';
   }
   return codeAdvice(entry.error);
 }
@@ -342,7 +342,7 @@ export function codeAdvice(error: string): string | null {
 
 /** "Bangkok — SOCKS5 203.0.113.42:1080" */
 export function describeRef(ref: ProxyRef): string {
-  return `${ref.name} — ${ref.endpoint}`;
+  return `${ref.name} - ${ref.endpoint}`;
 }
 
 /**
@@ -382,7 +382,7 @@ export function formatErrorReport(
     `Sockitt proxy error log (v${version || 'unknown'})`,
     `generated ${stamp(Date.now())}`,
     alert
-      ? `status: failing — ${alert.streak} error${alert.streak === 1 ? '' : 's'} since ${stamp(alert.at)}`
+      ? `status: failing - ${alert.streak} error${alert.streak === 1 ? '' : 's'} since ${stamp(alert.at)}`
       : 'status: no active proxy errors',
     `entries: ${entries.length}`,
     '',

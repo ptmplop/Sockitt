@@ -289,10 +289,10 @@ function domainListRejection(entry: string): string {
     return 'contains a non-ASCII character. Use its punycode form (xn--bcher-kva.example).';
   }
   if (entry.includes('/')) {
-    return 'has a path or a CIDR suffix. A bare entry must be a hostname — drop everything from the / onward.';
+    return 'has a path or a CIDR suffix. A bare entry must be a hostname - drop everything from the / onward.';
   }
   if (entry.includes(':')) {
-    return 'has a port. Sockitt matches on hostname alone — drop the :port.';
+    return 'has a port. Sockitt matches on hostname alone - drop the :port.';
   }
   if (/[^a-z0-9._*?-]/i.test(entry)) {
     return 'is not a hostname. Only letters, digits, dot, dash, * and ? are allowed.';

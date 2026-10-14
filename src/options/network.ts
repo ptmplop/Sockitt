@@ -366,7 +366,7 @@ export function networkPanel(host: NetworkHost): HTMLElement {
   /** The route a request took: its destination's line key, its name, and how. */
   const routeCell = (r: Row): HTMLElement => {
     const config = host.config();
-    if (!r.targetId) return el('span', { class: 'meta' }, '—');
+    if (!r.targetId) return el('span', { class: 'meta' }, '-');
     const target = r.targetId !== DIRECT && r.targetId !== SYSTEM ? profileById(config, r.targetId) : null;
     const key = paintRoute(el('span', { class: `key${r.targetId === SYSTEM ? ' system' : ''}` }), colourOf(config, r.targetId));
     const inner: Array<Node | string> = [key, el('span', { class: 'rv-n' }, nameFor(config, r.targetId))];
@@ -609,7 +609,7 @@ export function networkPanel(host: NetworkHost): HTMLElement {
         el('th', { class: 'c-time' }, 'Time'),
         el('th', { class: 'c-m' }, 'Method'),
         el('th', { class: 'c-url' }, 'URL'),
-        el('th', { class: 'c-route', title: 'Where Sockitt’s rules send this request — worked out from the rules, since Chrome never says' }, 'Route'),
+        el('th', { class: 'c-route', title: 'Where Sockitt’s rules send this request - worked out from the rules, since Chrome never says' }, 'Route'),
         el('th', { class: 'c-res' }, 'Result'),
         el('th', { class: 'c-took' }, 'Took')
       )
@@ -638,7 +638,7 @@ export function networkPanel(host: NetworkHost): HTMLElement {
           'p',
           { class: 'nt-empty' },
           recording
-            ? 'Recording. Reload a page, or browse — requests appear here as they are made.'
+            ? 'Recording. Reload a page, or browse - requests appear here as they are made.'
             : 'Stopped. Nothing is being observed: the listeners are detached, not just ignored. Press Record to start.'
         )
       );

@@ -202,7 +202,7 @@ function applyActiveGuarded(): void {
  */
 async function recordApplyError(e: unknown): Promise<void> {
   const message = e instanceof Error ? e.message : String(e);
-  console.error('Sockitt: could not apply proxy settings —', e);
+  console.error('Sockitt: could not apply proxy settings -', e);
   // The message goes in BOTH fields on purpose: `error` is the collapse key, so
   // two different throws stay two entries, and `details` is what every surface
   // actually renders under the headline. Without the second the thrown reason —
@@ -243,7 +243,7 @@ async function applyActiveInner(signal = true): Promise<void> {
       ? chrome.storage.session.set({ [APPLIED_KEY]: { activeId: config.activeId, at: Date.now() } })
       : Promise.resolve(),
     chrome.action.setBadgeText({ text: '' }),
-    chrome.action.setTitle({ title: pinned ? `Sockitt — ${label}` : 'Sockitt' }),
+    chrome.action.setTitle({ title: pinned ? `Sockitt - ${label}` : 'Sockitt' }),
     paintIcon(pinned ? profile : null),
     chrome.action.setPopup({ popup: config.settings.quickSwitch ? '' : 'popup.html' }),
     // Independent of the global paint above rather than sequenced after it: a
@@ -264,7 +264,7 @@ async function applyActiveInner(signal = true): Promise<void> {
     await chrome.action.setBadgeBackgroundColor({ color: DANGER });
     await chrome.action.setBadgeText({ text: '!' });
     await chrome.action.setTitle({
-      title: `Sockitt — ${label} (another extension is controlling the proxy)`,
+      title: `Sockitt - ${label} (another extension is controlling the proxy)`,
     });
   }
 
@@ -478,7 +478,7 @@ async function paintAlert(alert: ProxyAlert): Promise<void> {
   await Promise.allSettled([
     chrome.action.setBadgeBackgroundColor({ color: DANGER }),
     chrome.action.setBadgeText({ text: badgeTextFor(alert.streak) }),
-    chrome.action.setTitle({ title: `Sockitt — proxy error${suffix}: ${errorSummaryLine(alert)}` }),
+    chrome.action.setTitle({ title: `Sockitt - proxy error${suffix}: ${errorSummaryLine(alert)}` }),
   ]);
 }
 
@@ -530,7 +530,7 @@ async function restoreBadgeAfterAlert(): Promise<void> {
       await chrome.action.setBadgeBackgroundColor({ color: DANGER });
       await chrome.action.setBadgeText({ text: '!' });
       await chrome.action.setTitle({
-        title: `Sockitt — ${label} (another extension is controlling the proxy)`,
+        title: `Sockitt - ${label} (another extension is controlling the proxy)`,
       });
       return;
     }
@@ -543,7 +543,7 @@ async function restoreBadgeAfterAlert(): Promise<void> {
       return;
     }
     await chrome.action.setBadgeText({ text: '' });
-    await chrome.action.setTitle({ title: (await actionIsPinned()) ? `Sockitt — ${label}` : 'Sockitt' });
+    await chrome.action.setTitle({ title: (await actionIsPinned()) ? `Sockitt - ${label}` : 'Sockitt' });
     await refreshActiveTabBadge(config);
   } catch {
     // Storage or the action API unavailable — the next apply repaints anyway.
@@ -1033,7 +1033,7 @@ function toolbarFor(config: Config, activeId: string, incognito: boolean): Toolb
   } catch {
     imageData = null; // canvas unavailable — fall back to the manifest mark
   }
-  return { imageData, title: incognito ? `Sockitt — ${label} (incognito)` : `Sockitt — ${label}` };
+  return { imageData, title: incognito ? `Sockitt - ${label} (incognito)` : `Sockitt - ${label}` };
 }
 
 /** The toolbar an incognito window should wear, computed once per sweep. */

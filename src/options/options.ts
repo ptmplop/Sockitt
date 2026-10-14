@@ -614,7 +614,7 @@ function footer(): HTMLElement {
       link('https://github.com/ptmplop/Sockitt', 'Source on GitHub'),
       // A plain link, not their widget: an MV3 page cannot run a third party's
       // script, and it should contact nobody until it is clicked.
-      link('https://buymeacoffee.com/ipbadger', 'Buy me a coffee', 'Support Sockitt — opens buymeacoffee.com in a new tab'),
+      link('https://buymeacoffee.com/ipbadger', 'Buy me a coffee', 'Support Sockitt - opens buymeacoffee.com in a new tab'),
       el('span', { class: 'grow' }, 'MIT licensed')
     )
   );
@@ -672,7 +672,7 @@ function firstRunPane(): HTMLElement {
         'div',
         { class: 'term-body' },
         el('p', { class: 'term-name' }, id === SYSTEM ? 'System' : 'Direct', el('span', { class: 'meta' }, id === SYSTEM ? 'your OS settings' : 'no proxy')),
-        el('p', { class: 'term-sub' }, id === SYSTEM ? 'Whatever the OS says — often no proxy at all' : 'Your own connection')
+        el('p', { class: 'term-sub' }, id === SYSTEM ? 'Whatever the OS says - often no proxy at all' : 'Your own connection')
       ),
       el('span')
     ),
@@ -739,7 +739,7 @@ function builtinPane(id: string): HTMLElement {
       'p',
       { class: 'ed-note' },
       system
-        ? 'System hands every request to your operating system’s own proxy settings — a PAC file, a manual proxy, or none. Sockitt cannot see those rules, so the map ends here. Nothing to set up.'
+        ? 'System hands every request to your operating system’s own proxy settings - a PAC file, a manual proxy, or none. Sockitt cannot see those rules, so the map ends here. Nothing to set up.'
         : 'Direct sends every request straight to the network, through your own connection. It is also where any rule set to Direct, and any bypass list, ends up. Nothing to set up.'
     )
   );
@@ -1129,7 +1129,7 @@ function permAsks(): PermAsk[] {
       tone: 'warn',
       icon: 'alert',
       title: 'The route badge can’t see a page start loading',
-      body: 'Chrome reports a navigation only when it commits, so a site that hangs — the moment you look at the badge to ask why — leaves it naming the last page’s profile. Navigation access fixes that, and adds no new warning: the badge’s permission already covers it.',
+      body: 'Chrome reports a navigation only when it commits, so a site that hangs - the moment you look at the badge to ask why - leaves it naming the last page’s profile. Navigation access fixes that, and adds no new warning: the badge’s permission already covers it.',
       action: { label: 'Allow', run: () => void requestTabsPermission() },
     });
   }
@@ -1415,7 +1415,7 @@ function proxyEditor(profile: ProxyProfile): HTMLElement {
     : el(
         'p',
         { class: 'note' },
-        'Chromium cannot sign in to a SOCKS proxy — secure it by IP allow-list, or reach it through a local tunnel (',
+        'Chromium cannot sign in to a SOCKS proxy - secure it by IP allow-list, or reach it through a local tunnel (',
         el('span', { class: 'mono nowrap' }, 'ssh -D'),
         ').'
       );
@@ -1447,8 +1447,8 @@ function proxyEditor(profile: ProxyProfile): HTMLElement {
         'p',
         { class: 'note' },
         ipLookupsOn
-          ? 'Routes your browsing through this proxy for a few seconds to fetch ipconfig.is — exit address, country, latency — then puts your configuration back.'
-          : 'The test asks ipconfig.is, a service the Sockitt developer runs — turn on IP address lookups in Settings to use it.'
+          ? 'Routes your browsing through this proxy for a few seconds to fetch ipconfig.is - exit address, country, latency - then puts your configuration back.'
+          : 'The test asks ipconfig.is, a service the Sockitt developer runs - turn on IP address lookups in Settings to use it.'
       )
     ),
     identityPanel(profile)
@@ -1474,11 +1474,11 @@ async function startProxyTest(profile: ProxyProfile, button: HTMLButtonElement, 
   if (hasCredentials(profile) && !(await chrome.permissions.contains(AUTH_PERMS).catch(() => false))) {
     // Without the auth grant a 407 goes unanswered and the test would fail a
     // proxy that is actually fine.
-    out.textContent = 'Credentials are set but sign-in is not allowed yet — allow it under Sign-in first.';
+    out.textContent = 'Credentials are set but sign-in is not allowed yet - allow it under Sign-in first.';
     return;
   }
   button.disabled = true;
-  out.textContent = 'Testing — briefly routing through this proxy…';
+  out.textContent = 'Testing - briefly routing through this proxy…';
   out.removeAttribute('title');
   delete out.dataset.stale;
   await chrome.storage.session.set({
@@ -1530,7 +1530,7 @@ function authSection(profile: ProxyProfile, invalidateTest: () => void): HTMLEle
       );
     } else {
       note.replaceChildren(
-        el('p', { class: 'note' }, 'Used only for HTTP and HTTPS proxies. Answering a sign-in needs an optional permission, asked for when you set credentials. Credentials stay on this device — they are never synced.')
+        el('p', { class: 'note' }, 'Used only for HTTP and HTTPS proxies. Answering a sign-in needs an optional permission, asked for when you set credentials. Credentials stay on this device - they are never synced.')
       );
     }
   };
@@ -2061,8 +2061,8 @@ async function refetchRuleList(profileId: string): Promise<void> {
   // Edited while the fetch was out: whatever came back belongs to the old
   // address — a body to throw away, or a failure the new one may not share.
   if (live?.kind === 'rulelist' && live.url !== url) {
-    listFetchResults.set(profileId, { ok: false, text: 'The address changed while the list was being fetched, so nothing was saved — press Update now again.', at: Date.now() });
-    toast('The address changed — press Update now again', 5000);
+    listFetchResults.set(profileId, { ok: false, text: 'The address changed while the list was being fetched, so nothing was saved - press Update now again.', at: Date.now() });
+    toast('The address changed - press Update now again', 5000);
     repaint();
     return;
   }
@@ -2145,7 +2145,7 @@ function ruleListEditor(profile: RuleListProfile): HTMLElement {
       )
     );
   }
-  fetchRoute.title = 'Fetches follow whichever profile is active when they run — Update now, or the automatic update.';
+  fetchRoute.title = 'Fetches follow whichever profile is active when they run - Update now, or the automatic update.';
   const paintFetchRoute = (): void => {
     const r = listFetchRoute(config, url.value, listRouteCtx.overrides, profile.id);
     if (r.invalid === '') {
@@ -2173,15 +2173,15 @@ function ruleListEditor(profile: RuleListProfile): HTMLElement {
           'span',
           { class: 'st warn' },
           other
-            ? 'Fetches use another extension’s proxy settings — it controls the browser’s proxy right now.'
+            ? 'Fetches use another extension’s proxy settings - it controls the browser’s proxy right now.'
             : 'Fetches use the proxy this machine’s policy sets.'
         ),
-        el('span', { class: 'meta' }, 'With Sockitt in control they would ', ...ownLead, ` — ${r.why}.`)
+        el('span', { class: 'meta' }, 'With Sockitt in control they would ', ...ownLead, ` - ${r.why}.`)
       );
       return;
     }
     const key = paintRoute(el('span', { class: `key${r.targetId === SYSTEM ? ' system' : ''}` }), lineColour(config, r.targetId));
-    const parts: Array<Node | string> = [key, el('span', {}, 'Fetches ', ...ownLead, ` — ${r.why}.`)];
+    const parts: Array<Node | string> = [key, el('span', {}, 'Fetches ', ...ownLead, ` - ${r.why}.`)];
     if (r.selfRouted) {
       parts.push(el('span', { class: 'meta' }, ' This list decides its own address, so a refresh that changes the list can change where the next one goes.'));
     }
@@ -2190,7 +2190,7 @@ function ruleListEditor(profile: RuleListProfile): HTMLElement {
     const via = config.profiles.find((x) => x.id === r.targetId);
     if (via?.kind === 'proxy' && hasCredentials(via) && authPermGranted === false) {
       parts.push(
-        el('span', { class: 'st warn' }, `${via.name} has a sign-in that Sockitt isn’t allowed to answer yet, so fetches through it will stop at a sign-in prompt — allow it under Sign-in in ${via.name}.`)
+        el('span', { class: 'st warn' }, `${via.name} has a sign-in that Sockitt isn’t allowed to answer yet, so fetches through it will stop at a sign-in prompt - allow it under Sign-in in ${via.name}.`)
       );
     }
     fetchRoute.replaceChildren(...parts);
@@ -2249,7 +2249,7 @@ function ruleListEditor(profile: RuleListProfile): HTMLElement {
     'span',
     { class: 'note warn', role: 'alert' },
     'This looks like a SwitchyOmega conditions list. Sockitt reads AutoProxy/GFWList ' +
-      'and plain domain lists — SwitchyOmega’s typed conditions (UrlRegex:, Keyword:, ' +
+      'and plain domain lists - SwitchyOmega’s typed conditions (UrlRegex:, Keyword:, ' +
       'Ip:) and its ! bypass lines are not supported and will be ignored.'
   );
 
@@ -2330,7 +2330,7 @@ function ruleListEditor(profile: RuleListProfile): HTMLElement {
     const tooBig = !profile.url && profile.text.length > INLINE_TEXT_MAX;
     sizeWarn.hidden = !tooBig;
     sizeWarn.textContent = tooBig
-      ? 'This pasted list is too large to sync (over ~8 KB). Other devices won’t receive it — add a URL so they can fetch it, or paste it on each device.'
+      ? 'This pasted list is too large to sync (over ~8 KB). Other devices won’t receive it - add a URL so they can fetch it, or paste it on each device.'
       : '';
   };
   refreshSizeWarn();
@@ -2387,7 +2387,7 @@ function ruleListEditor(profile: RuleListProfile): HTMLElement {
       el('div', { class: 'rl-actions' }, field('Format', format), updateNow),
       fetchResult,
       el('p', { class: 'note' },
-        'Unless Sockitt can already read every site, the URL’s host must allow cross-origin requests — raw.githubusercontent.com does. GFWList base64 payloads are decoded automatically.')
+        'Unless Sockitt can already read every site, the URL’s host must allow cross-origin requests - raw.githubusercontent.com does. GFWList base64 payloads are decoded automatically.')
     ),
     section(
       'Routing',
@@ -2624,13 +2624,13 @@ function settingsPanel(): HTMLElement {
       if (allowed) {
         incognitoAccessNote.replaceChildren(
           el('span', { class: 'st good' }, 'In force'),
-          ' — Sockitt is allowed in incognito (Extensions › Sockitt › Details › Allow in Incognito).'
+          ' - Sockitt is allowed in incognito (Extensions › Sockitt › Details › Allow in Incognito).'
         );
         return;
       }
       incognitoAccessNote.replaceChildren(
         el('span', { class: 'st warn' }, 'Waiting for Chrome'),
-        ' — until Sockitt is allowed in incognito, those windows follow the regular profile. ',
+        ' - until Sockitt is allowed in incognito, those windows follow the regular profile. ',
         el('button', { class: 'linklike', type: 'button', onclick: openExtensionDetails }, 'Open Sockitt’s details')
       );
     })
@@ -2645,7 +2645,7 @@ function settingsPanel(): HTMLElement {
   const syncNeeds = el(
     'span',
     {},
-    'Your other machines pick up changes; the newest change wins. The browser itself has to be syncing, with Extensions among what it carries — Chrome reaches your other Chromes and Brave your other Braves, never each other. ',
+    'Your other machines pick up changes; the newest change wins. The browser itself has to be syncing, with Extensions among what it carries - Chrome reaches your other Chromes and Brave your other Braves, never each other. ',
     el('button', { class: 'linklike', type: 'button', onclick: () => openDocsAt('doc-sync') }, 'How each browser sets that up')
   );
   // A warning only while Sync is OFF: it is the consequence of flipping the
@@ -2655,7 +2655,7 @@ function settingsPanel(): HTMLElement {
   const paintSyncWarn = (on: boolean): void => {
     syncWarn.replaceChildren(
       on ? '' : el('span', { class: 'st warn' }, 'Before you set a machine up'),
-      on ? '' : ' — ',
+      on ? '' : ' - ',
       'turned on with a configuration already in sync, this machine’s is replaced by it; turned on when nothing is synced, this machine’s becomes the shared one. Turning Sync off deletes the shared copy; each machine keeps what it has.'
     );
   };
@@ -2671,7 +2671,7 @@ function settingsPanel(): HTMLElement {
       'What the toolbar icon does, and which profile runs where.',
       toggleRow(
         'Quick switch',
-        'A click on the toolbar icon steps through the profiles ticked below instead of opening the popup. Tick at least two — with fewer it cycles Direct, System and every profile. The keyboard shortcut always works; set it at chrome://extensions/shortcuts.',
+        'A click on the toolbar icon steps through the profiles ticked below instead of opening the popup. Tick at least two - with fewer it cycles Direct, System and every profile. The keyboard shortcut always works; set it at chrome://extensions/shortcuts.',
         s.quickSwitch,
         (v) => {
           s.quickSwitch = v;
@@ -2712,7 +2712,7 @@ function settingsPanel(): HTMLElement {
         el(
           'span',
           {},
-          'The popup’s exit line — flag, address and latency — and the proxy test ask ',
+          'The popup’s exit line - flag, address and latency - and the proxy test ask ',
           el('span', { class: 'mono' }, 'ipconfig.is'),
           ', a service the Sockitt developer runs. Off until you turn it on; turning it on asks for access to that one site.'
         ),
@@ -2736,7 +2736,7 @@ function settingsPanel(): HTMLElement {
     // UI-preferences note in state.ts.
     settingsGroup(
       'Appearance',
-      'This device only — never synced.',
+      'This device only - never synced.',
       settingRow('Theme', 'Follow the system, or keep this browser light or dark.', theme),
       settingRow('This page opens on', 'The Overview, or wherever you were last.', landing)
     ),
@@ -2762,11 +2762,11 @@ function settingsPanel(): HTMLElement {
           // have no version gate) would adopt the overwrite — wiping the group.
           const state = await remoteSyncState();
           if (state === 'newer') {
-            toast('Sync unavailable: your synced data was written by a newer Sockitt — update this machine first', 4000);
+            toast('Sync unavailable: your synced data was written by a newer Sockitt - update this machine first', 4000);
             return false; // snap the toggle back off
           }
           if (state === 'legacy') {
-            toast('Sync unavailable: your synced data was written by Sockitt 1.6.2 or older — update every device, or toggle Sync off to clear it and reseed from this machine', 5000);
+            toast('Sync unavailable: your synced data was written by Sockitt 1.6.2 or older - update every device, or toggle Sync off to clear it and reseed from this machine', 5000);
             return false;
           }
           // Joining: adopt an existing synced config instead of overwriting it
@@ -2798,7 +2798,7 @@ function settingsPanel(): HTMLElement {
       'Everything, as one file.',
       settingRow(
         'Export',
-        'Every profile, rule and setting as a JSON file — proxy passwords included, in plain text, so keep it somewhere safe.',
+        'Every profile, rule and setting as a JSON file - proxy passwords included, in plain text, so keep it somewhere safe.',
         el('button', { class: 'btn', type: 'button', onclick: exportConfig }, 'Export')
       ),
       settingRow('Import', 'Replaces what is here with the file’s contents.', el('button', { class: 'btn', type: 'button', onclick: importConfig }, 'Import…')),
@@ -2863,7 +2863,7 @@ function exportConfig(): void {
   // The backup is the full config — a restore must round-trip everything —
   // so say out loud when that includes secrets.
   if (proxyProfiles(config).some((p) => p.username || p.password)) {
-    toast('Exported — the backup contains proxy passwords in plain text, keep it safe', 4500);
+    toast('Exported - the backup contains proxy passwords in plain text, keep it safe', 4500);
   } else {
     toast('Exported');
   }
@@ -3003,7 +3003,7 @@ function inspectorPanel(): HTMLElement {
           'p',
           { class: 'ink2' },
           el('b', { class: 'mono host' }, u.hostname),
-          startId === DIRECT ? ' goes straight out: Direct is active.' : ' goes wherever your operating system’s settings send it — Sockitt cannot see those rules.'
+          startId === DIRECT ? ' goes straight out: Direct is active.' : ' goes wherever your operating system’s settings send it - Sockitt cannot see those rules.'
         )
       );
       return;
@@ -3056,7 +3056,7 @@ function inspectorPanel(): HTMLElement {
     { class: 'pane insp' },
     pageHead(
       'Inspector',
-      'Type an address to see how it would route right now: which rule takes it, every profile it passes through, and where it lands. It runs the same rules as real routing — popup overrides included — and sends nothing.'
+      'Type an address to see how it would route right now: which rule takes it, every profile it passes through, and where it lands. It runs the same rules as real routing - popup overrides included - and sends nothing.'
     ),
     el('div', { class: 'insp-form' }, el('div', { class: 'search insp-url' }, urlInput), el('div', { class: 'insp-start' }, el('span', { class: 't-label' }, 'Start at'), keyed(startSel, (v) => v || config.activeId))),
     el('div', { class: 'band insp-band' }, mapSlot),
@@ -3129,7 +3129,7 @@ function errorStatus(): HTMLElement {
         'div',
         {},
         el('h3', {}, heading),
-        el('p', {}, el('span', { class: 'mono' }, errorHeadline(alert)), alert.details ? ` — ${alert.details}` : ''),
+        el('p', {}, el('span', { class: 'mono' }, errorHeadline(alert)), alert.details ? ` - ${alert.details}` : ''),
         errorCarrier(alert),
         advice ? el('p', {}, advice) : null,
         el(
@@ -3159,7 +3159,7 @@ function errorStatus(): HTMLElement {
       { class: 'ink2' },
       last
         ? `The last failure was ${agoInWords(last.lastAt)}, and nothing has failed since. The log below is kept so you can still see what happened.`
-        : 'Nothing has failed since this browser started. If a proxy does go down, Sockitt fails the request rather than quietly sending it direct — so you will see the page error, a red mark on the toolbar icon, and the details here.'
+        : 'Nothing has failed since this browser started. If a proxy does go down, Sockitt fails the request rather than quietly sending it direct - so you will see the page error, a red mark on the toolbar icon, and the details here.'
     ),
     last ? el('div', { class: 'acts' }, el('button', { class: 'btn', type: 'button', dataset: { errAction: 'copy' }, onclick: () => void copyErrorReport() }, 'Copy report')) : null
   );
@@ -3197,7 +3197,7 @@ async function copyErrorReport(): Promise<void> {
     await navigator.clipboard.writeText(formatErrorReport(errorLog, proxyAlert, version));
     toast('Report copied');
   } catch {
-    toast('Could not copy — the browser blocked clipboard access', 3000);
+    toast('Could not copy - the browser blocked clipboard access', 3000);
   }
 }
 
@@ -3236,7 +3236,7 @@ function errorsPanel(): HTMLElement {
       ),
       errorLog.length ? el('ol', { class: 'elog-list' }, ...errorLog.map(errorRow)) : el('p', { class: 'meta' }, 'Nothing logged yet.'),
       errorLog.length
-        ? el('p', { class: 'meta' }, 'A copied report includes your proxy addresses and ports, but never a username or password — the log does not record them.')
+        ? el('p', { class: 'meta' }, 'A copied report includes your proxy addresses and ports, but never a username or password - the log does not record them.')
         : null
     )
   );
@@ -3274,7 +3274,7 @@ function activityPage(sub: 'requests' | 'errors'): HTMLElement {
       'Activity',
       sub === 'requests'
         ? 'Every request this browser makes while the page is open, and the route Sockitt gave it. Nothing is kept once you leave.'
-        : 'Requests a proxy failed. Kept for this browser session only — never written to your configuration, never synced.'
+        : 'Requests a proxy failed. Kept for this browser session only - never written to your configuration, never synced.'
     ),
     activitySubtabs(sub),
     sub === 'requests' ? networkPanel(networkHost) : errorsPanel()
@@ -3688,7 +3688,7 @@ function watchProxyTests(): void {
       span.title = r.country ? `${r.ip} · ${r.country}` : `${r.ip ?? ''}`;
       span.classList.add('ok');
     } else {
-      span.textContent = `Connection failed — ${r.error ?? 'unknown error'}`;
+      span.textContent = `Connection failed - ${r.error ?? 'unknown error'}`;
       span.removeAttribute('title');
       span.classList.add('bad');
     }

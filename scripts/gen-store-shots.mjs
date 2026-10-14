@@ -202,7 +202,7 @@ const SCENES = [
     file: 'screenshot-1-popup.png',
     title: 'Switch proxies in one click',
     subtitle:
-      'The popup draws the route this tab takes and the rule that sends it there — change either, or switch your whole browser, in one click.',
+      'The popup draws the route this tab takes and the rule that sends it there - change either, or switch your whole browser, in one click.',
   },
   {
     ...OPTIONS_FRAME,
@@ -241,7 +241,7 @@ const SCENES = [
     clickNav: 'Inspector',
     inspect: 'https://api.github.com/repos',
     title: 'See exactly where an address goes',
-    subtitle: 'Type any URL and the map lights its path, with every step written out — which rule took it, and where it lands. Nothing is sent.',
+    subtitle: 'Type any URL and the map lights its path, with every step written out - which rule took it, and where it lands. Nothing is sent.',
   },
   {
     ...OPTIONS_FRAME,

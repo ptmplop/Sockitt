@@ -95,7 +95,7 @@ test('credentials without the auth grant are flagged, and clear once granted', (
   assert.ok(!ids(lib.auditConfig(withCreds, CTX)).includes('auth-missing:px'));
 });
 
-test('credentials on a SOCKS profile raise nothing — hasCredentials only counts http(s)', () => {
+test('credentials on a SOCKS profile raise nothing - hasCredentials only counts http(s)', () => {
   // Chromium cannot authenticate SOCKS at all, and sanitizeConfig strips the
   // fields on load; flagging them here would be a finding the user cannot act on.
   const report = lib.auditConfig(config([proxy({ username: 'u', password: 'p' })]), {
@@ -144,7 +144,7 @@ test('a catch-all in last position shadows nothing', () => {
   assert.deepEqual(lib.auditConfig(config([proxy(), fine]), CTX).issues, []);
 });
 
-test('a disabled catch-all does not shadow — only enabled rules are tried', () => {
+test('a disabled catch-all does not shadow - only enabled rules are tried', () => {
   const fine = sw({
     rules: [rule({ id: 'a', pattern: '*', enabled: false }), rule({ id: 'b', pattern: '*.foo.com' })],
   });

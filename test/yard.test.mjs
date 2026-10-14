@@ -125,7 +125,7 @@ test('past six rules the rest fold into one wide junction', () => {
   assert.equal(y.junctions.length, 6);
   const fold = y.junctions[5];
   assert.equal(fold.key, 'fold');
-  assert.equal(fold.label, '6–24');
+  assert.equal(fold.label, '6-24');
   assert.equal(fold.caption, '19 more rules');
   assert.equal(fold.ruleIndexes.length, 19);
   assert.deepEqual([...fold.targets].sort(), ['p-home', 'p-work']);

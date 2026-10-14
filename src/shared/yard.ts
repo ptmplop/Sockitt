@@ -259,7 +259,7 @@ function seedsFor(
       seeds.push({
         key: 'fold',
         shape: 'wide',
-        label: `${shown + 1}–${rules.length}`,
+        label: `${shown + 1}-${rules.length}`,
         off: enabled.length === 0,
         caption: `${rest.length} more rules`,
         fullText: rest.map((r) => r.pattern).join(', '),

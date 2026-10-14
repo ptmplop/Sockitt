@@ -41,7 +41,7 @@ let lastPushedRev = 0;
 let lastAppliedRev = 0;
 
 const PAUSE_NEWER =
-  'Sync paused: another device runs a newer Sockitt version — update this one to resume.';
+  'Sync paused: another device runs a newer Sockitt version - update this one to resume.';
 const PAUSE_LEGACY =
   'Sync paused: a device running Sockitt 1.6.2 or older wrote the synced data. Update every device, then toggle Sync off and on here to resume.';
 

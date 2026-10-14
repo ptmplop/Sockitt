@@ -54,13 +54,13 @@ test('a reply the browser would not hand over is told apart from no reply at all
   // An error status the browser won't name: the address is the likelier problem.
   const errorPage = lib.explainListFailure({ kind: 'network', answered: true, listOk: false }, work, host, true);
   assert.equal(errorPage.short, 'The server answered with an error page');
-  assert.match(errorPage.detail, /through Work SOCKS5 with an error rather than the list — check the address/);
+  assert.match(errorPage.detail, /through Work SOCKS5 with an error rather than the list - check the address/);
   // The prefetch couldn't tell: say both.
   const unknown = lib.explainListFailure({ kind: 'network', answered: true }, direct, host, true);
   assert.equal(unknown.short, 'The reply couldn’t be read');
   // Plain http through an HTTP proxy: the reply may be the proxy's own, whatever the prefetch saw.
   const viaHttpProxy = lib.explainListFailure({ kind: 'network', answered: true, listOk: true }, office, host, false);
-  assert.match(viaHttpProxy.detail, /lists\.example\.org, or Office HTTP in front of it, answered something.*or Office HTTP sent its own error — it may not reach lists\.example\.org, or it may want a sign-in/);
+  assert.match(viaHttpProxy.detail, /lists\.example\.org, or Office HTTP in front of it, answered something.*or Office HTTP sent its own error - it may not reach lists\.example\.org, or it may want a sign-in/);
   const nothing = lib.explainListFailure({ kind: 'network', answered: false }, direct, host, true);
   assert.equal(nothing.short, 'Couldn’t reach lists.example.org directly');
   const viaSystem = lib.explainListFailure({ kind: 'network' }, system, host, true);
@@ -72,7 +72,7 @@ test('through a proxy with no proxy error, it was the onward leg that failed', (
   const socks = lib.explainListFailure({ kind: 'network' }, work, host, true);
   assert.match(socks.detail, /through Work SOCKS5\. The proxy is running, but it couldn’t connect to the server/);
   const http = lib.explainListFailure({ kind: 'network' }, office, host, true);
-  assert.match(http.detail, /through Office HTTP\. The proxy is running, but the connection to the server behind it failed — often the secure connection/);
+  assert.match(http.detail, /through Office HTTP\. The proxy is running, but the connection to the server behind it failed - often the secure connection/);
   // Plain http has no secure connection to blame.
   const plain = lib.explainListFailure({ kind: 'network', answered: false }, direct, host, false);
   assert.doesNotMatch(plain.detail, /secure connection/);
@@ -94,8 +94,8 @@ test('a proxy error during the attempt names the proxy and its address', () => {
   assert.equal(down.short, 'Couldn’t connect to Work SOCKS5');
   assert.match(down.detail, /^Couldn’t connect to Work SOCKS5 \(SOCKS5 proxy\.corp\.io:1080\)\. The proxy isn’t running/);
   // A name with a colon or a dash in it survives into the toast whole.
-  const named = lib.explainListFailure({ kind: 'network', proxyError: 'net::ERR_PROXY_CONNECTION_FAILED' }, { ...work, name: 'VPN: Frankfurt — 2' }, host, true);
-  assert.equal(named.short, 'Couldn’t connect to VPN: Frankfurt — 2');
+  const named = lib.explainListFailure({ kind: 'network', proxyError: 'net::ERR_PROXY_CONNECTION_FAILED' }, { ...work, name: 'VPN: Frankfurt - 2' }, host, true);
+  assert.equal(named.short, 'Couldn’t connect to VPN: Frankfurt - 2');
   const tunnel = lib.explainListFailure({ kind: 'network', proxyError: 'net::ERR_TUNNEL_CONNECTION_FAILED' }, office, host, true);
   assert.match(tunnel.detail, /Office HTTP \(HTTP 10\.0\.0\.2:3128\) wouldn’t open a connection to lists\.example\.org\. It may not be able to reach that site/);
   // The OS's proxy is named as such, capitalised where it opens the sentence.
@@ -121,7 +121,7 @@ test('the rest: invalid, empty, too large, no answer in time', () => {
   assert.match(lib.explainListFailure({ kind: 'too-large', maxBytes: 4 * 1048576 }, direct, host, true).detail, /over 4 MB/);
   const slow = lib.explainListFailure({ kind: 'timeout', seconds: 60 }, work, host, true);
   assert.equal(slow.short, 'No answer in 60 seconds');
-  assert.match(slow.detail, /through Work SOCKS5 in 60 seconds, so Sockitt stopped waiting — the proxy or the server behind it may be stuck\./);
+  assert.match(slow.detail, /through Work SOCKS5 in 60 seconds, so Sockitt stopped waiting - the proxy or the server behind it may be stuck\./);
   const hang = lib.explainListFailure({ kind: 'timeout', seconds: 60 }, direct, host, true);
   assert.match(hang.detail, /^lists\.example\.org accepted the connection but sent nothing back in 60 seconds/);
 });
@@ -136,7 +136,7 @@ test('a sign-in Sockitt may not answer, a broken transfer, and another extension
   assert.equal(tunnel.short, 'Office HTTP wants a sign-in');
   assert.equal(
     tunnel.detail,
-    'Office HTTP wouldn’t open a connection to lists.example.org — most likely because it wants its sign-in, and Sockitt isn’t allowed to answer it yet. Allow it under Sign-in in Office HTTP, then try again.'
+    'Office HTTP wouldn’t open a connection to lists.example.org - most likely because it wants its sign-in, and Sockitt isn’t allowed to answer it yet. Allow it under Sign-in in Office HTTP, then try again.'
   );
   const bare = lib.explainListFailure({ kind: 'body' }, work, host, true);
   assert.equal(bare.detail, 'lists.example.org started sending the list through Work SOCKS5, but the transfer broke off. Try again.');

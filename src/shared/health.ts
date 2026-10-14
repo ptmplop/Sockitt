@@ -145,7 +145,7 @@ function auditProxy(p: ProxyProfile, ctx: HealthContext, out: HealthIssue[]): vo
       level: 'info',
       title: `${p.name} sends localhost through the proxy`,
       detail:
-        'Without <local> in the bypass list, a dev server on 127.0.0.1 is dialled from the proxy’s side of the connection — where it does not exist.',
+        'Without <local> in the bypass list, a dev server on 127.0.0.1 is dialled from the proxy’s side of the connection - where it does not exist.',
       profileId: p.id,
       fix: { kind: 'add-local-bypass', label: 'Add <local>' },
     });
@@ -164,7 +164,7 @@ function auditSwitch(p: SwitchProfile, out: HealthIssue[]): void {
         // apply time — this is not a style note.
         level: 'error',
         title: `Invalid pattern in ${p.name}`,
-        detail: `“${rule.pattern || '(empty)'}” — ${err}`,
+        detail: `“${rule.pattern || '(empty)'}” - ${err}`,
         profileId: p.id,
         ruleId: rule.id,
         fix: { kind: 'open', label: 'Fix' },
@@ -181,7 +181,7 @@ function auditSwitch(p: SwitchProfile, out: HealthIssue[]): void {
       id: `catchall:${p.id}:${rule.id}`,
       level: 'warn',
       title: `${buried} rule${buried === 1 ? '' : 's'} in ${p.name} can never run`,
-      detail: `“${rule.pattern}” matches everything, and rules are tried in order — nothing below it is ever reached.`,
+      detail: `“${rule.pattern}” matches everything, and rules are tried in order - nothing below it is ever reached.`,
       profileId: p.id,
       ruleId: rule.id,
       fix: { kind: 'open', label: 'Reorder' },
@@ -252,7 +252,7 @@ function auditRuleList(p: RuleListProfile, ctx: HealthContext, out: HealthIssue[
       title: `${p.name} is empty`,
       detail: p.url
         ? 'Nothing has been fetched yet, so every request takes the default route.'
-        : 'No URL and no pasted text — this profile has no rules to match against.',
+        : 'No URL and no pasted text - this profile has no rules to match against.',
       profileId: p.id,
       fix: p.url ? { kind: 'update-list', label: 'Fetch now' } : { kind: 'open', label: 'Open' },
     });
@@ -282,7 +282,7 @@ function auditRuleList(p: RuleListProfile, ctx: HealthContext, out: HealthIssue[
       id: `list-unparsed:${p.id}`,
       level: 'error',
       title: `No rules could be read from ${p.name}`,
-      detail: 'The body is not empty, but nothing in it parsed as an entry — check the list format.',
+      detail: 'The body is not empty, but nothing in it parsed as an entry - check the list format.',
       profileId: p.id,
       fix: { kind: 'open', label: 'Open' },
     });

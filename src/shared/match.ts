@@ -458,7 +458,7 @@ export function patternError(rule: Pick<SwitchRule, 'type' | 'pattern'>): string
         return e instanceof Error ? e.message : 'Invalid regex';
       }
       if (!regexSourceIsSafe(p)) {
-        return 'Pattern is too complex (risk of catastrophic backtracking) — simplify it';
+        return 'Pattern is too complex (risk of catastrophic backtracking) - simplify it';
       }
       return null;
     case 'ipCidr':

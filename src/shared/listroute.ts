@@ -85,8 +85,8 @@ export function listFetchRoute(
       targetId: '',
       why: '',
       invalid: /^[a-z][a-z0-9+.-]*:\/\//i.test(raw)
-        ? 'That address can’t be read — check it for spaces or a bad port.'
-        : 'That isn’t a full address — it needs to start with https:// or http://.',
+        ? 'That address can’t be read - check it for spaces or a bad port.'
+        : 'That isn’t a full address - it needs to start with https:// or http://.',
     };
   }
   if (u.protocol !== 'https:' && u.protocol !== 'http:') {
@@ -97,7 +97,7 @@ export function listFetchRoute(
   }
   // fetch() refuses these outright, before any request is made.
   if (u.username || u.password) {
-    return { targetId: '', why: '', invalid: 'Chrome won’t fetch an address with a user name or password in it — the part before the @.' };
+    return { targetId: '', why: '', invalid: 'Chrome won’t fetch an address with a user name or password in it - the part before the @.' };
   }
   if (isImplicitlyDirect(u.hostname)) {
     return { targetId: DIRECT, why: 'Chrome never sends a local address through a proxy' };

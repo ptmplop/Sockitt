@@ -69,7 +69,7 @@ test('a site no rule covers paints DIR in the neutral colour', () => {
   });
 });
 
-test('an unconditional profile paints nothing — the icon already says it', () => {
+test('an unconditional profile paints nothing - the icon already says it', () => {
   // The badge exists to answer a question a per-request profile raises. A plain
   // proxy routes everything the same way, so there is nothing per-tab to say.
   const config = cfg([WORK], 'work');

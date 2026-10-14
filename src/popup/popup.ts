@@ -715,8 +715,8 @@ function header(): HTMLElement {
           {
             class: 'dh-scope',
             title: ownScope()
-              ? 'Incognito window — routed by its own profile. Picking a profile here changes only incognito windows.'
-              : 'Incognito window — following the regular windows’ profile. Picking a profile here changes only incognito windows.',
+              ? 'Incognito window - routed by its own profile. Picking a profile here changes only incognito windows.'
+              : 'Incognito window - following the regular windows’ profile. Picking a profile here changes only incognito windows.',
           },
           'incognito'
         )
@@ -778,7 +778,7 @@ function routeView(t: ActiveTab): RouteView {
   if (activeId === DIRECT) {
     return {
       strip: { how: { kind: 'all' }, dest: { name: 'Direct', colour: BUILTIN_FILL }, label: 'This tab connects directly, through no proxy' },
-      why: ['No proxy — this tab connects directly'],
+      why: ['No proxy - this tab connects directly'],
       tag: 'no proxy',
     };
   }
@@ -876,7 +876,7 @@ function routeView(t: ActiveTab): RouteView {
           broken: failure.broken,
           label: `No rule matched, so ${ownerName}’s default sends this tab to ${dest.name}${failingNote}`,
         },
-        why: [owner && owner.id !== profile.id ? `No rule in ${ownerName} matched — its default route` : 'No rule matched — the default route'],
+        why: [owner && owner.id !== profile.id ? `No rule in ${ownerName} matched - its default route` : 'No rule matched - the default route'],
         tag: 'default',
       };
     case 'list-match':
@@ -899,7 +899,7 @@ function routeView(t: ActiveTab): RouteView {
           broken: failure.broken,
           label: `Not listed in ${ownerName}, so its default sends this tab to ${dest.name}${failingNote}`,
         },
-        why: [`Not listed in ${ownerName} — the default route`],
+        why: [`Not listed in ${ownerName} - the default route`],
         tag: 'rule list',
       };
   }
@@ -954,7 +954,7 @@ function exitLine(): HTMLElement | null {
         {
           class: 'exit-line',
           title:
-            'Sockitt can only measure the exit IP of regular windows. This window is on the incognito profile, which Chrome keeps separate — the reading would be the regular route’s, not this one’s.',
+            'Sockitt can only measure the exit IP of regular windows. This window is on the incognito profile, which Chrome keeps separate - the reading would be the regular route’s, not this one’s.',
         },
         'Exit check runs in regular windows'
       );
@@ -984,7 +984,7 @@ function hereSection(): HTMLElement {
         {
           class: 't-label here-state',
           title:
-            'This page has not loaded yet — the site is the one the tab is trying to open, so you can route it without waiting for it to give up.',
+            'This page has not loaded yet - the site is the one the tab is trying to open, so you can route it without waiting for it to give up.',
         },
         icon('clock', 'sm'),
         'Loading'
@@ -994,7 +994,7 @@ function hereSection(): HTMLElement {
     el(
       'div',
       { class: 'here-host' },
-      t ? el('span', { class: 'h', title: t.host }, t.host) : el('span', { class: 'h none' }, '—'),
+      t ? el('span', { class: 'h', title: t.host }, t.host) : el('span', { class: 'h none' }, '-'),
       label
     )
   );
@@ -1276,7 +1276,7 @@ function switchSiteLines(active: SwitchProfile, t: ActiveTab): HTMLElement[] {
             else p.rules.unshift(rule);
           });
           if (ok) {
-            toast(pending ? 'Rule added — retrying' : 'Rule added');
+            toast(pending ? 'Rule added - retrying' : 'Rule added');
             render();
             scheduleExitCheck();
           }
@@ -1361,7 +1361,7 @@ function switchSiteLines(active: SwitchProfile, t: ActiveTab): HTMLElement[] {
           }
           if (fix && !pending) await requestTabRetry();
           await setOverride(active.id, siteRule(targetId));
-          toast(pending ? 'Override set — retrying' : fix ? 'Override set — reloading' : 'Override set');
+          toast(pending ? 'Override set - retrying' : fix ? 'Override set - reloading' : 'Override set');
           render();
         }),
       },
@@ -1494,7 +1494,7 @@ function siteSection(): HTMLElement | null {
       return section(proxyBypassLine(profile, t.host, pacRequestUrl(t.url)), needsSwitchLine());
     case 'virtual':
       return section(
-        el('p', { class: 'site-note' }, 'This alias points at another profile — edit its rules from that profile in Options.')
+        el('p', { class: 'site-note' }, 'This alias points at another profile - edit its rules from that profile in Options.')
       );
     case 'rulelist':
       return section(el('p', { class: 'site-note' }, 'Routing follows this list’s entries. Edit the list in Options.'));
@@ -1572,7 +1572,7 @@ function followRegularRow(): HTMLElement {
     name: 'Same as regular windows',
     sub: `Follows ${routeName(config.activeId)}`,
     subMono: false,
-    title: `Incognito windows route the way regular windows do — now through ${routeName(config.activeId)}`,
+    title: `Incognito windows route the way regular windows do - now through ${routeName(config.activeId)}`,
   });
 }
 
@@ -1700,7 +1700,7 @@ function applyFilter(): void {
         ? 'Enter switches to the first match'
         : ''
       : n > 1
-        ? `Press 1–${n} to switch`
+        ? `Press 1-${n} to switch`
         : n === 1
           ? 'Press 1 to switch'
           : '';

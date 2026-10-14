@@ -183,6 +183,10 @@ the first paint, so an override never flashes the system's theme first.
 - Animation at rest. Motion is for state changes, and stops under
   `prefers-reduced-motion`.
 - Uniform grids of cards.
+- An em dash (—) or en dash (–) anywhere in UI text: toolbar titles, toasts,
+  docs, release notes, store captions. Use a spaced hyphen ( - ) in a
+  sentence and a plain one in a range ("Press 1-6", "24-26 July"). Comments
+  in code are not UI and can keep theirs.
 
 ## Verifying a change
 

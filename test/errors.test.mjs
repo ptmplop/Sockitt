@@ -93,7 +93,7 @@ test('a collapsed repeat carries the newest route, not the one it started with',
   assert.equal(entry.profileName, 'Bangkok (fixed)');
 });
 
-test('severity accumulates across a collapse — a fatal line is never relabelled a warning', async () => {
+test('severity accumulates across a collapse - a fatal line is never relabelled a warning', async () => {
   const { recordProxyError, loadErrorLog } = lib;
   await recordProxyError({ ...FAIL, fatal: true, at: 1000 });
   await recordProxyError({ ...FAIL, fatal: false, at: 2000 });
@@ -116,7 +116,7 @@ test('an apply failure keeps its thrown reason reachable for the UI', async () =
   // `details` is what the surfaces render under the generic headline.
   const entry = { ...FAIL, source: 'apply', error: 'net::ERR_FAILED at set()', details: 'net::ERR_FAILED at set()' };
   assert.equal(errorHeadline(entry), 'Could not apply the proxy settings');
-  assert.equal(errorSummaryLine(entry), 'Could not apply the proxy settings — net::ERR_FAILED at set()');
+  assert.equal(errorSummaryLine(entry), 'Could not apply the proxy settings - net::ERR_FAILED at set()');
 });
 
 test('a one-line summary folds in the detail and stays short enough for a tooltip', () => {
@@ -139,7 +139,7 @@ test('a different failure opens a new entry but continues the same incident', as
   assert.equal(log.length, 2);
   assert.equal(log[0].error, 'net::ERR_PAC_SCRIPT_FAILED', 'newest first');
   assert.equal(log[0].count, 1);
-  assert.equal(alert.streak, 2, 'the streak spans different codes — it counts the incident');
+  assert.equal(alert.streak, 2, 'the streak spans different codes - it counts the incident');
 });
 
 test('clearing the alert restarts the streak but keeps the history', async () => {
@@ -176,7 +176,7 @@ test('the log is capped, newest kept', async () => {
   assert.equal(log[0].error, `net::ERR_${MAX_ERROR_ENTRIES + 9}`);
 });
 
-test('concurrent reports are serialized — none is lost to a read-modify-write race', async () => {
+test('concurrent reports are serialized - none is lost to a read-modify-write race', async () => {
   const { recordProxyError, loadErrorLog } = lib;
   // Make every write take a turn of the event loop, the window in which
   // interleaved read-modify-writes would clobber each other.
@@ -235,9 +235,9 @@ test('advice is matched on the code, and unknown codes get none rather than a gu
 test('a plain proxy is not rendered as a hop through itself', () => {
   const { describeCarrier, viaIsSelf } = lib;
   assert.equal(viaIsSelf(FAIL), true);
-  assert.equal(describeCarrier(FAIL), 'Bangkok — SOCKS5 203.0.113.7:1080');
+  assert.equal(describeCarrier(FAIL), 'Bangkok - SOCKS5 203.0.113.7:1080');
   const viaSwitch = { ...FAIL, profileId: 'sw', profileName: 'Auto routing' };
-  assert.equal(describeCarrier(viaSwitch), 'Auto routing → Bangkok — SOCKS5 203.0.113.7:1080');
+  assert.equal(describeCarrier(viaSwitch), 'Auto routing → Bangkok - SOCKS5 203.0.113.7:1080');
 });
 
 test('the copied report names the servers and never carries a credential', () => {
