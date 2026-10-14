@@ -1,6 +1,6 @@
 import { avatarEl, builtinTile, textColorFor } from '../shared/avatar';
 import { EXIT_IP_PERMS, EXIT_IP_URL, checkExitIp, flagSrc } from '../shared/exitip';
-import { compileRule, pacRequestUrl, resolveRoute, testBypass, testCondition } from '../shared/match';
+import { compileRule, overrideFor, pacRequestUrl, resolveRoute, testBypass, testCondition } from '../shared/match';
 import { parseRuleList } from '../shared/rulelist';
 import { Scope, incognitoActiveId } from '../shared/scope';
 import {
@@ -11,10 +11,11 @@ import {
   ReloadRequest,
   TAB_EXIT_KEY,
   TAB_EXIT_RESULT_KEY,
+  addTempRule,
   loadConfig,
   loadTempRules,
+  removeTempRule,
   saveConfig,
-  saveTempRules,
 } from '../shared/state';
 import { TabTarget, tabTarget } from '../shared/tabs';
 import { ERROR_KEY, ProxyAlert, asProxyAlert, errorSummaryLine, loadProxyAlert } from '../shared/errors';
@@ -46,6 +47,10 @@ let config: Config;
 let tab: ActiveTab | null = null;
 /** Live proxy failure, if any. Rendered as a topbar icon — never as a banner. */
 let proxyAlert: ProxyAlert | null = null;
+/**
+ * Every override on this window's profile, one per site — all of them, since
+ * all of them route. Only the one covering the tab is shown (tabOverride).
+ */
 let tempRules: SwitchRule[] = [];
 /** Left-pane profile filter — only surfaced when there are many profiles. */
 let filterText = '';
@@ -352,7 +357,7 @@ async function init(): Promise<void> {
   }
   // After the scope is known: in an incognito window the overrides to load are
   // that scope's, on that scope's profile.
-  await loadOverride(scopeActiveId(), scope());
+  tempRules = await loadTempRules(scopeActiveId(), scope());
   render();
   void maybeCheckExit();
   chrome.storage.onChanged.addListener((changes, area) => {
@@ -395,10 +400,10 @@ async function setActive(id: string): Promise<void> {
   // Where the window will route after this change, and on whose overrides.
   const nextId = picksIncognito ? id || config.activeId : id;
   const nextScope: Scope = picksIncognito && id ? 'incognito' : 'regular';
-  // Load the new profile's override before the single render so the section
+  // Load the new profile's overrides before the single render so the section
   // never flashes the previous profile's state. The background applies the
   // proxy (and reloads the tab if refreshOnSwitch is on) off the storage write.
-  await loadOverride(nextId, nextScope);
+  tempRules = await loadTempRules(nextId, nextScope);
   // Recheck the exit IP for the new route, but keep the previous reading shown
   // dimmed (lastExit) rather than blanking to "checking…".
   if (config.settings.exitIpCheck && exit.phase === 'ok') {
@@ -416,28 +421,31 @@ async function setActive(id: string): Promise<void> {
 }
 
 /**
- * The override is a single, always-temporary rule (session storage). Older
- * versions could store several temp rules; collapse to one so the UI only
- * ever manages a single override slot.
+ * The override standing in for the site in this tab, if any. An override is an
+ * always-temporary rule (session storage) for one site, each site keeps its own,
+ * and the popup shows only the one covering the page in front of it — never one
+ * set on another site.
  */
-async function loadOverride(profileId: string, on: Scope): Promise<void> {
-  const rules = await loadTempRules(profileId, on);
-  tempRules = rules.slice(0, 1);
-  // Legacy-state cleanup. Awaited: saveTempRules is a read-modify-write over
-  // the shared map, so letting it float would race the user's own override
-  // clicks. The branch never fires on the common path (≤1 rule), so first
-  // paint doesn't pay for it.
-  if (rules.length > 1) await saveTempRules(profileId, on, tempRules);
+function tabOverride(): SwitchRule | undefined {
+  return tab ? overrideFor(tempRules, pacRequestUrl(tab.url), tab.host) : undefined;
 }
 
-async function setOverride(profileId: string, rule: SwitchRule | null): Promise<void> {
-  tempRules = rule ? [rule] : [];
+/**
+ * Give this site an override. The scope is this window's, not simply the
+ * profile's: an override set in an incognito window drives the incognito
+ * settings alone, and never follows the user back into a regular window.
+ */
+async function setOverride(profileId: string, rule: SwitchRule): Promise<void> {
   await requestTabReload();
-  // This window's scope, not simply the profile's: an override set in an
-  // incognito window drives the incognito settings alone, and never follows the
-  // user back into a regular window.
-  await saveTempRules(profileId, scope(), tempRules);
+  tempRules = await addTempRule(profileId, scope(), rule);
   scheduleExitCheck(); // the tab's route just changed — re-probe where it exits
+}
+
+/** Remove one site's override; every other site keeps its own. */
+async function removeOverride(profileId: string, id: string): Promise<void> {
+  await requestTabReload();
+  tempRules = await removeTempRule(profileId, scope(), id);
+  scheduleExitCheck();
 }
 
 /**
@@ -523,7 +531,7 @@ function detailHead(profile: Profile | undefined): HTMLElement {
     name = profile.name;
     status = statusFor(profile);
     tint = profile.color;
-    dot = profile.kind === 'switch' && tempRules[0] ? 'warn' : 'on';
+    dot = profile.kind === 'switch' && tabOverride() ? 'warn' : 'on';
   }
 
   const head = el(
@@ -653,6 +661,21 @@ function profileRow(
 
 /* ---- shared bits for the "this tab" region ---- */
 
+/**
+ * The click handler for a per-site button, which render() replaces with its
+ * opposite in the same place: ✕ and Set swap, and so do ✕ and Add rule. The
+ * second click of a double-click lands on the replacement and undoes the first.
+ * Removing an override and then setting a new one through whatever the fresh
+ * select defaults to is a silent reroute, so a repeat click (detail > 1) is
+ * dropped. Keyboard activation reports detail 0 and always goes through.
+ */
+function singleClick(fn: () => Promise<void>): (e: MouseEvent) => void {
+  return (e) => {
+    if (e.detail > 1) return;
+    void fn();
+  };
+}
+
 /** First enabled permanent rule whose condition matches the current site. */
 function matchedRuleFor(profile: SwitchProfile, url: string, host: string): SwitchRule | undefined {
   return profile.rules.find((r) => r.enabled && testCondition(compileRule(r), url, host));
@@ -777,7 +800,7 @@ function proxyBypassControl(profile: ProxyProfile, host: string, matchUrl: strin
           class: 'btn ghost icon ov-remove',
           title: 'Stop sending this site direct',
           innerHTML: '&#10005;',
-          onclick: async () => {
+          onclick: singleClick(async () => {
             // Same as the rule/override controls: this changes how the site
             // routes, so the page should re-fetch over the new route (and a page
             // that never loaded is re-requested outright).
@@ -791,7 +814,7 @@ function proxyBypassControl(profile: ProxyProfile, host: string, matchUrl: strin
             toast('Bypass removed');
             render();
             scheduleExitCheck();
-          },
+          }),
         })
       )
     );
@@ -820,7 +843,7 @@ function proxyBypassControl(profile: ProxyProfile, host: string, matchUrl: strin
         {
           class: 'btn sm',
           title: `Send ${host} straight to the network, past this proxy`,
-          onclick: async () => {
+          onclick: singleClick(async () => {
             await requestTabReload();
             const ok = await commitConfig((fresh) => {
               const p = fresh.profiles.find((x) => x.id === profile.id);
@@ -831,7 +854,7 @@ function proxyBypassControl(profile: ProxyProfile, host: string, matchUrl: strin
             toast(`Bypassing ${host}`);
             render();
             scheduleExitCheck();
-          },
+          }),
         },
         'Send this site direct'
       )
@@ -848,10 +871,10 @@ function siteRuleCard(active: SwitchProfile): HTMLElement {
   // The page hasn't loaded, so every change here ends in "…and try it again";
   // the buttons say so rather than leaving the user to guess and hit reload.
   const pending = tab!.pending;
-  const override = tempRules[0];
-  // Grey out the rule controls only when the override actually captures THIS
-  // site — an override set on another site must not lock editing here.
-  const overridesThisSite = !!override && testCondition(compileRule(override), matchUrl, tab!.host);
+  // Only an override covering THIS site belongs here, and only it marks the
+  // rule overridden; the ones set on other sites stay on those sites.
+  const override = tabOverride();
+  const overridesThisSite = override !== undefined;
 
   /** The quick "*.currenthost → target" rule both blocks below create. */
   const siteRule = (targetId: string): SwitchRule => ({
@@ -914,7 +937,7 @@ function siteRuleCard(active: SwitchProfile): HTMLElement {
       title: `Delete this rule (${matched.pattern})`,
       innerHTML: '&#10005;',
       disabled: overridesThisSite,
-      onclick: async () => {
+      onclick: singleClick(async () => {
         await requestTabReload();
         const ok = await commitConfig((fresh) => {
           const p = fresh.profiles.find((x) => x.id === active.id);
@@ -928,7 +951,7 @@ function siteRuleCard(active: SwitchProfile): HTMLElement {
           render();
           scheduleExitCheck();
         }
-      },
+      }),
     });
     del.setAttribute('aria-label', `Delete the rule ${matched.pattern}`);
     ruleField = el(
@@ -954,7 +977,7 @@ function siteRuleCard(active: SwitchProfile): HTMLElement {
         title: pending
           ? `Add a rule routing *.${tab!.host} and request the page again over it`
           : `Add a rule routing *.${tab!.host}`,
-        onclick: async () => {
+        onclick: singleClick(async () => {
           const rule = siteRule(sel.value);
           await requestTabReload();
           const ok = await commitConfig((fresh) => {
@@ -968,7 +991,7 @@ function siteRuleCard(active: SwitchProfile): HTMLElement {
             render();
             scheduleExitCheck();
           }
-        },
+        }),
       },
       pending ? 'Add & retry' : 'Add rule'
     );
@@ -985,7 +1008,7 @@ function siteRuleCard(active: SwitchProfile): HTMLElement {
     );
   }
 
-  /* --- override field: always temporary, single slot, deletable --- */
+  /* --- override field: always temporary, one per site, deletable --- */
   const overrideLead = el(
     'div',
     { class: 'sm-lead' },
@@ -1014,11 +1037,11 @@ function siteRuleCard(active: SwitchProfile): HTMLElement {
           class: 'btn ghost icon ov-remove',
           title: 'Remove override',
           innerHTML: '&#10005;',
-          onclick: () => {
-            void setOverride(active.id, null);
+          onclick: singleClick(async () => {
+            await removeOverride(active.id, override.id);
             toast('Override removed');
             render();
-          },
+          }),
         })
       )
     );
@@ -1039,11 +1062,11 @@ function siteRuleCard(active: SwitchProfile): HTMLElement {
             title: pending
               ? `Temporarily route *.${tab!.host} until the browser restarts, and request the page again over it`
               : `Temporarily route *.${tab!.host} until the browser restarts`,
-            onclick: () => {
-              void setOverride(active.id, siteRule(sel.value));
+            onclick: singleClick(async () => {
+              await setOverride(active.id, siteRule(sel.value));
               toast(pending ? 'Override set — retrying' : 'Override set');
               render();
-            },
+            }),
           },
           pending ? 'Set & retry' : 'Set'
         )

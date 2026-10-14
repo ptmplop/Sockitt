@@ -210,6 +210,30 @@ test('temp rules take priority over permanent rules and reach parity', () => {
   assert.equal(route.ruleId, 'tmp');
 });
 
+test('each site keeps its own temp rule, in the PAC as in the resolver', () => {
+  const profile = sw('sw1', [rule('perm', 'hostWildcard', '*.site.com', 'p1')], 'direct');
+  const config = makeConfig([P1, P2, profile], 'sw1');
+  const temp = [
+    rule('t-site', 'hostWildcard', '*.site.com', 'p2'),
+    rule('t-other', 'hostWildcard', '*.other.test', 'p1'),
+    rule('t-sub', 'hostWildcard', '*.sub.site.com', 'p1'),
+  ];
+  const pac = lib.compilePac(config, profile, temp);
+  const cases = [
+    ['www.site.com', SOCKS_P2, 't-site'],
+    ['x.other.test', SOCKS_P1, 't-other'],
+    // Both `*.site.com` and `*.sub.site.com` match; the first in the list wins.
+    ['a.sub.site.com', SOCKS_P2, 't-site'],
+    ['plain.example', 'DIRECT', undefined],
+  ];
+  for (const [host, directive, ruleId] of cases) {
+    const url = `https://${host}/`;
+    assert.equal(runPac(pac, url, host), directive, host);
+    assert.equal(lib.resolveRoute(config, profile, url, host, temp).ruleId, ruleId, host);
+    assert.equal(lib.overrideFor(temp, url, host)?.id, ruleId, host);
+  }
+});
+
 test('probe override reroutes only the given host, leaving all other traffic normal', () => {
   const profile = sw('sw1', [rule('r', 'hostWildcard', '*.example.com', 'p1')], 'direct');
   const config = makeConfig([P1, P2, profile], 'sw1');

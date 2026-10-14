@@ -420,6 +420,22 @@ export function resolveRoute(
   return walk(profile);
 }
 
+/**
+ * The override standing in for this site: the first temporary rule that
+ * matches it, which is the one resolveRoute and the compiled PAC try first, so
+ * the popup can never show one override while the traffic takes another.
+ * Overrides are per site, so on a page that none of them covers this is
+ * undefined; an override on `*.example.com` covers `news.example.com` too.
+ */
+export function overrideFor(
+  tempRules: SwitchRule[],
+  url: string,
+  host: string,
+  now: Date = new Date()
+): SwitchRule | undefined {
+  return tempRules.find((r) => r.enabled && testCondition(compileRule(r), url, host, now));
+}
+
 /** Validate a rule pattern; returns an error string or null if fine. */
 export function patternError(rule: Pick<SwitchRule, 'type' | 'pattern'>): string | null {
   const p = rule.pattern.trim();

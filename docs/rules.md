@@ -116,20 +116,26 @@ it or delete it outright — the same rule you would find in the profile's table
 here, so deleting a broad pattern like `*.example.com` stops routing every site
 it covered, not only the one you are on.
 
-Alongside that rule you can set a single
-**Override**: an always-temporary rule for the current site that takes priority
-over permanent rules, greys out the matching rule while it is set, and is
-cleared when the browser restarts (or when you remove it). Overrides live in
-session storage and are never written to your saved configuration.
+Alongside that rule you can set an **Override**: an always-temporary rule for
+the current site that takes priority over permanent rules, marks the matching
+rule *overridden* while it is set, and is cleared when the browser restarts (or
+when you remove it). Overrides live in session storage and are never written to
+your saved configuration.
+
+Overrides are per site. Each site keeps its own: setting one leaves the
+overrides on other sites in place, removing one leaves the rest, and the popup
+shows only the override covering the site you are on. An override on
+`*.example.com` covers its subdomains too, so it shows on `news.example.com`;
+where two overrides cover one site, the one set first wins.
 
 An override belongs to the window it was set in. Incognito windows can be given
 their own profile (Settings → *Incognito windows use*, which needs Chrome's own
 **Allow in Incognito** switch); those windows then drive separate proxy
-settings, so each scope keeps its own override slot — set one in an incognito
+settings, so each scope keeps its own overrides — set one in an incognito
 window and regular windows never see it, and the reverse. An incognito window
 set to *Same as regular windows*, or any incognito window when Sockitt has not
-been allowed in incognito, has no scope of its own and uses the regular override
-like any other window.
+been allowed in incognito, has no scope of its own and uses the regular
+overrides like any other window.
 
 ## Rule lists
 

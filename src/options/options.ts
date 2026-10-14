@@ -2262,8 +2262,8 @@ function inspectorPanel(): HTMLElement {
       return;
     }
 
-    // Match real routing: the popup's session override participates only when
-    // inspecting the profile that is actually active.
+    // Match real routing: the overrides set from the popup participate only
+    // when inspecting the profile that is actually active.
     const temp = startId === config.activeId ? await loadTempRules(config.activeId, 'regular') : [];
     if (seq !== inspectSeq) return; // a newer run owns the results box
     const trace: TraceEdge[] = [];
@@ -2316,7 +2316,7 @@ function inspectorPanel(): HTMLElement {
       el(
         'p',
         { class: 'note' },
-        'Type a URL to see exactly how it would route right now: which rule fires, the chain it walks, and where it lands. Runs the same resolver as real routing, including the popup override on the active profile.'
+        'Type a URL to see exactly how it would route right now: which rule fires, the chain it walks, and where it lands. Runs the same resolver as real routing, including the overrides set from the popup on the active profile.'
       ),
       el('div', { class: 'inspect-form' }, urlInput, startSel),
       results

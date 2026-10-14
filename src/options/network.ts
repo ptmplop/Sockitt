@@ -98,7 +98,7 @@ export function networkPanel(host: NetworkHost): HTMLElement {
   let granted = false;
   let filter = '';
   let failedOnly = false;
-  /** Temp rules are a session override the popup writes; read once, not per request. */
+  /** Temp rules are the session overrides the popup writes; read once, not per request. */
   let tempRules: SwitchRule[] = [];
 
   const body = el('div', { class: 'net-body' });

@@ -28,9 +28,12 @@ interface Release {
 const RELEASES: Release[] = [
   {
     from: '1.26.0',
+    to: '1.26.1',
     date: '13 October 2026',
     title: 'A new look, with the route at the top of the Overview',
     notes: [
+      'An override belongs to the site you set it on. The popup showed it on every other tab as well, as though it covered them, and the only way to give a second site an override was to remove the first. Each site keeps its own now: the popup shows an override only on a site it covers, and removing one leaves the others in place.',
+      'A double-click on the popup’s ✕, Set or Add rule buttons counts once. Each is replaced by its opposite in the same place, so the second click used to undo the first: double-clicking ✕ on an override removed it and then set a new one through the first proxy in the list, and on a rule it left a new permanent rule behind.',
       'Sockitt has been redrawn. Every page keeps its layout — each control is where it was — but both the options page and the popup are set in the logo’s own colours now: a light frame with the work on one white sheet, the sock’s violet for whatever is selected, and its deep shadow for the one main action on a page. Text is DM Sans, and addresses, patterns and timings are JetBrains Mono, whose zero carries a dot, so it can never be mistaken for the letter O in an IP. Both typefaces ship inside the extension; nothing is fetched to show them.',
       'The Overview opens on the route itself: the active profile at full size, the path its traffic takes drawn as a line in that profile’s colour, and the exit address beside it. Below it, cards that sit side by side share one surface, and a routing map three profiles deep gets the full width instead of being shrunk to fit.',
       'The route line dashed the wrong link. The link into an Auto switch profile is always taken — it is the link out of it, decided request by request, that depends on the page — and that is the one drawn dashed now, the way the documentation always described it.',

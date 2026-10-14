@@ -143,13 +143,16 @@ The rest take one area each: `health` (the Overview's audit), `rejected` (which
 rule-list lines were dropped, and why), `tabs` (the page a tab is trying to
 reach), `badge` (what the per-tab badge reads, and the next minute a clock rule
 changes it), `scope` (which profile an incognito window routes by, and the
-override keys that keep the two scopes apart) and `update` (version comparison
-for the staged-update banner).
+override keys that keep the two scopes apart), `overrides` (one override per
+site: which one the popup shows for a page, and setting or removing one without
+touching the rest) and `update` (version comparison for the staged-update
+banner).
 
-Two suites do stub `chrome.storage.session` — `errors` and `history`, the latter
-covering the Overview's activation timeline — because what they assert is
-ordering under concurrent writes, and a stub with a hook that can stall a write
-is the only way to interleave them on purpose.
+Three suites do stub `chrome.storage.session`. `errors` and `history`, the
+latter covering the Overview's activation timeline, assert ordering under
+concurrent writes, and a stub with a hook that can stall a write is the only way
+to interleave them on purpose. `overrides` asserts that each change starts from
+what is stored, and that a failed read writes nothing at all.
 
 UI code is deliberately thin enough to verify by hand.
 

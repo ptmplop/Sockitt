@@ -313,17 +313,48 @@ export async function loadTempRules(profileId: string, scope: Scope): Promise<Sw
   }
 }
 
-export async function saveTempRules(
+/**
+ * Change one scope's overrides on `profileId` against a FRESH read, and return
+ * what was saved. A caller's own copy dates from whenever it was loaded, and
+ * writing that back would undo every change made since — the reason
+ * commitConfig re-reads the config, too. A failed read throws rather than
+ * reading as "no overrides", which would save over all of them.
+ */
+async function changeTempRules(
   profileId: string,
   scope: Scope,
-  rules: SwitchRule[]
-): Promise<void> {
+  change: (rules: SwitchRule[]) => SwitchRule[]
+): Promise<SwitchRule[]> {
   const stored = await chrome.storage.session.get(TEMP_KEY);
   const map = (stored[TEMP_KEY] as TempRuleMap | undefined) ?? {};
   const key = tempRuleKey(profileId, scope);
+  const rules = change(map[key]?.filter(isValidRule) ?? []);
   if (rules.length) map[key] = rules;
   else delete map[key];
   await chrome.storage.session.set({ [TEMP_KEY]: map });
+  return rules;
+}
+
+/**
+ * Give one site its override. Overrides are per site, so this joins the others
+ * rather than replacing them. A new one goes LAST: the first match wins, so it
+ * never takes a site from an override already covering it (setting
+ * `*.example.com` leaves one on `*.sub.example.com` in charge of that
+ * subdomain). One on the very same pattern is replaced where it stands, for the
+ * same reason — moved to the end, it could fall behind a broader one.
+ */
+export function addTempRule(profileId: string, scope: Scope, rule: SwitchRule): Promise<SwitchRule[]> {
+  const same = (r: SwitchRule) => r.type === rule.type && r.pattern === rule.pattern;
+  return changeTempRules(profileId, scope, (rules) => {
+    const at = rules.findIndex(same);
+    if (at < 0) return [...rules, rule];
+    return rules.flatMap((r, i) => (i === at ? [rule] : same(r) ? [] : [r]));
+  });
+}
+
+/** Remove one override, leaving every other site's in place. */
+export function removeTempRule(profileId: string, scope: Scope, id: string): Promise<SwitchRule[]> {
+  return changeTempRules(profileId, scope, (rules) => rules.filter((r) => r.id !== id));
 }
 
 export function onTempRulesChanged(fn: () => void): void {

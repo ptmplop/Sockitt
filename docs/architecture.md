@@ -81,11 +81,12 @@ which of the two a window is on, so an incognito window cannot be read out
 against a route it does not take.
 
 The scope reaches the session overrides too: they are keyed
-`${scope}:${profileId}`, and `loadTempRules`/`saveTempRules` take the scope as a
-required argument rather than defaulting it — guessing wrong here routes traffic
-in windows the caller was not looking at. Both scopes are named in the key, not
-just incognito, so an imported profile id shaped like the prefix cannot make the
-two namespaces meet.
+`${scope}:${profileId}`, and `loadTempRules`/`addTempRule`/`removeTempRule`
+take the scope as a required argument rather than defaulting it — guessing
+wrong here routes traffic in windows the caller was not looking at. Both scopes
+are named in the key, not just incognito, so an imported profile id shaped like
+the prefix cannot make the two namespaces meet. Under each key is a list with
+one override per site; every change re-reads that list before writing it back.
 
 ## The PAC compiler
 
