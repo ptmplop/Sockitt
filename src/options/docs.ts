@@ -173,8 +173,8 @@ function buildDocsPanel(onReleases: () => void): HTMLElement {
             ' button for that proxy when it is known, and ',
             code('Open errors'),
             '. When another extension controls the browser’s proxy settings, none of the routes below are in force; ',
-            code('Take back control'),
-            ' re-applies Sockitt’s. If a policy on this machine fixes the proxy settings, a note says Sockitt can show its routes but cannot apply them.',
+            code('Show which extension'),
+            ' opens Chrome’s own proxy setting, which names it and can turn it off. If a policy on this machine fixes the proxy settings, a note says Sockitt can show its routes but cannot apply them.',
           ],
         ],
         [
@@ -454,8 +454,28 @@ function buildDocsPanel(onReleases: () => void): HTMLElement {
         'Each ignored line is then listed under the field by number, with what is wrong with it — click one to select it in the field. A list can only be as good as the part of it that loads, and a count on its own tells you a line was dropped without telling you which.'
       ),
       p(
-        'Set an ', code('Auto-update'), ' interval to refresh from the URL automatically — in hours, up to 720 (30 days), or 0 to disable; new lists start at 24. You can also press ',
-        code('Update now'), '. The URL’s host must allow cross-origin requests (', code('raw.githubusercontent.com'), ' does). Domain entries compile to a single dictionary lookup, so even very large lists stay fast.'
+        'Set an ', code('Auto-update'), ' interval to refresh from the URL automatically — in hours, up to 720 (30 days), or 0 to disable; new lists start at 24. The first automatic fetch comes about a minute after you first set a URL; after changing it, press Update now, or the new address waits for the next scheduled update. You can also press ',
+        code('Update now'), '. Domain entries compile to a single dictionary lookup, so even very large lists stay fast.'
+      ),
+      el('h4', { class: 'doc-sub', id: 'doc-list-fetch' }, 'How the list is fetched'),
+      p(
+        'A list is fetched like any other request the browser makes, so it goes wherever the active profile sends its host — not over some separate route. With an Auto switch active, its rules decide; with a proxy active, it goes through that proxy, unless the host is on its bypass list; with Direct, straight out; and only with System does it use your operating system’s proxy settings. The line under the ',
+        code('URL'),
+        ' field says where fetches go right now, and why — for example “Fetches go through Home VPS — rule 3 in Office routing, the active profile”. Automatic updates follow whichever profile is active when they run. While another extension holds the browser’s proxy, fetches use its settings instead, and the line says so.'
+      ),
+      p(
+        'Two things follow from that. A list whose host you can only reach through a proxy needs a route there before its first fetch can succeed: give the active Auto switch a rule for that host, or switch to the proxy while you press ',
+        code('Update now'),
+        '. And a rule list that is itself active routes its own address by its own entries — an empty one sends the fetch by its default, and a refresh that drops the host changes where the next one goes; the line under the URL says when that is the case.'
+      ),
+      p(
+        'The host has to allow cross-origin requests — it must send an ',
+        code('Access-Control-Allow-Origin'),
+        ' header (',
+        code('raw.githubusercontent.com'),
+        ' does) — unless Sockitt already has access to all sites, which proxy sign-in and the Activity monitor ask for. When a fetch fails, the editor says why under ',
+        code('Update now'),
+        ': the server’s answer (a 404, a 403…), a proxy that could not be reached or wouldn’t open a tunnel, a proxy sign-in Sockitt isn’t allowed to answer, a server that sent the list without allowing extensions to read it, an error page, or no answer at all — Chrome gives up connecting after 30 seconds, and Sockitt stops waiting for a reply after 60. A local address — localhost, 127.x — is always fetched directly: Chrome never sends those through a proxy.'
       )
     ),
 
@@ -589,7 +609,6 @@ function buildDocsPanel(onReleases: () => void): HTMLElement {
       ]),
       el('h4', { class: 'doc-sub' }, 'Behaviour'),
       terms([
-        ['Guard proxy control', ['If another extension takes over the browser’s proxy settings, Sockitt re-applies its own (at most once every 30 seconds).']],
         ['Route badge', ['Shows which profile the current tab routes through as a small badge on the toolbar icon — that profile’s initials in its colour, or ', code('DIR'), ' when the tab goes direct. It appears only where the route depends on the request — an Auto switch or rule-list profile; with a plain proxy or an alias the icon already names the destination, so the badge stays clear. Sockitt reads the tab’s address to work it out locally; nothing is stored or sent. Requires the optional ', code('tabs'), ' and ', code('webNavigation'), ' permissions, which are requested together when you turn it on — Chrome shows them as the single “Read your browsing history” prompt it already showed for ', code('tabs'), ' alone. ', code('webNavigation'), ' is what tells Sockitt a page has started loading, so a site that never answers stops reading out the previous page’s profile. A permission cannot travel inside a config, so importing a backup (or syncing from another browser) with the setting already on asks for it again — until it is granted, Needs your OK lists it with an ', code('Allow'), ' button.']],
         ['IP address lookups', ['The master switch for everything that contacts ', code('ipconfig.is'), ', a service the Sockitt developer runs — the popup’s exit line, the exit address on the Overview’s map, and the connection test. Off by default: Sockitt never reaches ', code('ipconfig.is'), ' until you turn it on (which requests access to it), and turning it off stops all three. With it off, the only network requests Sockitt makes on its own are fetches of the rule-list URLs you configure.']],
         ['Rules added in the popup go last', ['Rules added from the popup are appended below existing rules. Turn it off to put them first instead, ahead of every rule you already have.']],
@@ -651,7 +670,11 @@ function buildDocsPanel(onReleases: () => void): HTMLElement {
       terms([
         ['A red ! on the toolbar icon', ['Either the proxy reported an error, or another extension has taken over the browser’s proxy settings. Hover the icon — the tooltip says which. For a proxy error, ', code('Activity › Proxy errors'), ' has the code, what it means, which proxy was carrying traffic, and the log.']],
         ['The red mark will not go away', ['It should: 30 seconds with no new failure clears it, and so does applying settings. If it keeps coming back, requests are still failing — open ', code('Activity › Proxy errors'), ' and check the timestamps, which say whether this is one old incident or a live one.']],
-        ['“Another extension is controlling the proxy”', ['Only one extension can own Chrome’s proxy settings, and the last one to set them wins. ', code('Take back control'), ' on the Overview re-applies Sockitt’s once; turn on ', code('Guard proxy control'), ' to have Sockitt take them back whenever it happens, or disable the other extension.']],
+        ['“Another extension is controlling the proxy”', [
+          'Only one extension can control Chrome’s proxy settings: the most recently installed one that sets them. The order they set them in makes no difference, so nothing Sockitt does can outrank a newer extension. ',
+          code('Show which extension'),
+          ', on the Overview, opens Chrome’s own proxy setting, which names it and has a Disable button. Turn it off there, or in Extensions, and Sockitt’s routes apply again straight away, with nothing to re-apply; turn it back on and it takes over again. After either extension updates, Chrome may rank them differently from the next browser start.',
+        ]],
         ['Sites fail instead of loading', ['Routes are mandatory, so an unreachable proxy fails closed rather than leaking direct — that error is Sockitt working as intended. ', code('Activity › Proxy errors'), ' names the failure; ', code('Test connection'), ' on the proxy confirms whether it is up, and the ', code('Inspector'), ' confirms the site lands where you expect. ', code('Activity › Requests'), ' shows every request the page makes, with its route and its result.']],
         ['“Exit check failed” in the popup', ['The ', code('ipconfig.is'), ' lookup did not come back: the route is down, ', code('ipconfig.is'), ' is unreachable through it, or the request timed out. Hover the line for the underlying error; a connection test narrows it down.']],
         ['A rule never matches', ['Check the pattern field for a red outline — an invalid or over-complex pattern is kept but inert, and hovering it shows why; the Overview lists it under Needs attention too. Otherwise check rule order (first match wins) — ', code('Trace a URL'), ' on the Overview names the rule that takes an address — and remember that on https the browser hides the path, so URL-path rules behave as host rules.']],

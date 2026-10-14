@@ -113,8 +113,10 @@ script.
 - **Quick switch.** Cycle a chosen set of profiles from the toolbar button or a
   keyboard shortcut, without opening the popup.
 - **Sync and control.** Optional configuration sync across machines via your
-  browser account, a startup profile, and a guard that re-takes proxy control
-  if another extension grabs it.
+  browser account, and a startup profile. If another extension takes over the
+  browser's proxy settings, Sockitt says so and shows you which one — Chrome
+  gives the proxy to the most recently installed extension, so turning that one
+  off is what brings Sockitt's routes back.
 - **Light and dark.** Follows the system, or keep Sockitt light or dark on one
   device. Every profile colour is adjusted per theme so its line holds 3:1
   against the page and its name 4.5:1.

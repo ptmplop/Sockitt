@@ -192,7 +192,12 @@ export interface Settings {
   syncEnabled: boolean;
   /** Profile to activate on browser startup; '' keeps the last used. */
   startupProfileId: string;
-  /** Re-apply our proxy settings if another extension overrides them. */
+  /**
+   * Retired in 1.27.1 ("Guard proxy control"): it re-applied when another
+   * extension took the proxy, which can never win — Chrome gives the setting to
+   * the most recently installed extension. Kept in the schema, unused, so older
+   * and newer installs round-trip it through sync unchanged.
+   */
   revertExternal: boolean;
   confirmDeletion: boolean;
   /** Rules added from the popup go to the bottom (true) or top (false) of the table. */

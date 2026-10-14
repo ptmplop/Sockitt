@@ -58,8 +58,6 @@ export interface DashboardHost {
   activate: (id: string) => void;
   /** Persist a config mutation made from here. */
   save: () => void;
-  /** Re-hand the configuration to the browser WITHOUT marking it edited. */
-  reapply: () => void;
   /** Create a proxy profile and open its editor. */
   createProxy: () => void;
   /** Request the optional proxy-auth permissions; resolves true when granted. */
@@ -264,7 +262,7 @@ function alertSection(): { node: HTMLElement; refresh: () => void } {
               'p',
               {},
               hostile
-                ? 'Chrome is applying another extension’s proxy settings, so none of the routes below are in force.'
+                ? 'Chrome is applying another extension’s proxy settings, so none of the routes below are in force. Chrome gives the proxy to the most recently installed extension, and Sockitt can’t take it back. Turn that extension off, and Sockitt’s routes apply again on their own.'
                 : 'This machine’s policy fixes the proxy settings; Sockitt can show its routes but cannot apply them.'
             )
           ),
@@ -272,17 +270,23 @@ function alertSection(): { node: HTMLElement; refresh: () => void } {
             ? el(
                 'div',
                 { class: 'acts' },
+                // Chrome's own proxy setting names the extension in control and
+                // has a Disable button — measured to hand the proxy straight
+                // back. A link cannot open a chrome:// page; tabs.create can,
+                // without the tabs permission.
                 el(
                   'button',
                   {
                     class: 'btn primary',
                     type: 'button',
                     onclick: () => {
-                      host.reapply();
-                      toast('Reclaiming proxy control…');
+                      void chrome.tabs
+                        .create({ url: 'chrome://settings/system' })
+                        .catch(() => chrome.tabs.create({ url: 'chrome://extensions' }))
+                        .catch(() => undefined);
                     },
                   },
-                  'Take back control'
+                  'Show which extension'
                 )
               )
             : null

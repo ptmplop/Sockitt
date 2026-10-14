@@ -16,6 +16,8 @@ import {
 } from './dashboard';
 import { COMPACT, FULL, YardLayout, edgeRuleIndex, layoutYard } from '../shared/yard';
 import { yardSvg } from './yardview';
+import { FetchRoute, listFetchRoute } from '../shared/listroute';
+import { Explanation, ListFetchFailure, RouteName, explainListFailure } from '../shared/listfetch';
 import { docsPanel } from './docs';
 import { EXIT_IP_PERMS, flagSrc } from '../shared/exitip';
 import { TraceEdge, hostLooksReal, pacRequestUrl, patternError, resolveRoute } from '../shared/match';
@@ -63,7 +65,6 @@ import {
   proxyHostError,
   sanitizeConfig,
   saveConfig,
-  saveConfigRaw,
   saveUiPrefs,
 } from '../shared/state';
 import { INLINE_TEXT_MAX, SYNC_ERROR_KEY, applyFromSync, clearSync, pullFromSync, remoteSyncState } from '../shared/sync';
@@ -83,6 +84,7 @@ import {
   RuleType,
   SCHEME_LABELS,
   SwitchProfile,
+  SwitchRule,
   SYSTEM,
   BADGE_PERMS,
   NAV_PERMS,
@@ -94,7 +96,7 @@ import {
   schemeSupportsAuth,
   uid,
 } from '../shared/types';
-import { el, icon, toast } from '../shared/ui';
+import { el, icon, relativeTime, toast } from '../shared/ui';
 import { PendingUpdate, UPDATE_KEY, loadPendingUpdate } from '../shared/update';
 
 const app = document.getElementById('app')!;
@@ -1230,6 +1232,7 @@ function agoInWords(at: number, now = Date.now()): string {
 function updatePermBanners(): void {
   paintAsks();
   refreshNav();
+  refreshListRoute?.();
   if (selectedId === DASH_ID && dashboardMounted()) repaintDashboard();
 }
 
@@ -1767,12 +1770,256 @@ function selectLine(field: HTMLTextAreaElement, line: number): void {
 }
 
 /**
+ * What the rule-list editor's route line needs beyond the config: the per-site
+ * overrides on the active profile, which the PAC tries first, and who controls
+ * Chrome's proxy setting. Module scope, so a repaint does not wait on storage.
+ */
+const listRouteCtx: { overrides: SwitchRule[]; control: string } = { overrides: [], control: '' };
+/** Repaints the open rule-list editor's route line; replaced by each editor. */
+let refreshListRoute: (() => void) | null = null;
+
+async function loadListRouteCtx(): Promise<void> {
+  const [overrides, session] = await Promise.all([
+    loadTempRules(config.activeId, 'regular').catch(() => [] as SwitchRule[]),
+    chrome.storage.session.get(CONTROL_KEY).catch(() => ({}) as Record<string, unknown>),
+  ]);
+  listRouteCtx.overrides = overrides;
+  const level = (session as Record<string, { level?: unknown } | undefined>)[CONTROL_KEY]?.level;
+  listRouteCtx.control = typeof level === 'string' ? level : '';
+}
+
+/** Long enough for a 4 MB list over a slow proxy; short enough that a server that never answers gives the button back. */
+const LIST_FETCH_TIMEOUT_S = 60;
+
+/** The last fetch of each list, as the editor shows it under Update now. Session-only. */
+const listFetchResults = new Map<string, { ok: boolean; text: string; at: number }>();
+
+/**
+ * A fetch route named for the explainer — the proxy's name, endpoint and
+ * protocol. Chrome's own word on who controls the proxy comes first: while
+ * another extension (or a policy) holds it, Sockitt's route is not the one the
+ * request takes, so naming it would blame the wrong proxy.
+ */
+function routeNameFor(r: FetchRoute, control = listRouteCtx.control): RouteName {
+  if (control === 'controlled_by_other_extensions') return { via: 'other' };
+  if (control === 'not_controllable') return { via: 'policy' };
+  if (r.targetId === DIRECT || r.targetId === '') return { via: 'direct' };
+  if (r.targetId === SYSTEM) return { via: 'system' };
+  const p = config.profiles.find((x) => x.id === r.targetId);
+  if (p?.kind !== 'proxy') return { via: 'proxy', name: nameFor(r.targetId) };
+  return { via: 'proxy', name: p.name, endpoint: `${SCHEME_LABELS[p.scheme]} ${p.host}:${p.port}`, scheme: p.scheme };
+}
+
+/** "directly" / "through Work SOCKS5", for the success line. */
+function fetchedVia(named: RouteName): string {
+  switch (named.via) {
+    case 'direct':
+      return 'directly';
+    case 'system':
+      return 'through your system’s proxy settings';
+    case 'other':
+      return 'through another extension’s proxy settings';
+    case 'policy':
+      return 'through the proxy your system’s policy sets';
+    case 'proxy':
+      return `through ${named.name}`;
+  }
+}
+
+/** The only codes chrome.proxy ever reports for a request (measured; Chromium forwards no others). */
+const PROXY_FAULTS = new Set(['net::ERR_PROXY_CONNECTION_FAILED', 'net::ERR_TUNNEL_CONNECTION_FAILED', 'net::ERR_PROXY_AUTH_UNSUPPORTED']);
+
+/**
+ * Prefetch the URL to learn what kind of answer came back, when the reply
+ * itself cannot be read: a <link rel=prefetch> needs no permission and no
+ * cross-origin consent, and fires load for a 2xx and error for anything else
+ * (measured on Chromium 155). true = 2xx, false = an error, undefined = no word.
+ * A prefetch is cached for a few minutes, so a URL whose status changed since
+ * the last failed attempt can read as it was — a narrow case, and a cache-
+ * busting query could break signed URLs, so it is left at that.
+ */
+function prefetchVerdict(url: string, ms = 15_000): Promise<boolean | undefined> {
+  return new Promise((resolve) => {
+    const link = document.createElement('link');
+    link.rel = 'prefetch';
+    link.href = url;
+    const done = (v: boolean | undefined): void => {
+      clearTimeout(timer);
+      link.remove();
+      resolve(v);
+    };
+    const timer = setTimeout(() => done(undefined), ms);
+    link.onload = () => done(true);
+    link.onerror = () => done(false);
+    document.head.append(link);
+  });
+}
+
+/** A URL as Chrome reports it in webRequest: parsed, fragment dropped. */
+function canonicalUrl(raw: string): string {
+  try {
+    const u = new URL(raw);
+    u.hash = '';
+    return u.href;
+  } catch {
+    return raw;
+  }
+}
+
+/**
+ * Fetch a list body, and when that fails, find out why. fetch() says only
+ * "Failed to fetch" for every network failure, so the page gathers what else
+ * it can see (all measured in real Chromium, 2026-10-14):
+ *
+ *   - chrome.proxy.onProxyError, with the always-granted `proxy` permission.
+ *     It reports only a proxy that could not be reached or refused a tunnel,
+ *     and for ALL traffic in the browser, within a few ms of the request that
+ *     failed — so an event counts only on a proxied route, only at the moment
+ *     this fetch failed, and never when a probe shows something did answer.
+ *   - the exact net:: code from webRequest, when the optional grant happens to
+ *     be in place, matched by request id (with it, cross-origin rules no
+ *     longer apply either).
+ *   - after a failure on a route that cannot raise a sign-in prompt (direct,
+ *     or a SOCKS proxy), a no-cors probe: an opaque reply means SOME HTTP
+ *     answer arrived; a rejection means none did. Then a prefetch says whether
+ *     that answer was a 2xx (the list is there, but unreadable) or an error.
+ *     Through an HTTP(S) proxy a second request could raise a second sign-in
+ *     prompt, so those routes are explained without it.
+ *   - elapsed time: Chrome gives up connecting after 30 seconds on its own.
+ */
+async function fetchListBody(
+  url: string,
+  named: RouteName,
+  signInBlocked: boolean
+): Promise<{ ok: true; text: string } | { ok: false; why: Explanation }> {
+  let host = '';
+  let https = true;
+  try {
+    const u = new URL(url);
+    host = u.hostname;
+    https = u.protocol === 'https:';
+  } catch {
+    /* listFetchRoute has already refused anything unparseable */
+  }
+  const fail = (f: ListFetchFailure): { ok: false; why: Explanation } => ({ ok: false, why: explainListFailure(f, named, host, https) });
+
+  const proxyEvents: Array<{ code: string; at: number }> = [];
+  const onProxyError = (d: { error?: string }): void => {
+    if (d.error) proxyEvents.push({ code: d.error, at: performance.now() });
+  };
+  const ours = new Set<string>();
+  let netError: string | undefined;
+  const target = canonicalUrl(url);
+  const onBeforeRequest = (d: chrome.webRequest.OnBeforeRequestDetails): undefined => {
+    if ((d.initiator ?? '').startsWith(location.origin) && canonicalUrl(d.url) === target) ours.add(d.requestId);
+    return undefined;
+  };
+  const onRequestError = (d: chrome.webRequest.OnErrorOccurredDetails): void => {
+    if (ours.has(d.requestId)) netError = d.error;
+  };
+  const exactCodes =
+    !!chrome.webRequest?.onErrorOccurred &&
+    (await chrome.permissions.contains({ permissions: ['webRequest'], origins: ['<all_urls>'] }).catch(() => false));
+  // Listening before the fetch starts: the event often arrives before the rejection.
+  chrome.proxy?.onProxyError?.addListener(onProxyError);
+  if (exactCodes) {
+    chrome.webRequest.onBeforeRequest.addListener(onBeforeRequest, { urls: ['<all_urls>'] });
+    chrome.webRequest.onErrorOccurred.addListener(onRequestError, { urls: ['<all_urls>'] });
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), LIST_FETCH_TIMEOUT_S * 1000);
+  const started = performance.now();
+  try {
+    let response: Response;
+    try {
+      response = await fetch(url, { cache: 'no-cache', signal: controller.signal });
+    } catch {
+      const failedAt = performance.now();
+      // A sign-in Sockitt may not answer: the fetch either waited at Chrome's
+      // prompt until the page gave up, or failed when the prompt was cancelled.
+      if (controller.signal.aborted) return fail(signInBlocked ? { kind: 'signin' } : { kind: 'timeout', seconds: LIST_FETCH_TIMEOUT_S });
+      // Chrome's own connect limit: a TLS handshake, a CONNECT or a SOCKS
+      // greeting that never completes fails at 30 s with no other sign.
+      if (failedAt - started >= 29_000) return fail({ kind: 'timeout', seconds: 30, connect: true });
+      // This fetch's own event lands within a few ms of its rejection, either
+      // side of it; anything earlier was some other request through the proxy.
+      await new Promise((r) => setTimeout(r, 100));
+      if (netError) return fail({ kind: 'network', netError });
+      const fault =
+        named.via === 'direct'
+          ? undefined
+          : proxyEvents.find(
+              (e) =>
+                e.at >= failedAt - 50 &&
+                e.at <= failedAt + 100 &&
+                PROXY_FAULTS.has(e.code) &&
+                // A plain-http fetch is never tunnelled, so a tunnel failure is someone else's.
+                !(e.code === 'net::ERR_TUNNEL_CONNECTION_FAILED' && !https)
+            )?.code;
+      let probe = !exactCodes && (named.via === 'direct' || (named.via === 'proxy' && /^socks/i.test(named.scheme ?? '')));
+      // Another extension can take the proxy while a fetch is out, and its
+      // proxy may want a sign-in of its own: ask Chrome who holds it now.
+      if (probe) {
+        const level = (await chrome.proxy?.settings?.get({}).catch(() => undefined))?.levelOfControl;
+        if (level === 'controlled_by_other_extensions' || level === 'not_controllable') probe = false;
+      }
+      let answered = false;
+      let listOk: boolean | undefined;
+      if (probe) {
+        try {
+          await fetch(url, { mode: 'no-cors', cache: 'no-store', signal: AbortSignal.timeout(15_000) });
+          answered = true;
+        } catch {
+          /* nothing answered either time */
+        }
+        if (answered) listOk = await prefetchVerdict(url);
+      }
+      // A proxy fault counts only when nothing contradicts it: a probe that got
+      // an answer through the same route means the proxy was there.
+      if (fault && !answered) {
+        // A proxy with a sign-in answers CONNECT with a 407 before it looks at
+        // the address, so a refused tunnel right after a prompt Sockitt could
+        // not answer is almost always that sign-in.
+        if (signInBlocked && fault === 'net::ERR_TUNNEL_CONNECTION_FAILED') return fail({ kind: 'signin', tunnel: true });
+        return fail({ kind: 'network', proxyError: fault });
+      }
+      if (signInBlocked) return fail({ kind: 'signin' });
+      return fail({ kind: 'network', answered, listOk });
+    }
+    if (!response.ok) return fail({ kind: 'status', status: response.status, statusText: response.statusText });
+    let text: string;
+    try {
+      text = await response.text();
+    } catch {
+      if (controller.signal.aborted) return fail({ kind: 'timeout', seconds: LIST_FETCH_TIMEOUT_S });
+      // The request's own error event trails the rejection, as above.
+      if (exactCodes) await new Promise((r) => setTimeout(r, 100));
+      return fail({ kind: 'body', netError });
+    }
+    if (!text.trim()) return fail({ kind: 'empty' });
+    // Parsing is synchronous and sits on the PAC-compile path, so an unbounded
+    // body is an unbounded stall — refuse it here rather than store something
+    // the worker will choke on later.
+    if (text.length > RULE_LIST_MAX_BYTES) return fail({ kind: 'too-large', maxBytes: RULE_LIST_MAX_BYTES });
+    return { ok: true, text };
+  } finally {
+    clearTimeout(timer);
+    chrome.proxy?.onProxyError?.removeListener(onProxyError);
+    if (exactCodes) {
+      chrome.webRequest.onBeforeRequest.removeListener(onBeforeRequest);
+      chrome.webRequest.onErrorOccurred.removeListener(onRequestError);
+    }
+  }
+}
+
+/**
  * Fetch a rule list's body and store it. One copy, shared by the editor's
  * "Update now" and the dashboard's "Fetch now" — the care here is in the
  * re-find and the rollback, and two copies of that is one too many.
  *
  * Always repaints when it returns, whatever the outcome, so the caller's button
- * comes back without every call site having to remember to restore it.
+ * comes back without every call site having to remember to restore it. The
+ * outcome is kept per list, so the editor can say it in full after the repaint.
  */
 async function refetchRuleList(profileId: string): Promise<void> {
   const repaint = (): void => {
@@ -1790,27 +2037,46 @@ async function refetchRuleList(profileId: string): Promise<void> {
     repaint();
     return;
   }
+  // Fresh: the Overview's "Fetch now" can run before any editor loaded this.
+  await loadListRouteCtx();
+  const url = before.url;
+  const route = listFetchRoute(config, url, listRouteCtx.overrides, profileId);
+  if (route.invalid) {
+    listFetchResults.set(profileId, { ok: false, text: route.invalid, at: Date.now() });
+    toast(`Update failed: ${route.invalid}`, 5000);
+    repaint();
+    return;
+  }
+  const named = routeNameFor(route);
+  const viaProxy = config.profiles.find((x) => x.id === route.targetId);
+  const signInBlocked =
+    named.via === 'proxy' && viaProxy?.kind === 'proxy' && hasCredentials(viaProxy) && authPermGranted === false;
+  const result = await fetchListBody(url, named, signInBlocked);
+  // The page's snapshot can be swapped out across that await — a popup write,
+  // a second options tab or a sync pull all reassign `config` — which orphans
+  // the profile captured before it. Writing to that one would drop the fetch on
+  // the floor while the toast claimed success, so re-find it by id the way the
+  // popup's commitConfig does.
+  const live = config.profiles.find((p) => p.id === profileId);
+  // Edited while the fetch was out: whatever came back belongs to the old
+  // address — a body to throw away, or a failure the new one may not share.
+  if (live?.kind === 'rulelist' && live.url !== url) {
+    listFetchResults.set(profileId, { ok: false, text: 'The address changed while the list was being fetched, so nothing was saved — press Update now again.', at: Date.now() });
+    toast('The address changed — press Update now again', 5000);
+    repaint();
+    return;
+  }
+  if (!result.ok) {
+    listFetchResults.set(profileId, { ok: false, text: result.why.detail, at: Date.now() });
+    toast(`Update failed: ${result.why.short}`, 5000);
+    repaint();
+    return;
+  }
   try {
-    const response = await fetch(before.url, { cache: 'no-cache' });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const text = await response.text();
-    if (!text.trim()) throw new Error('Empty response');
-    // Parsing is synchronous and sits on the PAC-compile path, so an unbounded
-    // body is an unbounded stall — refuse it here rather than store something
-    // the worker will choke on later.
-    if (text.length > RULE_LIST_MAX_BYTES) {
-      throw new Error(`List is too large (over ${RULE_LIST_MAX_BYTES / 1048576} MB)`);
-    }
-    // The page's snapshot can be swapped out across that await — a popup write,
-    // a second options tab or a sync pull all reassign `config` — which orphans
-    // the profile captured before it. Writing to that one would drop the fetch
-    // on the floor while the toast claimed success, so re-find it by id the way
-    // the popup's commitConfig does.
-    const live = config.profiles.find((p) => p.id === profileId);
     if (!live || live.kind !== 'rulelist') throw new Error('Profile no longer exists');
     const prevText = live.text;
     const prevUpdated = live.lastUpdated;
-    live.text = text;
+    live.text = result.text;
     live.lastUpdated = Date.now();
     try {
       await saveConfig(config);
@@ -1822,9 +2088,16 @@ async function refetchRuleList(profileId: string): Promise<void> {
       live.lastUpdated = prevUpdated;
       throw e;
     }
+    // A list that decides its own address can move its next fetch: say so, or
+    // "fetched directly" sits under a line that now says otherwise.
+    const next = routeNameFor(listFetchRoute(config, url, listRouteCtx.overrides, profileId));
+    const moved = fetchedVia(next) !== fetchedVia(named) ? ` The new list sends the next one ${fetchedVia(next)}.` : '';
+    listFetchResults.set(profileId, { ok: true, text: `Fetched ${fetchedVia(named)}.${moved}`, at: Date.now() });
     toast('List updated');
   } catch (e) {
-    toast(`Update failed: ${e instanceof Error ? e.message : e}`);
+    const message = e instanceof Error ? e.message : String(e);
+    listFetchResults.set(profileId, { ok: false, text: `The list arrived but couldn’t be saved: ${message}`, at: Date.now() });
+    toast(`Update failed: ${message}`, 5000);
   }
   repaint();
 }
@@ -1838,9 +2111,90 @@ function ruleListEditor(profile: RuleListProfile): HTMLElement {
     oninput: () => {
       profile.url = url.value.trim();
       refreshSizeWarn();
+      // Settled, not per keystroke: the line is a live region.
+      clearTimeout(routeTimer);
+      routeTimer = setTimeout(paintFetchRoute, 250);
+      // The last result was about the old address.
+      if (listFetchResults.delete(profile.id)) fetchResult.replaceChildren();
       scheduleSave();
     },
   }) as HTMLInputElement;
+
+  /*
+   * Where "Update now" — and the automatic update — will fetch this URL
+   * through. Not the OS route: the fetch is an ordinary request, so it takes
+   * whatever the active profile decides for the list's host (System is the
+   * only profile that hands it to the OS settings). Said here, before anyone
+   * presses the button, because a list host that is only reachable through a
+   * proxy needs a route there before its first fetch can succeed.
+   */
+  let routeTimer: ReturnType<typeof setTimeout> | undefined;
+  const fetchRoute = el('p', { class: 'fetch-route', ariaLive: 'polite' });
+  // The last Update now, in full: the toast says it in a line and is gone.
+  const fetchResult = el('div', { class: 'fetch-result' });
+  const last = listFetchResults.get(profile.id);
+  if (last) {
+    fetchResult.append(
+      el(
+        'p',
+        // status, not alert: the editor is rebuilt on every save, and an alert
+        // would announce a failure again each time.
+        { role: 'status' },
+        el('span', { class: `st ${last.ok ? 'good' : 'bad'}` }, last.ok ? 'Updated' : 'Update failed'),
+        ` ${relativeTime(last.at)}. ${last.text}`
+      )
+    );
+  }
+  fetchRoute.title = 'Fetches follow whichever profile is active when they run — Update now, or the automatic update.';
+  const paintFetchRoute = (): void => {
+    const r = listFetchRoute(config, url.value, listRouteCtx.overrides, profile.id);
+    if (r.invalid === '') {
+      fetchRoute.replaceChildren();
+      fetchRoute.hidden = true;
+      return;
+    }
+    fetchRoute.hidden = false;
+    if (r.invalid) {
+      fetchRoute.replaceChildren(el('span', { class: 'st warn' }, r.invalid));
+      return;
+    }
+    const ownLead: Array<Node | string> =
+      r.targetId === DIRECT
+        ? ['go ', el('b', {}, 'direct')]
+        : r.targetId === SYSTEM
+          ? ['use ', el('b', {}, 'your system’s proxy settings')]
+          : ['go through ', el('b', {}, nameFor(r.targetId))];
+    // Chrome's word on who holds the proxy comes first: while another extension
+    // or a policy does, Sockitt's own route is not the one a fetch takes.
+    if (listRouteCtx.control === 'controlled_by_other_extensions' || listRouteCtx.control === 'not_controllable') {
+      const other = listRouteCtx.control === 'controlled_by_other_extensions';
+      fetchRoute.replaceChildren(
+        el(
+          'span',
+          { class: 'st warn' },
+          other
+            ? 'Fetches use another extension’s proxy settings — it controls the browser’s proxy right now.'
+            : 'Fetches use the proxy this machine’s policy sets.'
+        ),
+        el('span', { class: 'meta' }, 'With Sockitt in control they would ', ...ownLead, ` — ${r.why}.`)
+      );
+      return;
+    }
+    const key = paintRoute(el('span', { class: `key${r.targetId === SYSTEM ? ' system' : ''}` }), lineColour(config, r.targetId));
+    const parts: Array<Node | string> = [key, el('span', {}, 'Fetches ', ...ownLead, ` — ${r.why}.`)];
+    if (r.selfRouted) {
+      parts.push(el('span', { class: 'meta' }, ' This list decides its own address, so a refresh that changes the list can change where the next one goes.'));
+    }
+    // A sign-in Sockitt may not answer holds the fetch at Chrome's prompt
+    // instead of failing it — the one way a fetch can hang without an error.
+    const via = config.profiles.find((x) => x.id === r.targetId);
+    if (via?.kind === 'proxy' && hasCredentials(via) && authPermGranted === false) {
+      parts.push(
+        el('span', { class: 'st warn' }, `${via.name} has a sign-in that Sockitt isn’t allowed to answer yet, so fetches through it will stop at a sign-in prompt — allow it under Sign-in in ${via.name}.`)
+      );
+    }
+    fetchRoute.replaceChildren(...parts);
+  };
 
   const format = el('select', { class: 'input' }) as HTMLSelectElement;
   format.append(
@@ -2008,6 +2362,12 @@ function ruleListEditor(profile: RuleListProfile): HTMLElement {
   const mapHolder = el('figure', { class: 'ed-map' }, editorMapSvg(profile));
   const repaintMap = (): void => mapHolder.replaceChildren(editorMapSvg(profile));
 
+  paintFetchRoute();
+  refreshListRoute = () => {
+    if (fetchRoute.isConnected) paintFetchRoute();
+  };
+  void loadListRouteCtx().then(() => refreshListRoute?.());
+
   return el(
     'div',
     { class: 'ed-pane' },
@@ -2019,14 +2379,15 @@ function ruleListEditor(profile: RuleListProfile): HTMLElement {
       el(
         'div',
         { class: 'pform-row url' },
-        field('URL', url),
+        field('URL', url, { extra: [fetchRoute] }),
         // The unit belongs under the control, not in the label: a two-line label
         // in a narrow column used to push this input off the URL input's baseline.
         field('Auto-update', interval, { extra: [el('span', { class: 'note' }, 'Hours · 0 = off')] })
       ),
       el('div', { class: 'rl-actions' }, field('Format', format), updateNow),
+      fetchResult,
       el('p', { class: 'note' },
-        'The URL host must allow cross-origin requests (raw.githubusercontent.com does). GFWList base64 payloads are decoded automatically.')
+        'Unless Sockitt can already read every site, the URL’s host must allow cross-origin requests — raw.githubusercontent.com does. GFWList base64 payloads are decoded automatically.')
     ),
     section(
       'Routing',
@@ -2331,9 +2692,6 @@ function settingsPanel(): HTMLElement {
     settingsGroup(
       'Behaviour',
       'Guard rails, and what Sockitt is allowed to look at.',
-      toggleRow('Guard proxy control', 'If another extension takes over the browser’s proxy settings, take them back, at most every 30 seconds.', s.revertExternal, (v) => {
-        s.revertExternal = v;
-      }),
       toggleRow(
         'Route badge',
         'The toolbar icon names the profile the current tab goes through. Sockitt reads the tab’s address to work it out locally; nothing is stored or sent. Asks once for “Read your browsing history”, which is what reading a tab’s address is called.',
@@ -3222,13 +3580,6 @@ const dashboardHost = {
     if (dashboardMounted()) repaintDashboard();
     void saveConfig(config).then(() => toast('Saved'));
   },
-  reapply: () => {
-    // saveConfigRaw, not saveConfig: the worker re-applies on any write to the
-    // config key, and this one is not an edit. Bumping rev would push a
-    // revision to every synced device to fix which extension owns the proxy on
-    // this machine — the same reasoning that keeps the startup profile raw.
-    void saveConfigRaw(config);
-  },
   createProxy: () => addProfile(newProxyProfile),
   requestAuth: () => requestAuthPermission(),
   requestExitIp: () => ensureExitIpPermission(),
@@ -3384,8 +3735,12 @@ void Promise.all([loadConfig(), loadUiPrefs()]).then(([c, prefs]) => {
     void loadTempRules(config.activeId, 'regular')
       .catch(() => [])
       .then((rules) => setOverrides(rules));
+    void loadListRouteCtx().then(() => refreshListRoute?.());
   };
   onTempRulesChanged(reloadOverrides);
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'session' && changes[CONTROL_KEY]) void loadListRouteCtx().then(() => refreshListRoute?.());
+  });
   // Flag settings that arrived without their permission — imported or synced
   // configs, profiles created before auth support, or a grant revoked from
   // chrome://extensions.

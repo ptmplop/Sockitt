@@ -64,7 +64,7 @@ More, once you need it
 • Connection tests — confirm a proxy is reachable and see its exit IP, country and latency, authentication included. Uses the same opt-in lookup as the exit-IP readout.
 • Aliases — point many rules at one alias, then retarget them all by editing the alias once.
 • Quick switch — cycle a chosen set of profiles from the toolbar button or a keyboard shortcut.
-• Plus a startup profile, a profile of its own for incognito windows, an optional per-tab route badge, an optional tab reload after switching, a light or dark theme, and a guard that takes proxy control back if another extension grabs it.
+• Plus a startup profile, a profile of its own for incognito windows, an optional per-tab route badge, an optional tab reload after switching, a light or dark theme, and a clear warning — naming where to look — when another extension takes over the browser's proxy settings.
 • And a full manual built into the options page, so the answer is never on somebody else's website.
 
 

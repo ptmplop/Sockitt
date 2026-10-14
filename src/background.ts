@@ -25,6 +25,7 @@ import {
 } from './shared/state';
 import {
   ERROR_KEY,
+  ProxyAlert,
   ProxyErrorSource,
   ProxyRef,
   asProxyAlert,
@@ -55,11 +56,16 @@ import {
 import { clearPendingUpdate, savePendingUpdate } from './shared/update';
 
 const DANGER = '#f5576c';
-const REVERT_COOLDOWN_MS = 30_000;
 const ALARM_PREFIX = 'rl:';
 
-let lastRevert = 0;
 let lastActiveId: string | undefined;
+/**
+ * Who controls Chrome's proxy setting, as last seen. Only a change between
+ * "another extension" and anything else repaints the toolbar: Sockitt's own
+ * applies paint as they go, but a takeover — or the other extension being
+ * turned off — arrives with no apply of ours to paint it.
+ */
+let lastControlLevel: string | null = null;
 /** The incognito scope's profile as last applied — see the reload in applyActiveInner. */
 let lastIncognitoId: string | undefined;
 /**
@@ -252,7 +258,9 @@ async function applyActiveInner(signal = true): Promise<void> {
 
   const current = await chrome.proxy.settings.get({});
   await publishControl(current.levelOfControl);
+  lastControlLevel = current.levelOfControl ?? 'unknown';
   if (current.levelOfControl === 'controlled_by_other_extensions') {
+    await clearAllTabBadges();
     await chrome.action.setBadgeBackgroundColor({ color: DANGER });
     await chrome.action.setBadgeText({ text: '!' });
     await chrome.action.setTitle({
@@ -327,6 +335,51 @@ async function publishControl(level: string | undefined): Promise<void> {
   await chrome.storage.session
     .set({ [CONTROL_KEY]: { level: level ?? 'unknown', at: Date.now() } })
     .catch(() => undefined);
+}
+
+/** Who controls the proxy: this worker's memory, or Chrome when it has none yet. */
+async function currentControlLevel(): Promise<string | undefined> {
+  if (lastControlLevel !== null) return lastControlLevel;
+  return chrome.proxy.settings
+    .get({})
+    .then((d) => d.levelOfControl)
+    .catch(() => undefined);
+}
+
+/**
+ * Follow a change of control: publish it for the pages, and repaint the
+ * toolbar when it moved to or from another extension.
+ *
+ * Nothing here tries to take the setting back. Chrome gives the proxy to the
+ * most recently installed extension that sets one, whoever set it last, and
+ * "controlled_by_other_extensions" means exactly that an extension of higher
+ * precedence holds it — no set() of ours can win (measured, Chromium 155). When
+ * that extension is turned off or lets go, Chrome puts Sockitt's own stored
+ * value back by itself, with nothing to re-apply.
+ */
+async function followControl(level: string | undefined): Promise<void> {
+  // The toolbar outlives the worker: a worker woken by the very change that
+  // ends a takeover has no memory of it, but the '!' an earlier worker painted
+  // is still showing. The level that worker published is its memory — session
+  // storage is cleared by exactly what resets the badge (a restart, a reload).
+  let was = lastControlLevel;
+  if (was === null) {
+    const stored = (await chrome.storage.session.get(CONTROL_KEY).catch(() => ({}) as Record<string, unknown>)) as Record<
+      string,
+      { level?: unknown } | undefined
+    >;
+    const prev = stored[CONTROL_KEY]?.level;
+    was = typeof prev === 'string' ? prev : null;
+  }
+  await publishControl(level);
+  lastControlLevel = level ?? 'unknown';
+  const other = level === 'controlled_by_other_extensions';
+  const wasOther = was === 'controlled_by_other_extensions';
+  if (was === null ? !other : other === wasOther) return;
+  // A tab-scoped route badge outranks the global '!', and reads out a route
+  // that is not in force: take them down while another extension holds it.
+  if (other) await clearAllTabBadges();
+  await restoreBadgeAfterAlert();
 }
 
 /* ---------------- proxy failure reporting ---------------- */
@@ -413,15 +466,20 @@ async function raiseProxyError(input: {
     // Non-fatal proxy errors are recoverable warnings; they belong in the log
     // and the popup, but they do not earn a red toolbar badge on their own.
     if (!alert.fatalStreak) return;
-    const suffix = alert.streak > 1 ? ` ×${alert.streak}` : '';
-    await Promise.allSettled([
-      chrome.action.setBadgeBackgroundColor({ color: DANGER }),
-      chrome.action.setBadgeText({ text: badgeTextFor(alert.streak) }),
-      chrome.action.setTitle({ title: `Sockitt — proxy error${suffix}: ${errorSummaryLine(alert)}` }),
-    ]);
+    await paintAlert(alert);
   } catch {
     // Reporting a failure must never itself become a failure path.
   }
+}
+
+/** The toolbar's account of a live, fatal incident: its count and its error. */
+async function paintAlert(alert: ProxyAlert): Promise<void> {
+  const suffix = alert.streak > 1 ? ` ×${alert.streak}` : '';
+  await Promise.allSettled([
+    chrome.action.setBadgeBackgroundColor({ color: DANGER }),
+    chrome.action.setBadgeText({ text: badgeTextFor(alert.streak) }),
+    chrome.action.setTitle({ title: `Sockitt — proxy error${suffix}: ${errorSummaryLine(alert)}` }),
+  ]);
 }
 
 /**
@@ -476,9 +534,16 @@ async function restoreBadgeAfterAlert(): Promise<void> {
       });
       return;
     }
-    if (await loadProxyAlert()) return; // a new failure landed; it owns the badge
+    // A live fatal incident owns the badge: paint it, rather than leave whatever
+    // is showing — after a takeover ends, that is the takeover's '!' and title.
+    // A non-fatal one never paints, so it has no claim; fall through and clear.
+    const alert = await loadProxyAlert();
+    if (alert?.fatalStreak) {
+      await paintAlert(alert);
+      return;
+    }
     await chrome.action.setBadgeText({ text: '' });
-    await chrome.action.setTitle({ title: `Sockitt — ${label}` });
+    await chrome.action.setTitle({ title: (await actionIsPinned()) ? `Sockitt — ${label}` : 'Sockitt' });
     await refreshActiveTabBadge(config);
   } catch {
     // Storage or the action API unavailable — the next apply repaints anyway.
@@ -1305,6 +1370,9 @@ async function updateTabBadge(tabId: number, config: Config | null = cachedConfi
     // toolbar: fall through and keep reading out the true route.
     const alert = await loadProxyAlert();
     if (alert?.fatalStreak) return void (await clear());
+    // The same while another extension holds the proxy: the global '!' says
+    // so, and a route badge would read out a Sockitt route that is not in force.
+    if ((await currentControlLevel()) === 'controlled_by_other_extensions') return void (await clear());
     const tab = await chrome.tabs.get(tabId);
     // An incognito tab is routed by the incognito scope, so it has to be read
     // out from that scope's profile and that scope's overrides — resolving it
@@ -1329,6 +1397,11 @@ async function updateTabBadge(tabId: number, config: Config | null = cachedConfi
     // there for good, with the feature off and nothing left to clear it. Recheck
     // against the live config rather than the snapshot this resolved against.
     if (cachedConfig && !cachedConfig.settings.badgeResult) return void (await clear());
+    // The same for the sweeps a takeover and a fatal incident make: each runs
+    // once, so a paint resolved before either landed must not go up after it —
+    // it would hide the '!' on this tab until its next navigation.
+    if ((await currentControlLevel()) === 'controlled_by_other_extensions') return void (await clear());
+    if ((await loadProxyAlert())?.fatalStreak) return void (await clear());
     // One await, not two: these are the badge's only writes, and issuing them
     // separately let a superseded invocation land its colour after a newer one's
     // text, leaving one profile's initials on another's colour.
@@ -1379,6 +1452,15 @@ void chrome.storage.session
       void queueApply();
     }
   })
+  .catch(() => undefined);
+
+// Who controls the proxy, on every worker start. Disabling and re-enabling
+// Sockitt clears session storage and runs no apply, so without this the
+// Overview's warning and the toolbar's "!" were missing for as long as another
+// extension held the setting.
+void chrome.proxy.settings
+  .get({})
+  .then((d) => followControl(d.levelOfControl))
   .catch(() => undefined);
 
 // Re-apply the incognito scope on every worker start. Enabling "Allow in
@@ -1614,20 +1696,19 @@ chrome.storage.onChanged.addListener((changes, area) => {
   void clearAllTabBadges();
 });
 
-chrome.proxy.settings.onChange.addListener((details) => {
-  // Published on every change, not just the hostile one: the dashboard's
-  // control pill has to be able to go back to green when the other extension
-  // lets go, and onChange is the only event that says so.
-  void publishControl(details.levelOfControl);
-  if (details.levelOfControl !== 'controlled_by_other_extensions') return;
-  void (async () => {
-    const config = await loadConfig();
-    if (!config.settings.revertExternal) return;
-    const now = Date.now();
-    if (now - lastRevert < REVERT_COOLDOWN_MS) return;
-    lastRevert = now;
-    await queueApply();
-  })();
+chrome.proxy.settings.onChange.addListener(() => {
+  // Followed on every change, not just the hostile one: the Overview's warning
+  // and the toolbar's "!" have to go again when the other extension lets go, and
+  // onChange is the only event that says so. It wakes a stopped worker too.
+  // The level is read back rather than taken from the event: with incognito
+  // allowed, the incognito profile's changes arrive here as well, and a proxy
+  // another extension sets for incognito alone would read as a takeover of
+  // every window (measured, Chromium 155). The regular scope is what this
+  // follows, as the apply and restoreBadgeAfterAlert do.
+  void chrome.proxy.settings
+    .get({})
+    .then((d) => followControl(d.levelOfControl))
+    .catch(() => undefined);
 });
 
 // A tab-scoped icon can only be set on a tab that exists, so each incognito tab
@@ -1698,12 +1779,20 @@ chrome.proxy.onProxyError.addListener((details) => {
   // through the candidate proxy — otherwise a late event paints a false
   // failure over the already-restored working configuration.
   if (testInFlight || Date.now() < suppressProxyErrorsUntil) return;
-  // error and details are kept apart, not concatenated: the code is what the
-  // options page explains and groups on, the detail is the PAC message beneath.
-  void raiseProxyError({
-    source: 'proxy',
-    error: details.error || 'Proxy error',
-    details: details.details ?? '',
-    fatal: details.fatal,
-  });
+  void (async () => {
+    // While another extension (or a policy) holds the proxy, these are its
+    // proxy's failures: recording them would blame a Sockitt route that carries
+    // no traffic, and replace the toolbar's takeover note with an error about
+    // the wrong proxy.
+    const level = await currentControlLevel();
+    if (level === 'controlled_by_other_extensions' || level === 'not_controllable') return;
+    // error and details are kept apart, not concatenated: the code is what the
+    // options page explains and groups on, the detail is the PAC message beneath.
+    await raiseProxyError({
+      source: 'proxy',
+      error: details.error || 'Proxy error',
+      details: details.details ?? '',
+      fatal: details.fatal,
+    });
+  })();
 });

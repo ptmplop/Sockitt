@@ -363,6 +363,17 @@
 .rule-default-t { grid-column: 3 / 5; padding-left: 11px; font-size: 14px; }
 
 /* The rule list's source. */
+/* Under its URL: where fetches of it go right now, and why. */
+.fetch-route { margin: 0; font-size: 13px; line-height: 1.5; color: var(--ink-2); }
+.fetch-route[hidden] { display: none; }
+.fetch-route > .key { margin-right: 8px; vertical-align: middle; }
+.fetch-route b { color: var(--ink); font-weight: 600; }
+.fetch-route > .st { display: flex; margin-top: 4px; font-weight: 500; }
+.fetch-route > .st:first-child { margin-top: 0; }
+.fetch-route > .st + .meta { display: block; margin-top: 2px; }
+.fetch-result:empty { display: none; }
+.fetch-result > p { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--ink-2); }
+.fetch-result .st { display: inline-flex; margin-right: 2px; vertical-align: -2px; }
 .rl-actions { display: flex; align-items: flex-end; gap: 12px; }
 .rl-actions > .field { flex: 1; }
 .rl-source { min-height: 170px; max-height: 380px; font-size: 12.5px; }
