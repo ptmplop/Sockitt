@@ -4,8 +4,12 @@
   <meta charset="utf-8">
   <title>Sockitt</title>
   <!-- Preloaded so the first paint is already in the bundled face (theme.css). -->
-  <link rel="preload" href="fonts/dm-sans.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="preload" href="fonts/jetbrains-mono.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/archivo.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/plex-mono-400.woff2" as="font" type="font/woff2" crossorigin>
+  <!-- The tab's host and the strip's rule number are set in the 600 weight. -->
+  <link rel="preload" href="fonts/plex-mono-600.woff2" as="font" type="font/woff2" crossorigin>
+  <!-- Sets this device's theme before the first paint; see the file. -->
+  <script src="theme-boot.js"></script>
   <link rel="stylesheet" href="theme.css">
   <link rel="stylesheet" href="popup.css">
 </head>

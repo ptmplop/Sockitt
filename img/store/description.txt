@@ -40,10 +40,10 @@ Manage the tab you are on
 
 See where your traffic goes
 
-• The options page opens on an Overview: the active profile, the hop chain it produces, and the exit IP measured through it.
-• A routing map draws how your profiles feed into each other with the live path picked out, so an orphaned profile or an accidental route to Direct is something you can see rather than something you have to work out.
-• A configuration health check finds what a rule table hides: patterns that will not compile, rules buried under a catch-all so they can never run, duplicates with conflicting targets, credentials without the permission that answers the challenge, a rule list that has stopped updating, a profile that routes back to itself. Each finding carries the action that fixes it.
-• Optionally, a breakdown of where every open tab routes, resolved locally through your own rules.
+• The options page opens on an Overview that draws your active profile as a track map: requests enter on the left, every rule is a numbered junction in the order rules are tried, and each destination is a line in its profile's own colour, ending where that traffic exits.
+• Paste any URL and the map lights the path that one request would take, with a sentence naming the rule that takes it. Nothing is sent.
+• A configuration check finds what a rule table hides: patterns that will not compile, rules buried under a catch-all so they can never run, duplicates with conflicting targets, credentials without the permission that answers the challenge, a rule list that has stopped updating, a profile that routes back to itself. Each finding carries the action that fixes it.
+• Optionally, the number of open tabs on each line, resolved locally through your own rules, and the exit IP measured through the active route.
 • Everything on this page is read back from your own configuration. Nothing here watches your browsing.
 
 
@@ -53,18 +53,18 @@ Built for trust
 • Every extra capability is opt-in, and is requested only when you switch on the feature that needs it.
 • No analytics, no tracking, no ads. With IP address lookups off, which is the default, Sockitt contacts no developer-operated server at all.
 • When a proxy is unreachable its requests fail rather than quietly retrying direct, so a dead proxy can never leak the traffic you meant to route through it.
-• And you are told: a red mark appears on the toolbar icon, and a Proxy errors page names the error, explains it, and says which proxy was carrying traffic. The mark clears itself once the failures stop.
+• And you are told: a red mark appears on the toolbar icon, and the options page's Activity › Proxy errors names the error, explains it, and says which proxy was carrying traffic. The mark clears itself once the failures stop.
 • Sync is optional and goes to your own browser account. Proxy credentials are never synced — you enter those on each machine.
 
 
 More, once you need it
 
-• Route inspector — trace any URL through your configuration with the same resolver real routing uses, and see which rule fired, the chain it walked, and where it landed.
-• Network monitor — where the inspector answers for one URL you type, this answers for every request the browser actually makes and the profile your rules send each one through, including the subresources that never reach the address bar. It records only while its page is open, writes nothing to disk, and its Stop really detaches. Off until you open it.
+• Inspector — trace any URL through your configuration with the same resolver real routing uses: the map with its path lit, and every step written out — which rule fired, each profile it passed through, and where it landed.
+• Activity — where the Inspector answers for one URL you type, this answers for every request the browser actually makes: the line each one took and how your rules decided it, including the subresources that never reach the address bar. Open a request to see its track and test its proxy. It records only while its page is open, writes nothing to disk, and its Stop really detaches. Off until you open it.
 • Connection tests — confirm a proxy is reachable and see its exit IP, country and latency, authentication included. Uses the same opt-in lookup as the exit-IP readout.
 • Aliases — point many rules at one alias, then retarget them all by editing the alias once.
 • Quick switch — cycle a chosen set of profiles from the toolbar button or a keyboard shortcut.
-• Plus a startup profile, a profile of its own for incognito windows, an optional per-tab route badge, an optional tab reload after switching, and a guard that takes proxy control back if another extension grabs it.
+• Plus a startup profile, a profile of its own for incognito windows, an optional per-tab route badge, an optional tab reload after switching, a light or dark theme, and a guard that takes proxy control back if another extension grabs it.
 • And a full manual built into the options page, so the answer is never on somebody else's website.
 
 

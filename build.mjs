@@ -45,6 +45,7 @@ async function copyStatic() {
   await Promise.all([
     cp('static/manifest.json', 'dist/manifest.json'),
     cp('src/theme.css', 'dist/theme.css'),
+    cp('src/theme-boot.js', 'dist/theme-boot.js'),
     cp('src/popup/popup.html', 'dist/popup.html'),
     cp('src/popup/popup.css', 'dist/popup.css'),
     cp('src/options/options.html', 'dist/options.html'),
@@ -55,9 +56,14 @@ async function copyStatic() {
     cp('node_modules/flag-icons/flags/4x3', 'dist/flags', { recursive: true }),
     // The two UI faces (SIL OFL 1.1) with their licences, as the OFL asks.
     // Vendored subsets, not an npm package — static/fonts/README.md says why.
-    ...['dm-sans.woff2', 'jetbrains-mono.woff2', 'DM-Sans-OFL.txt', 'JetBrains-Mono-OFL.txt'].map((f) =>
-      cp(`static/fonts/${f}`, `dist/fonts/${f}`)
-    ),
+    ...[
+      'archivo.woff2',
+      'plex-mono-400.woff2',
+      'plex-mono-500.woff2',
+      'plex-mono-600.woff2',
+      'Archivo-OFL.txt',
+      'IBM-Plex-Mono-OFL.txt',
+    ].map((f) => cp(`static/fonts/${f}`, `dist/fonts/${f}`)),
   ]);
 }
 

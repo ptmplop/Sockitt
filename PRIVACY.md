@@ -125,8 +125,8 @@ ever sent to the developer or to any third party.
 
 ## What the extension does not do
 
-- It does not collect or transmit your browsing history. The Network monitor
-  shows requests as they happen on its own page, but records nothing to disk,
+- It does not collect or transmit your browsing history. Activity (the
+  request monitor) shows requests as they happen on its own page, but records nothing to disk,
   sends nothing anywhere, and stops when you leave the page.
 - It does not read, record, or modify the content of the pages you visit.
 - It does not contain analytics, telemetry, crash reporting, or advertising.
@@ -154,10 +154,10 @@ the feature that needs them: `tabs` + `webNavigation` (the per-tab route badge
 asks for both together — Chrome shows them as the single "Read your browsing
 history" prompt it already showed for `tabs` alone; `webNavigation` is what
 tells Sockitt that a page has started loading in a tab, and `tabs` on its own is
-also what the Overview's tab breakdown reads), `webRequest` +
+also what the Overview's count of tabs on each line reads), `webRequest` +
 `webRequestAuthProvider` + host access (to
 answer HTTP/HTTPS proxy authentication challenges with your saved credentials,
-and — separately — for the Network monitor to observe requests while its page
+and — separately — for Activity's request monitor to observe requests while its page
 is open), and access to
 `ipconfig.is` (only for IP address lookups — the exit-IP line and connection
 test — which are off by default). Sockitt requests no host permissions by

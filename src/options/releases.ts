@@ -27,6 +27,23 @@ interface Release {
 
 const RELEASES: Release[] = [
   {
+    from: '1.27.0',
+    date: '14 October 2026',
+    title: 'Every route drawn as a line you can follow',
+    notes: [
+      'Sockitt has been redesigned around one idea: colour means route. A profile’s colour is the line its traffic runs on — on the Overview’s map, beside its name in every list, in the activity log and in the popup — and everything that is not a route is graphite and white. Status is always an icon and a word.',
+      'The Overview draws the active profile as a track map. Requests enter on the left; each rule is a numbered junction, in the order rules are tried, and a request that matches leaves onto its destination’s line. Overrides set from the popup are a pinned junction ahead of rule 1, a proxy’s bypass list is a diamond onto Direct, and a rule that is off is dashed. Paste an address into Trace a URL and the map lights the path that one request would take, with a sentence saying which rule takes it.',
+      'A bar across the top replaces the sidebar — Overview, Profiles, Activity, Inspector, Settings, Docs — with the active profile on its right, switchable from any page. Profiles have a page of their own: the list beside the editor, and a New menu. Every editor opens on a small map of that profile, and an Auto switch’s rules are a numbered table that matches it: point at a rule and its junction lights up.',
+      'Activity brings the network monitor and the proxy-error log together. Each request shows the line it took and how it was decided — rule 2, default, override, bypass — and a bar shows the mix of routes. Open a request to see its track, why it went where it did, what came back, and to test its proxy or follow it in the Inspector.',
+      'The popup is one column now. On top, the tab you are on, drawn as a strip of track — the junction that decided it and the line it leaves on — with the reason underneath; then this site’s rule and override as two compact rows; then every profile, numbered, so the keys 1 to 9 switch without the mouse. Past a dozen profiles a filter appears. From a plain proxy, New auto switch opens Sockitt on a new one, ready to fill in.',
+      'The Inspector draws the full map of whichever profile you start from, lights the path, and writes out every step to where the request lands.',
+      'Settings are grouped — Switching, Behaviour, Appearance, Sync, Backup — and anything waiting for your permission is listed at the top under Needs your OK, and counted on the Settings tab, rather than repeated as a banner on every page. Export, import and reset have moved into Backup.',
+      'A Theme setting: match the system, or keep Sockitt light or dark. It is kept on this device only and never synced.',
+      'Every profile colour is adjusted for contrast in both themes, so a mint or an amber profile stays legible: lines are drawn at 3:1 or better against the page, and names in their own colour at 4.5:1.',
+      'New typefaces — Archivo for the interface and IBM Plex Mono for anything you might paste — both shipped inside the extension, so nothing is fetched to show them.',
+    ],
+  },
+  {
     from: '1.26.0',
     to: '1.26.1',
     date: '13 October 2026',
@@ -329,16 +346,16 @@ export function releasesPanel(onBack: () => void): HTMLElement {
     const current = running !== '' && seriesOf(r.from) === running;
     return el(
       'article',
-      { class: `card panel rel-card${current ? ' current' : ''}` },
+      { class: `rel${current ? ' current' : ''}` },
       el(
         'div',
         { class: 'rel-head' },
         el('span', { class: 'rel-ver' }, r.to ? `${r.from} – ${r.to}` : r.from),
-        current ? el('span', { class: 'rel-now' }, 'You are here') : null,
-        el('span', { class: 'rel-date' }, r.date)
+        el('span', { class: 'rel-date' }, r.date),
+        current ? el('span', { class: 'rel-now' }, 'You are here') : null
       ),
       el('h3', {}, r.title),
-      el('ul', { class: 'rel-list' }, ...r.notes.map((n) => el('li', {}, n)))
+      el('ul', { class: 'rel-notes' }, ...r.notes.map((n) => el('li', {}, n)))
     );
   };
 
@@ -346,27 +363,31 @@ export function releasesPanel(onBack: () => void): HTMLElement {
     'div',
     { class: 'pane docs releases' },
     el(
-      'div',
-      { class: 'doc-head' },
-      el('h2', { class: 'doc-title' }, 'Release notes'),
+      'header',
+      { class: 'page-head' },
       el(
-        'button',
-        {
-          class: 'doc-link',
-          type: 'button',
-          onclick: (e: Event) => {
-            e.preventDefault();
-            onBack();
+        'div',
+        { class: 'page-head-text' },
+        el('h1', { class: 't-title' }, 'Release notes'),
+        el('p', { class: 'ink2' }, 'Grouped by release series — a run of patches that shared a theme. Newest first.')
+      ),
+      el(
+        'div',
+        { class: 'page-head-acts' },
+        el(
+          'button',
+          {
+            class: 'btn',
+            type: 'button',
+            onclick: (e: Event) => {
+              e.preventDefault();
+              onBack();
+            },
           },
-        },
-        '← Documentation'
+          'Back to Docs'
+        )
       )
     ),
-    el(
-      'p',
-      { class: 'doc-p rel-intro' },
-      'Grouped by release series — a run of patches that shared a theme. Newest first.'
-    ),
-    ...RELEASES.map(entry)
+    el('div', { class: 'rel-list-all' }, ...RELEASES.map(entry))
   );
 }

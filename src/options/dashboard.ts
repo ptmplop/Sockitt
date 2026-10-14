@@ -1,14 +1,9 @@
-import { avatarEl, builtinTile, initialsFor, textColorFor } from '../shared/avatar';
-import { EXIT_IP_PERMS, ExitInfo, checkExitIp, flagSrc } from '../shared/exitip';
-import {
-  HealthIssue,
-  auditConfig,
-  listedEntryCount,
-  livePath,
-  ruleStats,
-} from '../shared/health';
+import { avatarEl, builtinTile } from '../shared/avatar';
+import { BUILTIN_FILL, paintRoute } from '../shared/colour';
+import { EXIT_IP_PERMS, EXIT_IP_URL, ExitInfo, checkExitIp, flagSrc } from '../shared/exitip';
+import { HealthIssue, auditConfig } from '../shared/health';
 import { ProxyAlert, ProxyErrorEntry, errorHeadline } from '../shared/errors';
-import { pacRequestUrl, resolveRoute } from '../shared/match';
+import { hostLooksReal, pacRequestUrl, resolveRoute } from '../shared/match';
 import { parseRuleList } from '../shared/rulelist';
 import {
   APPLIED_KEY,
@@ -17,36 +12,43 @@ import {
   TEST_KEY,
   TEST_RESULT_KEY,
   loadHistory,
+  loadTempRules,
 } from '../shared/state';
 import { tabTarget } from '../shared/tabs';
 import {
   AUTH_PERMS,
   Config,
   DIRECT,
-  KIND_LABEL,
-  PROFILE_KINDS,
   Profile,
   ProxyProfile,
   SCHEME_LABELS,
   SYSTEM,
+  SwitchRule,
   TABS_PERMS,
   profileById,
-  referencedTargets,
 } from '../shared/types';
-import { el, relativeTime, svg, toast } from '../shared/ui';
+import { el, icon, relativeTime, toast } from '../shared/ui';
+import { FULL, RULE_LABEL, YardLayout, YardTrace, colourOf, layoutYard, traceYard } from '../shared/yard';
+import { yardSvg } from './yardview';
 
 /**
- * The Overview page — the options tab's landing surface.
+ * The Overview — the options tab's landing page.
  *
- * Everything here is derived: the dashboard owns no state of its own and writes
- * nothing except through the host callbacks below. That is what lets it be
- * repainted wholesale from a storage event without eating an edit in progress —
- * there is no edit in progress to eat, apart from the URL tester, whose card
- * deliberately does not participate in repaints.
+ * It answers one question first, the way the track map draws it: where is
+ * traffic going right now? The active profile at display size; under it the
+ * map of how that profile routes, with a field to trace any URL along it and,
+ * at the end of each line, the destination with its open tabs, its latency and
+ * — for the route ipconfig.is itself takes — the exit address. Below the map,
+ * what needs attention and what this session has done.
+ *
+ * Everything here is derived: the page owns no state of its own and writes
+ * nothing except through the host callbacks, which is what lets it be
+ * repainted wholesale from any storage event. The one exception is the trace
+ * field, which is never rebuilt, so a storage event cannot take a half-typed
+ * URL away.
  */
 export interface DashboardHost {
-  /** The page's live config snapshot. A getter, not a value: render() rebuilds
-   *  the panel but storage repaints do not, and a captured object would go stale. */
+  /** The page's live config snapshot. A getter: a captured object would go stale. */
   config: () => Config;
   alert: () => ProxyAlert | null;
   errorLog: () => ProxyErrorEntry[];
@@ -56,11 +58,7 @@ export interface DashboardHost {
   activate: (id: string) => void;
   /** Persist a config mutation made from here. */
   save: () => void;
-  /**
-   * Re-hand the current configuration to the browser WITHOUT marking it edited.
-   * Reclaiming proxy control is a local act; a revision bump would push it to
-   * every synced device for a problem that concerns this machine alone.
-   */
+  /** Re-hand the configuration to the browser WITHOUT marking it edited. */
   reapply: () => void;
   /** Create a proxy profile and open its editor. */
   createProxy: () => void;
@@ -70,1190 +68,619 @@ export interface DashboardHost {
   requestExitIp: () => Promise<boolean>;
   /** Refetch a rule list by id (shared with the rule-list editor). */
   refetchRuleList: (profileId: string) => Promise<void>;
+  /** Open the inspector with a URL already in it. */
+  inspect: (url: string) => void;
+  /** Settings that are on but inert until the user acts — listed under Needs attention. */
+  asks: () => PermAsk[];
+}
+
+/**
+ * A setting that is switched on but cannot work until the user does something
+ * — a grant only they can give, or a step no extension API can take. options.ts
+ * finds them; the Overview and Settings list them.
+ */
+export interface PermAsk {
+  id: string;
+  tone: 'warn' | 'info';
+  /** A theme.css icon name. */
+  icon: string;
+  title: string;
+  body: string;
+  action?: { label: string; run: () => void };
+}
+
+export function askRow(ask: PermAsk): HTMLElement {
+  return el(
+    'li',
+    { class: `todo-${ask.tone}` },
+    icon(ask.icon),
+    el('div', {}, el('h3', {}, ask.title), el('p', {}, ask.body)),
+    ask.action ? el('button', { class: 'btn sm', type: 'button', onclick: ask.action.run }, ask.action.label) : el('span')
+  );
 }
 
 let host: DashboardHost;
 let root: HTMLElement | null = null;
-/** One repaint function per card. Rebuilt whenever the panel is constructed. */
+/** One repaint function per section, and the node each repaints. */
 let refreshers: Array<() => void> = [];
-/** The card each refresher repaints, by index; the head line's refresher has none. */
-let cardNodes: HTMLElement[] = [];
-/**
- * Bumped on every panel build. Async card fills compare against it before
- * touching the DOM, so a permission check or a tab query that resolves after
- * the user has navigated away cannot paint into a detached tree.
- */
+let sectionNodes: Array<HTMLElement | null> = [];
+/** Bumped per build, so a late async answer cannot paint into a detached tree. */
 let generation = 0;
-/** Cached so a repaint (every few seconds) does not re-run the exit lookup. */
+
+/* exit lookup — cached so a repaint does not re-run it */
 let exitInfo: ExitInfo | null = null;
 let exitError: string | null = null;
 let exitAt = 0;
 let exitBusy = false;
-/** Identifies the newest lookup, so an overtaken one cannot become the answer. */
 let exitSeq = 0;
-/** When the in-flight lookup left — compared against the apply it must postdate. */
 let exitStartedAt = 0;
-/** The profile the cached measurement belongs to — see invalidateExit. */
 let exitForId = '';
 
 const REL_TICK_MS = 30_000;
 let relTimer: ReturnType<typeof setInterval> | undefined;
 
-/* ---------------- shared bits ---------------- */
+/** Who Chrome says owns the proxy — surfaced only when it is not us. */
+let controlLevel = '';
+let authGranted = false;
+let history: ActivationEntry[] = [];
+let appliedAt = 0;
+/** -1 not measured yet, -2 the API would not say. */
+let syncBytes = -1;
 
-const ICON = {
-  shield:
-    '<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5v6c0 5 3.4 9.4 8 11 4.6-1.6 8-6 8-11V5z"/></svg>',
-  globe:
-    '<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18"/></svg>',
-  you:
-    '<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 21h8M12 18v3"/></svg>',
-  lock:
-    '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>',
-};
+/** The URL in the trace field. Module scope, so it survives every rebuild. */
+let traceText = '';
+/** Per-site overrides on the active profile (regular windows) — they are junction 0. */
+let overrides: SwitchRule[] = [];
 
-/** Neutral display record for a routing node: a profile, or Direct / System. */
-interface NodeInfo {
-  id: string;
-  name: string;
-  color: string;
-  initials: string;
-  /** Second line — an endpoint, or what the profile is. */
-  sub: string;
-  builtin: boolean;
+/** Tabs per destination on the map, by yard target id; null until counted or without access. */
+let tally: Map<string, number> | null = null;
+let tabsGranted: boolean | null = null;
+let tabsSeq = 0;
+
+/** The last connection test per proxy, so a verdict outlives the 30 s repaint. */
+interface TestVerdict {
+  ok: boolean;
+  ip?: string;
+  iso?: string;
+  country?: string;
+  ms?: number;
+  error?: string;
+  at: number;
 }
+const verdicts = new Map<string, TestVerdict>();
+const testing = new Set<string>();
+let verdictsWired = false;
 
-/** Matches .avatar.builtin in theme.css, so Direct reads the same everywhere. */
-const BUILTIN_COLOR = '#5c6079';
+/* ---------------- naming ---------------- */
 
-function nodeInfo(config: Config, id: string): NodeInfo {
-  if (id === DIRECT) {
-    return { id, name: 'Direct', color: BUILTIN_COLOR, initials: 'D', sub: 'no proxy', builtin: true };
-  }
-  if (id === SYSTEM) {
-    return { id, name: 'System', color: BUILTIN_COLOR, initials: 'S', sub: 'OS settings', builtin: true };
-  }
-  const p = profileById(config, id);
-  if (!p) {
-    return { id, name: 'Unknown', color: BUILTIN_COLOR, initials: '?', sub: 'missing', builtin: true };
-  }
-  return {
-    id,
-    name: p.name,
-    color: p.color,
-    initials: initialsFor(p),
-    sub: subtitleFor(config, p),
-    builtin: false,
-  };
-}
-
-/**
- * A target's display name and nothing else.
- *
- * subtitleFor MUST use this rather than nodeInfo: nodeInfo calls subtitleFor,
- * so an alias pointing at an alias that points back would recurse until the
- * stack gave out. A cyclic configuration is exactly the kind this page exists
- * to show you, so it has to survive being drawn.
- */
 function nameOf(config: Config, id: string): string {
   if (id === DIRECT) return 'Direct';
   if (id === SYSTEM) return 'System';
   return profileById(config, id)?.name ?? 'Unknown';
 }
 
-function subtitleFor(config: Config, p: Profile): string {
+function ruleCount(n: number): string {
+  return `${n} rule${n === 1 ? '' : 's'}`;
+}
+
+/** The line under the active profile's name: what kind of thing it is, in a sentence. */
+function summaryOf(config: Config, id: string): Array<Node | string> {
+  if (id === DIRECT) return ['No proxy — every request goes straight out'];
+  if (id === SYSTEM) return ['Your operating system’s proxy settings decide'];
+  const p = profileById(config, id);
+  if (!p) return ['Unknown profile'];
+  const dest = (target: string): HTMLElement =>
+    paintRoute(el('b', { class: 'rname' }, nameOf(config, target)), colourOf(config, target));
   switch (p.kind) {
     case 'proxy':
-      return `${SCHEME_LABELS[p.scheme]} ${p.host || '(no host)'}:${p.port}`;
+      return [
+        `${SCHEME_LABELS[p.scheme]} proxy · `,
+        el('span', { class: 'mono' }, `${p.host || '(no host)'}:${p.port}`),
+        p.bypass.length ? ` · bypasses ${p.bypass.length} entr${p.bypass.length === 1 ? 'y' : 'ies'}` : '',
+      ];
     case 'switch': {
       const on = p.rules.filter((r) => r.enabled).length;
-      return `${on} rule${on === 1 ? '' : 's'} · default ${nameOf(config, p.defaultTargetId)}`;
+      return [
+        `Auto switch · ${on === p.rules.length ? ruleCount(on) : `${on} of ${ruleCount(p.rules.length)} on`} · everything else goes `,
+        dest(p.defaultTargetId),
+      ];
     }
     case 'rulelist': {
       const n = parseRuleList(p.format, p.text).count;
-      return `${n.toLocaleString()} entr${n === 1 ? 'y' : 'ies'}`;
+      return [`Rule list · ${n.toLocaleString()} entr${n === 1 ? 'y' : 'ies'} · matches go `, dest(p.matchTargetId), ', the rest ', dest(p.defaultTargetId)];
     }
     case 'virtual':
-      return `alias → ${nameOf(config, p.targetId)}`;
+      return ['Alias for ', dest(p.targetId)];
   }
 }
 
-/** A profile tile at any size, for profiles and the two built-ins alike. */
-function tileFor(config: Config, id: string, size: number): HTMLElement {
-  const p = id === DIRECT || id === SYSTEM ? null : profileById(config, id);
-  if (!p) return builtinTile(id === SYSTEM ? 'S' : 'D', size);
-  return avatarEl(p, size);
+/** "on since 12:22", from the activation history when it knows. */
+function sinceLine(config: Config): string {
+  const last = [...history].reverse().find((e) => e.id === config.activeId);
+  if (last) return ` · on since ${new Date(last.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  return appliedAt ? ` · applied ${relativeTime(appliedAt)}` : '';
 }
 
-/**
- * `panel` is deliberately in the class list: it brings the card padding, the
- * column layout and — the point — the h3 eyebrow with its gradient tick, so the
- * dashboard's headings are the same object as every other card's rather than a
- * lookalike that drifts. .dash-card only tightens the spacing.
- */
-function card(cls: string, ...children: (Node | string | null | false)[]): HTMLElement {
-  return el('section', { class: `card panel dash-card ${cls}` }, ...children);
-}
+/* ---------------- the failure banner ---------------- */
 
-function cardHead(title: string, ...trailing: (Node | string | null | false)[]): HTMLElement {
-  return el('h3', {}, title, trailing.length ? el('span', { class: 'dash-rt' }, ...trailing) : null);
-}
-
-/* ---------------- hero: the live route console ---------------- */
-
-/** The hop chain the active profile actually produces, as display rows. */
-interface Hop {
-  label: string;
-  sub?: string;
-  conditional: boolean;
-  /** The profile (or built-in) this hop is, so it can wear its tile. */
-  id?: string;
-}
-
-function chainFor(config: Config): Hop[] {
-  const id = config.activeId;
-  if (id === DIRECT) return [{ label: 'Internet', conditional: false }];
-  if (id === SYSTEM) return [{ label: 'System proxy', sub: 'set by your OS', conditional: false, id: SYSTEM }, { label: 'Internet', conditional: false }];
-
-  const hops: Hop[] = [];
-  const seen = new Set<string>();
-  let cursor: string | undefined = id;
-
-  while (cursor && cursor !== DIRECT && !seen.has(cursor)) {
-    seen.add(cursor);
-    const p: Profile | undefined = profileById(config, cursor);
-    if (!p) break;
-    if (p.kind === 'proxy') {
-      hops.push({ label: p.name, sub: `${SCHEME_LABELS[p.scheme]} ${p.host}:${p.port}`, conditional: false, id: p.id });
-      cursor = undefined;
-    } else if (p.kind === 'virtual') {
-      hops.push({ label: p.name, sub: 'alias', conditional: false, id: p.id });
-      cursor = p.targetId;
-    } else {
-      // A switch or rule-list profile picks per request; the chain stops being
-      // a line here and becomes a fan-out. Say so rather than picking one.
-      const targets = new Set(referencedTargets(p).map((t) => nodeInfo(config, t).name));
-      hops.push({
-        label: p.name,
-        sub: `routes per request → ${[...targets].join(' · ')}`,
-        conditional: true,
-        id: p.id,
-      });
-      cursor = undefined;
-    }
-  }
-  hops.push({ label: 'Internet', conditional: false });
-  return hops;
-}
-
-function heroCard(): { node: HTMLElement; refresh: () => void } {
-  const node = el('section', { class: 'hero-console' });
-
+function alertSection(): { node: HTMLElement; refresh: () => void } {
+  const node = el('div', { class: 'ov-alerts' });
   const refresh = (): void => {
-    // Never while the user is in the switcher.
-    //
-    // replaceChildren below takes the <select> out of the document along with
-    // everything else, and a select that leaves the document loses focus and
-    // shuts an open list. Repaints arrive from storage events, and a proxy that
-    // is down writes a failure per failed request — so the control shut on
-    // every one of them, which made switching away impossible at exactly the
-    // moment the page was shouting that you should. The card is a readout; the
-    // one interactive thing on it wins, and it catches up on the next repaint
-    // after focus leaves.
-    //
-    // node.contains, not the id alone: a full render builds a NEW hero while
-    // the outgoing one is still mounted, and activate() does exactly that from
-    // this very control — so matching on the id would see the old card's
-    // focused select and leave the new card blank.
-    const switcher = document.getElementById(SWITCH_SELECT_ID);
-    if (switcher && node.contains(switcher) && document.activeElement === switcher) return;
-
     const config = host.config();
     const alert = host.alert();
-    const activeId = config.activeId;
-    const info = nodeInfo(config, activeId);
-    const profile = profileById(config, activeId);
-
-    const failing = Boolean(alert);
-    const state = el(
-      'span',
-      { class: `hero-state ${failing ? 'bad' : 'ok'}` },
-      el('i', {}),
-      el('span', {}, failing ? 'Proxy failing' : 'Routing')
-    );
-    if (failing && alert) state.title = errorHeadline(alert);
-
-    const identity = el(
-      'div',
-      { class: 'hero-id' },
-      tileFor(config, activeId, 54),
-      el(
-        'div',
-        { class: 'hero-idtext' },
-        el('div', { class: 'hero-name' }, info.name),
-        el('div', { class: 'hero-meta' }, profile ? subtitleFor(config, profile) : info.sub),
-        state
-      )
-    );
-
-    const hops = chainFor(config);
-    const flow = el('div', { class: 'flow' });
-    flow.append(
-      el('span', { class: 'hop start' }, el('span', { class: 'hop-ic', innerHTML: ICON.you }), el('span', {}, 'You'))
-    );
-    // A link is dashed when the hop it LEAVES decides per request. It used to
-    // take the dash from the hop it arrived at, which drew "You ┄ Office
-    // routing ── Internet": the one link that is always taken looked
-    // conditional, and the one that depends on the request looked fixed.
-    let leavingConditional = false;
-    for (const hop of hops) {
-      flow.append(el('span', { class: `wire${leavingConditional ? ' conditional' : ''}` }));
-      leavingConditional = hop.conditional;
-      const isEnd = hop.label === 'Internet' && !hop.id;
-      const chip = el(
-        'span',
-        { class: `hop${isEnd ? ' term' : ''}` },
-        isEnd
-          ? el('span', { class: 'hop-ic', innerHTML: ICON.globe })
-          : hop.id
-            ? tileFor(config, hop.id, 20)
-            : null,
-        el('span', { class: 'hop-name' }, hop.label)
+    const out: HTMLElement[] = [];
+    if (alert) {
+      const via = alert.via ? profileById(config, alert.via.id) : undefined;
+      const title =
+        alert.source === 'apply'
+          ? 'Sockitt could not apply the proxy settings'
+          : alert.via
+            ? `${alert.via.name} is failing`
+            : alert.candidates?.length
+              ? `A proxy in ${alert.profileName} is failing`
+              : 'Requests are failing at the proxy';
+      const doubt =
+        !alert.via && alert.candidates?.length
+          ? ` ${alert.profileName} picks a server per request and Chrome does not say which one failed: ${alert.candidates.map((c) => c.name).join(' or ')}.`
+          : '';
+      out.push(
+        el(
+          'div',
+          { class: 'callout bad', role: 'alert' },
+          el(
+            'div',
+            {},
+            el('h2', { class: 'callout-t' }, title),
+            el(
+              'p',
+              {},
+              `${alert.streak} request${alert.streak === 1 ? '' : 's'} failed, the last ${relativeTime(alert.lastAt)}, with `,
+              el('span', { class: 'mono' }, errorHeadline(alert)),
+              `.${doubt}`
+            )
+          ),
+          el(
+            'div',
+            { class: 'acts' },
+            via && via.kind === 'proxy'
+              ? el('button', { class: 'btn', type: 'button', onclick: () => void requestTest(via) }, `Test ${via.name}`)
+              : null,
+            el('button', { class: 'btn primary', type: 'button', onclick: () => host.open('@errors') }, 'Open errors')
+          )
+        )
       );
-      if (hop.sub) chip.title = hop.sub;
-      flow.append(chip);
     }
-    // The line is drawn in the active profile's own colour — the same colour
-    // its tile and its toolbar icon wear — so the route reads as that profile's.
-    node.style.setProperty('--route-color', info.color);
-
-    const control = controlPill();
-    node.replaceChildren(
-      ...[identity, flow, exitBlock(), switcherRow(), control].filter((n): n is HTMLElement => n !== null)
-    );
+    if (controlLevel === 'controlled_by_other_extensions' || controlLevel === 'not_controllable') {
+      const hostile = controlLevel === 'controlled_by_other_extensions';
+      out.push(
+        el(
+          'div',
+          { class: `callout${hostile ? ' bad' : ' info'}`, role: hostile ? 'alert' : undefined },
+          el(
+            'div',
+            {},
+            el('h2', { class: 'callout-t' }, hostile ? 'Another extension is controlling the proxy' : 'Proxy settings are locked by policy'),
+            el(
+              'p',
+              {},
+              hostile
+                ? 'Chrome is applying another extension’s proxy settings, so none of the routes below are in force.'
+                : 'This machine’s policy fixes the proxy settings; Sockitt can show its routes but cannot apply them.'
+            )
+          ),
+          hostile
+            ? el(
+                'div',
+                { class: 'acts' },
+                el(
+                  'button',
+                  {
+                    class: 'btn primary',
+                    type: 'button',
+                    onclick: () => {
+                      host.reapply();
+                      toast('Reclaiming proxy control…');
+                    },
+                  },
+                  'Take back control'
+                )
+              )
+            : null
+        )
+      );
+    }
+    node.replaceChildren(...out);
+    node.hidden = out.length === 0;
   };
-
   return { node, refresh };
 }
 
-/** The exit-IP readout, or the affordance that turns lookups on. */
-function exitBlock(): HTMLElement {
-  const config = host.config();
-  const box = el('div', { class: 'hero-exit' }, el('div', { class: 'hero-exit-lbl' }, 'Exit'));
+/* ---------------- the head: the active profile at display size ---------------- */
 
-  if (!config.settings.exitIpCheck) {
-    box.append(
-      el('div', { class: 'hero-exit-off' }, 'IP lookups are off'),
-      el(
-        'button',
-        {
-          class: 'hero-btn',
-          onclick: async () => {
-            if (!(await host.requestExitIp())) {
-              toast('Permission declined');
-              return;
-            }
-            host.config().settings.exitIpCheck = true;
-            host.save();
-          },
-        },
-        'Turn on'
-      )
+function headSection(): { node: HTMLElement; refresh: () => void } {
+  const node = el('section', { class: 'ov-head' });
+  const refresh = (): void => {
+    const config = host.config();
+    const id = config.activeId;
+    node.replaceChildren(
+      el('p', { class: 't-label' }, 'Routing now'),
+      el('h1', { class: 't-display' }, nameOf(config, id)),
+      el('p', { class: 'ov-sub' }, ...summaryOf(config, id), sinceLine(config))
     );
-    return box;
-  }
-
-  if (exitBusy) {
-    box.append(el('div', { class: 'hero-exit-off' }, 'Measuring…'));
-    return box;
-  }
-  if (exitError) {
-    box.append(
-      el('div', { class: 'hero-exit-off bad' }, exitError),
-      el('button', { class: 'hero-btn', onclick: () => void runExitCheck(true) }, 'Retry')
-    );
-    return box;
-  }
-  if (!exitInfo) {
-    box.append(el('button', { class: 'hero-btn', onclick: () => void runExitCheck(true) }, 'Measure'));
-    return box;
-  }
-
-  const src = flagSrc(exitInfo.iso);
-  // An IPv4 address is at most 15 characters, so anything longer is v6 — two
-  // and a half times the width at the same size, for a figure that is read
-  // once and copied, not scanned. It steps down a size rather than demanding
-  // the room from the flow beside it.
-  const wide = exitInfo.ip.length > 15;
-  box.append(
-    el(
-      'div',
-      { class: `hero-ip${wide ? ' wide' : ''}` },
-      el('span', {}, ...(wide ? groupedIp(exitInfo.ip) : [exitInfo.ip])),
-      src ? el('img', { class: 'hero-flag', src, alt: '', width: 20, height: 15 }) : null
-    ),
-    el(
-      'div',
-      { class: 'hero-exit-sub' },
-      `${exitInfo.country ? exitInfo.country + ' · ' : ''}${exitInfo.ms} ms · ${relativeTime(exitAt)}`
-    )
-  );
-  return box;
-}
-
-/**
- * An address broken into its groups, with a wrap opportunity after each colon.
- *
- * <wbr> rather than a zero-width space: it is an element, so it adds nothing to
- * the text and an address copied out of here is still the address. Allowed to
- * break anywhere instead, a wrapped v6 splits mid-group — "…8a2e:03 / 70:7344…"
- * — which at a glance reads as a different address than the one it is.
- */
-function groupedIp(ip: string): Node[] {
-  const groups = ip.split(':');
-  return groups.flatMap((group, i) =>
-    i === groups.length - 1
-      ? [document.createTextNode(group)]
-      : [document.createTextNode(`${group}:`), document.createElement('wbr')]
-  );
-}
-
-/**
- * Measure the exit through the route that is live right now. Runs in the page,
- * exactly as the popup's readout does — the request rides the browser's current
- * proxy settings, which is the whole point of the number.
- */
-async function runExitCheck(force = false): Promise<void> {
-  const config = host.config();
-  if (!config.settings.exitIpCheck) return;
-  // A check already in flight is no reason to drop a FORCED one. Forced means
-  // the route just changed, so the answer on its way describes a proxy that is
-  // no longer live — the lookup rides whatever the browser was set to at the
-  // moment it left. Dropping ours and keeping that one is how the readout came
-  // to print the previous proxy's exit under the new profile's name.
-  if (exitBusy && !force) return;
-  // Re-measuring on every repaint would put a network request behind every
-  // error event; a fresh-enough answer stands.
-  if (!force && exitInfo && Date.now() - exitAt < 60_000) return;
-  // EXIT_IP_PERMS, never a copy of the pattern: the options page requests
-  // exactly this object, and a divergent literal here would make a granted
-  // permission stop satisfying the check (the same single-source rule the
-  // AUTH_PERMS / TABS_PERMS notes in types.ts spell out).
-  if (!(await chrome.permissions.contains(EXIT_IP_PERMS).catch(() => false))) return;
-  const mine = ++exitSeq;
-  exitBusy = true;
-  exitStartedAt = Date.now();
-  exitError = null;
-  exitForId = config.activeId;
-  repaintDashboard();
-  try {
-    const info = await checkExitIp(8000);
-    // Assigned through a local, so a superseded answer cannot land: checkExitIp
-    // has no external abort, so an overtaken lookup runs to completion and
-    // resolves whenever it resolves. It just no longer gets to be the answer.
-    if (mine !== exitSeq) return;
-    exitInfo = info;
-    exitAt = Date.now();
-  } catch (e) {
-    if (mine !== exitSeq) return;
-    exitInfo = null;
-    exitError = e instanceof Error ? e.message : 'lookup failed';
-  } finally {
-    // Only the newest check owns the busy flag. An older one landing late must
-    // not clear it and paint a finished state over a measurement still running.
-    if (mine === exitSeq) {
-      exitBusy = false;
-      repaintDashboard();
-    }
-  }
-}
-
-const SWITCH_SELECT_ID = 'dash-switch';
-/**
- * A run of changes inside this window collapses into one activation.
- *
- * Not cosmetic: a focused closed <select> steps its value on every arrow key,
- * and each step here would be a config write, a proxy re-apply, a sync push and
- * possibly a tab reload — plus a full re-render that destroys the very control
- * the user is still arrowing through. One apply when they settle.
- */
-const SWITCH_DEBOUNCE_MS = 260;
-let switchTimer: ReturnType<typeof setTimeout> | undefined;
-
-/**
- * Inline profile switcher — the fastest path from "landed" to "switched".
- *
- * A dropdown rather than a row of pills: pills were fine at four profiles and a
- * wall of them at fifteen, wrapping to three lines and burying the one that was
- * actually active. A select stays one control at any size, and optgroups keep
- * the kinds apart the way the sidebar does.
- *
- * The chip beside it is not decoration and not a duplicate of the select's own
- * value: a native option list is plain text, so it cannot show the colour and
- * initials every other surface identifies a profile by — and it shows what the
- * browser is USING, which during the moment between picking and applying is not
- * yet what the select says.
- */
-function switcherRow(): HTMLElement {
-  const config = host.config();
-
-  const select = el('select', { class: 'hero-select' }) as HTMLSelectElement;
-  select.id = SWITCH_SELECT_ID;
-  // Names only. The optgroup already says what kind a profile is, and the
-  // closed select shows its chosen option verbatim — appending the subtitle put
-  // "Work — 6 rules · default Direct" here, word for word what the card's own
-  // heading says two inches away.
-  select.append(el('option', { value: DIRECT }, 'Direct'));
-  select.append(el('option', { value: SYSTEM }, 'System'));
-  for (const kind of PROFILE_KINDS) {
-    const members = config.profiles.filter((p) => p.kind === kind);
-    if (!members.length) continue;
-    const group = el('optgroup', {}) as HTMLOptGroupElement;
-    group.label = KIND_LABEL[kind];
-    for (const p of members) group.append(el('option', { value: p.id }, p.name));
-    select.append(group);
-  }
-  select.value = config.activeId;
-  select.onchange = () => {
-    const id = select.value;
-    const hadFocus = document.activeElement === select;
-    clearTimeout(switchTimer);
-    switchTimer = setTimeout(() => {
-      host.activate(id);
-      // activate() re-renders, which destroys this select — put the caret on its
-      // replacement so a keyboard user is not dropped to the body mid-task.
-      if (hadFocus) document.getElementById(SWITCH_SELECT_ID)?.focus();
-    }, SWITCH_DEBOUNCE_MS);
   };
+  return { node, refresh };
+}
 
-  const active = nodeInfo(config, config.activeId);
-  // Hidden while the select already says what the browser uses — which is
-  // nearly always, and then this would be the profile's name a fourth time in
-  // one band. It shows in the gap between picking and applying, the moment the
-  // select and the browser disagree, which is what it exists for.
-  const readout = el(
-    'div',
-    { class: 'hero-active', title: active.sub, hidden: true },
-    el('span', { class: 'hero-active-tag' }, 'Active'),
-    tileFor(config, config.activeId, 20),
-    el('span', { class: 'hero-active-name' }, active.name)
-  );
-  select.addEventListener('change', () => {
-    readout.hidden = select.value === host.config().activeId;
+/* ---------------- the trace field ---------------- */
+
+/** Parse what was typed into the URL and host the resolver takes, or a reason it can't. */
+function parseTrace(raw: string): { url: string; host: string; shown: string } | { error: string } | null {
+  const text = raw.trim();
+  if (!text) return null;
+  try {
+    const u = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(text) ? text : `https://${text}`);
+    if (!hostLooksReal(u.hostname)) throw new Error('not a host');
+    return { url: pacRequestUrl(u.href), host: u.hostname, shown: u.hostname };
+  } catch {
+    return { error: 'That isn’t a URL or a host name Sockitt can read.' };
+  }
+}
+
+let traceOut: HTMLElement | null = null;
+
+function traceSection(): HTMLElement {
+  const input = el('input', {
+    class: 'input mono',
+    type: 'url',
+    value: traceText,
+    spellcheck: false,
+    placeholder: 'Paste a URL to see which rule takes it',
+    id: 'trace-url',
+    oninput: () => {
+      traceText = input.value;
+      paintYard();
+    },
+  }) as HTMLInputElement;
+  const clear = el('button', {
+    class: 'trace-x',
+    type: 'button',
+    title: 'Clear',
+    onclick: () => {
+      input.value = '';
+      traceText = '';
+      paintYard();
+      input.focus();
+    },
   });
+  clear.setAttribute('aria-label', 'Clear the URL');
+  clear.append(icon('x', 'sm'));
+  traceOut = el('p', { class: 'trace-out', role: 'status' });
   return el(
-    'div',
-    { class: 'hero-switch' },
-    el('label', { class: 'hero-switch-lbl', htmlFor: select.id }, 'Switch'),
-    select,
-    readout
+    'section',
+    { class: 'trace', ariaLabel: 'Trace a URL' },
+    el('label', { class: 't-label', htmlFor: 'trace-url' }, 'Trace a URL'),
+    el('div', { class: 'search trace-in' }, input, clear),
+    traceOut
   );
 }
 
-/** Who Chrome says owns the proxy — surfaced only when it is not us. */
-let controlLevel = '';
-
-function controlPill(): HTMLElement | null {
-  if (controlLevel !== 'controlled_by_other_extensions' && controlLevel !== 'not_controllable') {
-    return null;
+/** The sentence under the trace field, from what the map and the resolver say. */
+function traceSentence(config: Config, layout: YardLayout, t: YardTrace, host_: string, url: string): Array<Node | string> {
+  const active = profileById(config, config.activeId);
+  const name = (id: string): HTMLElement =>
+    paintRoute(el('b', { class: 'rname' }, nameOf(config, id)), colourOf(config, id));
+  const hostNode = el('b', { class: 'mono host' }, host_);
+  if (!active) {
+    return config.activeId === SYSTEM
+      ? [hostNode, ' goes wherever your operating system’s settings send it — Sockitt cannot see those rules.']
+      : [hostNode, ' goes straight out: Direct is active.'];
   }
-  const hostile = controlLevel === 'controlled_by_other_extensions';
-  return el(
-    'div',
-    { class: 'hero-control' },
-    el('span', { class: 'hero-control-ic', innerHTML: ICON.shield }),
-    el(
-      'span',
-      {},
-      hostile
-        ? 'Another extension is controlling the proxy — Sockitt’s routes are not in force.'
-        : 'Proxy settings are locked by policy on this machine.'
-    ),
-    hostile
-      ? el(
+  // Where it finally lands, through any chain of profiles past this map.
+  const route = resolveRoute(config, active, url, host_, overrides);
+  const final = route.bypassed ? DIRECT : route.targetId;
+  const onward: Array<Node | string> =
+    final !== t.targetId && profileById(config, t.targetId)?.kind !== 'proxy'
+      ? [', which sends it on to ', name(final)]
+      : route.bypassed && t.targetId !== DIRECT
+        ? [', whose bypass list sends it direct']
+        : [];
+  if (t.override) return [hostNode, ' has an override until the browser restarts, ahead of every rule, to ', name(t.targetId), ...onward, '.'];
+  if (t.rule && t.ruleIndex !== null) {
+    const skipped = layout.kind === 'switch' && t.ruleIndex > 0 ? ` Rules 1 to ${t.ruleIndex} don’t match it.` : '';
+    return [hostNode, ` matches rule ${t.ruleIndex + 1}, `, el('span', { class: 'mono' }, t.rule.pattern), ', so it goes to ', name(t.targetId), ...onward, `.${skipped}`];
+  }
+  if (t.junctionKey === 'bypass') return [hostNode, ' is on the bypass list, so it goes ', name(DIRECT), '.'];
+  if (t.junctionKey === 'list') return [hostNode, ' is on the list, so it goes to ', name(t.targetId), ...onward, '.'];
+  if (layout.kind === 'switch') return [hostNode, ' matches no rule, so it takes the default, ', name(t.targetId), ...onward, '.'];
+  if (layout.kind === 'rulelist') return [hostNode, ' is not on the list, so it goes to ', name(t.targetId), ...onward, '.'];
+  return [hostNode, ' goes through ', name(t.targetId), ...onward, '.'];
+}
+
+/* ---------------- the map ---------------- */
+
+let yardHolder: HTMLElement | null = null;
+
+function yardSection(): { node: HTMLElement; refresh: () => void } {
+  yardHolder = el('div', { class: 'yard' });
+  const wrap = el('div', { class: 'yard-wrap' }, yardHolder);
+  return { node: wrap, refresh: paintYard };
+}
+
+/** Repaint the map and the trace sentence. Cheap: called on every keystroke in the trace field. */
+function paintYard(): void {
+  if (!yardHolder || !root?.isConnected) return;
+  const config = host.config();
+  const layout = layoutYard(config, config.activeId, FULL, overrides);
+  const parsed = parseTrace(traceText);
+  let trace: YardTrace | null = null;
+  if (parsed && 'url' in parsed) trace = traceYard(config, layout, parsed.url, parsed.host, overrides);
+
+  if (traceOut) {
+    if (!parsed) traceOut.replaceChildren('The map lights the path one request would take, rule by rule, without sending anything.');
+    else if ('error' in parsed) traceOut.replaceChildren(parsed.error);
+    else traceOut.replaceChildren(...traceSentence(config, layout, trace!, parsed.host, parsed.url));
+  }
+
+  const origin = parsed && 'url' in parsed
+    ? { title: parsed.shown, sub: 'the traced URL', mono: true }
+    : { title: 'All requests', sub: tally ? `${[...tally.values()].reduce((a, b) => a + b, 0)} open tabs` : 'from every tab' };
+
+  const drawing = yardSvg({
+    layout,
+    trace,
+    origin,
+    ariaLabel: yardLabel(config, layout, trace),
+  });
+  yardHolder.replaceChildren(drawing, termini(config, layout, trace));
+  shownLayout = layout;
+}
+
+/** The map last drawn, so the key under it explains only what is on it. */
+let shownLayout: YardLayout | null = null;
+
+/**
+ * One profile's full map with one request lit — the Inspector's drawing. The
+ * same map and the same line ends the Overview draws, for any profile.
+ */
+export function tracedYard(
+  h: DashboardHost,
+  startId: string,
+  req: { url: string; host: string; shown: string } | null,
+  temp: SwitchRule[]
+): HTMLElement {
+  host = h;
+  const config = h.config();
+  const layout = layoutYard(config, startId, FULL, temp);
+  const trace = req ? traceYard(config, layout, req.url, req.host, temp) : null;
+  const drawing = yardSvg({
+    layout,
+    trace,
+    origin: req ? { title: req.shown, sub: 'the traced URL', mono: true } : { title: 'All requests', sub: `into ${nameOf(config, startId)}` },
+    ariaLabel: yardLabel(config, layout, trace),
+  });
+  return el('div', { class: 'yard-wrap' }, el('div', { class: 'yard' }, drawing, termini(config, layout, trace, false)));
+}
+
+/** The map, said in words — for a screen reader, which the drawing gives nothing. */
+function yardLabel(config: Config, layout: YardLayout, trace: YardTrace | null): string {
+  const parts: string[] = [];
+  if (layout.viaAlias) parts.push(`Through the alias ${layout.viaAlias}.`);
+  for (const j of layout.junctions) {
+    if (j.key === 'overrides') parts.push(`Overrides for ${j.fullText} go first.`);
+    else if (j.key === 'bypass') parts.push(`Its bypass list (${j.fullText}) goes direct.`);
+    else if (j.key === 'list') parts.push(`List matches go to ${j.targets.map((t) => nameOf(config, t)).join(', ') || nameOf(config, layout.defaultTarget)}.`);
+    else parts.push(`Rule ${j.label}${j.off ? ' (off)' : ''}: ${j.fullText}${j.targets.length ? ` to ${j.targets.map((t) => nameOf(config, t)).join(', ')}` : ''}.`);
+  }
+  parts.push(`Everything else goes to ${nameOf(config, layout.defaultTarget)}.`);
+  if (trace) parts.push(`The traced URL ends at ${nameOf(config, trace.targetId)}.`);
+  return `Track map of ${nameOf(config, config.activeId)}. ${parts.join(' ')}`;
+}
+
+/** Where each line ends: the destination, its tabs, its test, its exit. */
+/**
+ * `live` is the Overview's map of what is routing now: tabs counted per line,
+ * and the measured exit. The Inspector draws any profile, active or not, where
+ * both would describe some other map's traffic.
+ */
+function termini(config: Config, layout: YardLayout, trace: YardTrace | null, live = true): HTMLElement {
+  const list = el('ol', { class: 'termini', ariaLabel: 'Where each line ends' });
+  list.style.height = `${layout.height}px`;
+  const exitTarget = exitRouteTarget(config, layout);
+  const alert = host.alert();
+  for (const t of layout.tracks) {
+    const p = profileById(config, t.id);
+    const verdict = verdicts.get(t.id);
+    const failing = (alert?.via?.id === t.id) || (verdict && !verdict.ok && !testing.has(t.id));
+    const taken = trace && trace.targetId === t.id;
+
+    const stop = paintRoute(el('span', { class: `term-stop${t.dashed ? ' dashed' : ''}` }), t.colour);
+    const name = el(
+      'p',
+      { class: 'term-name' },
+      p ? el('button', { class: 'term-link', type: 'button', onclick: () => host.open(p.id) }, p.name) : el('span', {}, nameOf(config, t.id)),
+      t.isDefault && layout.kind !== 'proxy' && layout.kind !== 'direct' && layout.kind !== 'system' ? el('span', { class: 'meta' }, 'everything else') : null,
+      taken ? el('span', { class: 'took' }, trace!.ruleIndex !== null ? `takes it, rule ${trace!.ruleIndex + 1}` : trace!.override ? 'takes it, override' : 'takes it') : null
+    );
+
+    let sub: Node | string;
+    if (p?.kind === 'proxy') sub = el('span', { class: 'mono' }, `${p.scheme} ${p.host || '(no host)'}:${p.port}`);
+    else if (p?.kind === 'switch') sub = 'Auto switch · decides again';
+    else if (p?.kind === 'rulelist') sub = 'Rule list · decides again';
+    else if (p?.kind === 'virtual') sub = `Alias for ${nameOf(config, p.targetId)}`;
+    else if (t.id === SYSTEM) sub = 'Your OS settings';
+    else sub = 'No proxy, your own connection';
+
+    const figs: Array<HTMLElement> = [];
+    const count = tally?.get(t.id);
+    if (live && tally) figs.push(el('span', { class: 'tnum' }, `${count ?? 0} tab${count === 1 ? '' : 's'}`));
+    if (p?.kind === 'proxy') {
+      const result = el('span', { class: 'test-result', dataset: { profile: p.id } });
+      if (testing.has(p.id)) result.textContent = 'Testing…';
+      else if (verdict) {
+        result.classList.add('st', verdict.ok ? 'good' : 'bad');
+        result.textContent = verdict.ok ? `${verdict.ms} ms` : 'Failed';
+        result.title = verdict.ok ? `Tested ${relativeTime(verdict.at)} · exits ${verdict.ip}${verdict.country ? ` · ${verdict.country}` : ''}` : (verdict.error ?? 'Connection failed');
+      }
+      figs.push(result);
+    }
+    if (failing && !verdict) figs.push(el('span', { class: 'st bad' }, 'Failing'));
+    if (!live) {
+      // Nothing measured belongs on a map of a profile that may not be routing.
+    } else if (exitTarget === t.id && exitInfo && !exitBusy) {
+      const src = flagSrc(exitInfo.iso);
+      figs.push(
+        el(
+          'span',
+          { class: 'exit-at', title: `ipconfig.is sees this route exit from ${exitInfo.ip}${exitInfo.country ? `, ${exitInfo.country}` : ''} · ${exitInfo.ms} ms · ${relativeTime(exitAt)}` },
+          'exits ',
+          el('span', { class: 'mono' }, exitInfo.ip),
+          src ? el('img', { class: 'flag', src, alt: exitInfo.country ?? '', width: 16, height: 12 }) : null
+        )
+      );
+    } else if (exitTarget === t.id && exitBusy) {
+      figs.push(el('span', { class: 'exit-at muted' }, 'measuring exit…'));
+    }
+
+    const action =
+      p?.kind === 'proxy'
+        ? el(
+            'button',
+            {
+              class: 'btn sm test-btn',
+              type: 'button',
+              dataset: { profile: p.id },
+              disabled: !config.settings.exitIpCheck || testing.has(p.id),
+              title: config.settings.exitIpCheck ? `Route one request through ${p.name} to ipconfig.is` : 'Turn on IP address lookups to test connections',
+              onclick: () => void requestTest(p),
+            },
+            'Test'
+          )
+        : el('span');
+
+    const li = el(
+      'li',
+      { class: `term${failing ? ' failing' : ''}${trace && !taken ? ' faded' : ''}` },
+      stop,
+      el('div', { class: 'term-body' }, name, el('p', { class: 'term-sub' }, sub), figs.length ? el('p', { class: 'term-fig' }, ...figs) : null),
+      action
+    );
+    li.style.top = `${t.y}px`;
+    list.append(li);
+  }
+  return list;
+}
+
+/** The map destination ipconfig.is itself is routed to — where the measured exit belongs. */
+function exitRouteTarget(config: Config, layout: YardLayout): string | null {
+  const u = new URL(EXIT_IP_URL);
+  return traceYard(config, layout, pacRequestUrl(u.href), u.hostname, overrides).targetId;
+}
+
+/** The key under the map, and the one control the map itself cannot hold. */
+function keySection(): { node: HTMLElement; refresh: () => void } {
+  const node = el('div', { class: 'yard-key' });
+  const refresh = (): void => {
+    const config = host.config();
+    const junctions = shownLayout?.junctions ?? [];
+    const rules = junctions.filter((j) => j.shape === 'square');
+    const off = rules.find((j) => j.off);
+    const on = rules.find((j) => !j.off);
+    const items: Array<HTMLElement | null> = [
+      on ? el('span', {}, el('span', { class: 'kj' }, on.label), 'a rule, tried in order; the first match takes the request') : null,
+      off ? el('span', {}, el('span', { class: 'kj off' }, off.label), 'a rule that is off') : null,
+      el('span', {}, paintRoute(el('span', { class: 'kk' }), '#3b82f6'), 'a destination, in its profile’s colour'),
+    ];
+    const tail: HTMLElement[] = [];
+    if (tabsGranted === false) {
+      tail.push(
+        el(
           'button',
           {
-            class: 'hero-btn',
-            onclick: () => {
-              // Re-applying is what takes control back — the worker does it on
-              // any config write, edited or not.
-              host.reapply();
-              toast('Reclaiming proxy control…');
+            class: 'linklike',
+            type: 'button',
+            onclick: async () => {
+              const ok = await chrome.permissions.request(TABS_PERMS).catch(() => false);
+              if (ok) {
+                tabsGranted = true;
+                void countTabs();
+              } else toast('Permission declined');
             },
           },
-          'Reclaim'
-        )
-      : null
-  );
-}
-
-/* ---------------- stat strip ---------------- */
-
-function statTile(opts: {
-  label: string;
-  figure: string;
-  unit?: string;
-  foot: string;
-  visual?: Node | null;
-  tone?: 'crit' | 'warn';
-  onclick: () => void;
-}): HTMLElement {
-  const tile = el(
-    'button',
-    // Not a .card: the five figures are one strip divided by hairlines (the
-    // strip is the surface), never five floating tiles.
-    { class: `dash-stat${opts.tone ? ' ' + opts.tone : ''}`, type: 'button', onclick: opts.onclick },
-    el('span', { class: 'dash-stat-lbl' }, opts.label),
-    el(
-      'span',
-      { class: 'dash-stat-fig' },
-      opts.figure,
-      opts.unit ? el('small', {}, opts.unit) : null
-    ),
-    opts.visual ?? el('span', { class: 'dash-stat-spacer' }),
-    el('span', { class: 'dash-stat-foot' }, opts.foot)
-  );
-  return tile;
-}
-
-/** A proportional bar built from [flex, colour] pairs. */
-function segments(parts: Array<[number, string]>): HTMLElement {
-  const bar = el('span', { class: 'dash-seg' });
-  for (const [weight, color] of parts) {
-    if (weight <= 0) continue;
-    const piece = el('i', {});
-    piece.style.flex = String(weight);
-    piece.style.background = color;
-    bar.append(piece);
-  }
-  return bar;
-}
-
-function meter(fraction: number, color?: string): HTMLElement {
-  const bar = el('span', { class: 'dash-meter' });
-  const fill = el('i', {});
-  fill.style.width = `${Math.min(100, Math.max(2, fraction * 100))}%`;
-  if (color) fill.style.background = color;
-  bar.append(fill);
-  return bar;
-}
-
-/**
- * Errors bucketed over the session. Real time-series data — the log carries a
- * timestamp per entry and a repeat count — so this is a measurement, not a
- * decoration.
- */
-function sparkline(log: ProxyErrorEntry[]): SVGElement {
-  const W = 120;
-  const H = 26;
-  const BUCKETS = 16;
-  const node = svg('svg', { class: 'dash-spark', viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none' });
-  node.setAttribute('aria-hidden', 'true');
-  if (!log.length) return node;
-
-  const now = Date.now();
-  const oldest = Math.min(...log.map((e) => e.at));
-  const span = Math.max(now - oldest, 60_000);
-  const counts = new Array<number>(BUCKETS).fill(0);
-  for (const entry of log) {
-    const idx = Math.min(BUCKETS - 1, Math.floor(((entry.at - oldest) / span) * BUCKETS));
-    counts[idx] = (counts[idx] ?? 0) + entry.count;
-  }
-  const max = Math.max(...counts, 1);
-  const step = W / (BUCKETS - 1);
-  const points = counts.map((v, i) => [i * step, H - (v / max) * (H - 3) - 1] as const);
-
-  const line = points.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
-  // Just the line: no wash under it and no dot at its end — both read as
-  // decoration, and the line alone already says when the failures came.
-  // non-scaling-stroke, because preserveAspectRatio="none" stretches the box to
-  // the cell and would thicken the diagonals.
-  node.append(
-    svg('path', {
-      d: line,
-      fill: 'none',
-      stroke: '#e5484d',
-      'stroke-width': '1.6',
-      'stroke-linejoin': 'round',
-      'stroke-linecap': 'round',
-      'vector-effect': 'non-scaling-stroke',
-    })
-  );
-  return node;
-}
-
-/**
- * Bytes the config occupies in chrome.storage.sync, against the 100 KB quota.
- * -1 is "not measured yet", -2 is "the API would not say" (signed out, or sync
- * disabled by policy) — which must read differently from a pending measurement,
- * or the tile says "measuring…" for the rest of the session.
- */
-let syncBytes = -1;
-const SYNC_QUOTA = 102_400;
-/** When the worker last handed settings to the browser. */
-let appliedAt = 0;
-
-function statStrip(): { node: HTMLElement; refresh: () => void } {
-  const node = el('div', { class: 'dash-stats' });
-
-  const refresh = (): void => {
-    const config = host.config();
-    const rules = ruleStats(config);
-    const log = host.errorLog();
-    const alert = host.alert();
-    const report = auditConfig(config, { authGranted, now: Date.now() });
-
-    // Written out rather than suffixed with "s" — "3 proxys", "2 switchs" and
-    // "1 virtual" were what deriving them from the stored kind produced.
-    // One ramp of the brand violet rather than four unrelated hues: the bar
-    // says how the profiles divide, and a rainbow made it the loudest thing in
-    // the strip.
-    const kinds: Array<[Profile['kind'], string, string, string]> = [
-      ['proxy', '#7543e8', 'proxy', 'proxies'],
-      ['switch', '#2d1b70', 'switch', 'switches'],
-      ['rulelist', '#b49fe6', 'list', 'lists'],
-      ['virtual', '#5c6079', 'alias', 'aliases'],
-    ];
-    const byKind = kinds.map(
-      ([kind, color]) => [config.profiles.filter((p) => p.kind === kind).length, color] as [number, string]
-    );
-    const kindFoot = kinds
-      .map(([, , one, many], i) => [byKind[i]?.[0] ?? 0, one, many] as const)
-      .filter(([n]) => n > 0)
-      // A no-break space: in a narrow cell "1" wrapped onto one line and its
-      // noun onto the next.
-      .map(([n, one, many]) => `${n}\u00a0${n === 1 ? one : many}`)
-      .join(' · ');
-
-    const errorCount = log.reduce((sum, e) => sum + e.count, 0);
-    const listed = listedEntryCount(config);
-
-    node.replaceChildren(
-      statTile({
-        label: 'Profiles',
-        figure: String(config.profiles.length),
-        foot: kindFoot || 'none yet',
-        visual: segments(byKind),
-        onclick: () => host.open(config.profiles[0]?.id ?? '@settings'),
-      }),
-      statTile({
-        label: 'Rules',
-        figure: String(rules.total),
-        unit: listed ? `+${listed.toLocaleString()} listed` : undefined,
-        foot: rules.invalid
-          ? `${rules.enabled} on · ${rules.invalid} invalid`
-          : `${rules.enabled} on · ${rules.total - rules.enabled} off`,
-        visual: segments([
-          [rules.enabled, '#7543e8'],
-          [rules.total - rules.enabled, 'rgba(22,23,47,.14)'],
-        ]),
-        tone: rules.invalid ? 'crit' : undefined,
-        onclick: () => host.open('@inspect'),
-      }),
-      statTile({
-        // One word. "Errors this session" wrapped to two lines wherever the
-        // content column is narrow, which pushed this tile's figure a line
-        // below its neighbours' and made the whole strip look ragged. The
-        // scope moves to the footer, which has room for it.
-        label: 'Errors',
-        figure: String(errorCount),
-        foot: alert
-          ? `failing now · ${relativeTime(alert.lastAt)}`
-          : log[0]
-            ? `last ${relativeTime(log[0].lastAt)} this session`
-            : 'none this session',
-        visual: log.length ? sparkline(log) : null,
-        tone: alert ? 'crit' : undefined,
-        onclick: () => host.open('@errors'),
-      }),
-      statTile({
-        label: 'Sync',
-        figure: config.settings.syncEnabled ? 'On' : 'Off',
-        foot: !config.settings.syncEnabled
-          ? 'this device only'
-          : syncBytes >= 0
-            ? `${(syncBytes / 1024).toFixed(1)} KB of 100 KB`
-            : syncBytes === -1
-              ? 'measuring…'
-              : 'size unavailable',
-        visual:
-          config.settings.syncEnabled && syncBytes >= 0 ? meter(syncBytes / SYNC_QUOTA) : null,
-        onclick: () => host.open('@settings'),
-      }),
-      statTile({
-        label: 'Config health',
-        figure: String(report.score),
-        unit: '/100',
-        foot: report.issues.length
-          ? [
-              [report.counts.error, 'error'],
-              [report.counts.warn, 'warning'],
-              [report.counts.info, 'note'],
-            ]
-              .map(([n, word]) => `${n}\u00a0${word}${n === 1 ? '' : 's'}`)
-              .join(' · ')
-          : 'everything checks out',
-        // The score itself, under the score — it used to plot the mix of
-        // findings, which put a 7% sliver under "97" and an empty track under
-        // "100", the opposite of what the figure above it says.
-        visual: meter(
-          report.score / 100,
-          report.counts.error ? 'var(--danger)' : report.counts.warn ? 'var(--amber-icon)' : undefined
-        ),
-        tone: report.counts.error ? 'crit' : report.counts.warn ? 'warn' : undefined,
-        onclick: () => document.getElementById('dash-health')?.scrollIntoView({ block: 'center', behavior: motionOk() ? 'smooth' : 'auto' }),
-      })
-    );
-  };
-
-  return { node, refresh };
-}
-
-function motionOk(): boolean {
-  return !matchMedia('(prefers-reduced-motion: reduce)').matches;
-}
-
-/* ---------------- routing map ---------------- */
-
-// 232 wide with 64 between columns: two columns (2 × 232 + 64, plus the focus
-// margin) sit at 1:1 in the 7/12 card at 1440px, and a whole
-// "SOCKS5 proxy.corp.io:1080" fits the 12px mono line.
-const NODE_W = 232;
-const NODE_H = 46;
-const GAP_X = 64;
-const GAP_Y = 16;
-/** Space a node's two text lines have: box width, less the tile and the padding. */
-const NODE_TEXT_W = NODE_W - 40 - 10;
-
-/** Shared by every fitText call; a canvas needs no place in the document. */
-let measureCtx: CanvasRenderingContext2D | null = null;
-
-/**
- * Ellipsise to fit. SVG text neither wraps nor clips to its parent, so a long
- * endpoint ("HTTPS proxy.fra.example:8443") runs straight out of its box and
- * across whatever is beside it. Measured on a canvas in the faces the
- * stylesheet sets, not estimated: per-character averages were tuned for the
- * old system fonts, and in DM Sans a 22-character name ran 16px past its box.
- * getComputedTextLength would need the node in the document, and these are
- * built before the panel is mounted.
- */
-function fitText(text: string, font: string): string {
-  measureCtx ??= document.createElement('canvas').getContext('2d');
-  if (!measureCtx) return text;
-  measureCtx.font = font;
-  if (measureCtx.measureText(text).width <= NODE_TEXT_W) return text;
-  let lo = 1;
-  let hi = text.length - 1;
-  while (lo < hi) {
-    const mid = (lo + hi + 1) >> 1;
-    if (measureCtx.measureText(`${text.slice(0, mid)}…`).width <= NODE_TEXT_W) lo = mid;
-    else hi = mid - 1;
-  }
-  return `${text.slice(0, lo)}…`;
-}
-
-/** The two label styles the stylesheet gives map nodes (.dash-node text.t1 / .t2). */
-const NODE_FONT_NAME = '600 12.5px "DM Sans", sans-serif';
-const NODE_FONT_SUB = '450 12px "JetBrains Mono", monospace';
-
-/**
- * Distance from a profile to a terminal, following its targets. Proxies and the
- * built-ins are 0; everything else is one more than the deepest thing it can
- * reach. The visiting set makes a cycle terminate rather than recurse forever —
- * the compiler guards the same way, so a looped config still draws.
- */
-function depthOf(config: Config, id: string, visiting = new Set<string>()): number {
-  if (id === DIRECT || id === SYSTEM || visiting.has(id)) return 0;
-  const p = profileById(config, id);
-  if (!p || p.kind === 'proxy') return 0;
-  visiting.add(id);
-  const targets = referencedTargets(p);
-  let deepest = 0;
-  for (const t of targets) deepest = Math.max(deepest, depthOf(config, t, visiting));
-  visiting.delete(id);
-  return deepest + 1;
-}
-
-/**
- * A map three or more columns deep takes the full width, and Config health goes
- * full width under it. Squeezed into a 7/12 card a deep map was scaled to 72%,
- * its labels down to 9px. Classes rather than a style, so the bento's rule that
- * joins a 7 + 5 pair into one surface sees the change.
- */
-function setMapDepth(mapCard: HTMLElement, deep: boolean): void {
-  mapCard.classList.toggle('dash-c7', !deep);
-  mapCard.classList.toggle('dash-c12', deep);
-  const health = mapCard.parentElement?.querySelector<HTMLElement>('#dash-health');
-  health?.classList.toggle('dash-c5', !deep);
-  health?.classList.toggle('dash-c12', deep);
-}
-
-function routingMap(): { node: HTMLElement; refresh: () => void } {
-  const holder = el('div', { class: 'dash-map-wrap' });
-  // The hover hint rides the eyebrow, not the legend: as a fourth legend item
-  // it wrapped to a line of its own on every width the card actually gets.
-  const node = card(
-    'dash-c7 dash-map-card',
-    cardHead('Routing map', 'hover a line or a profile'),
-    holder,
-    el('div', { class: 'dash-map-legend' })
-  );
-
-  const refresh = (): void => {
-    const config = host.config();
-    const legend = node.querySelector('.dash-map-legend')!;
-
-    // A map of things that route nowhere is not a map. Said rather than drawn,
-    // so the card is never a stack of tiles under a legend about lines that
-    // aren't there.
-    const drawEmpty = (): void => {
-      holder.replaceChildren(
-        el(
-          'p',
-          { class: 'dash-empty' },
-          'The map draws itself once profiles point at each other — add an Auto switch profile and give it a rule.'
+          'Count the tabs on each line'
         )
       );
-      legend.replaceChildren();
-      setMapDepth(node, false);
-    };
-
-    // Every node that takes part: all profiles, plus Direct if anything points
-    // at it, plus whichever built-in is active. That is provably every target
-    // too — sanitizeConfig rewrites any reference that is neither Direct nor a
-    // live profile id, on load, on import and on a sync pull, and deleting a
-    // profile repoints its referrers — so no edge below can want a node that
-    // is missing here.
-    const ids = config.profiles.map((p) => p.id);
-    const pointsAtDirect = config.profiles.some((p) => referencedTargets(p).includes(DIRECT));
-    if (pointsAtDirect || config.activeId === DIRECT) ids.push(DIRECT);
-    if (config.activeId === SYSTEM) ids.push(SYSTEM);
-
-    if (ids.length < 2) {
-      drawEmpty();
-      return;
     }
-
-    const maxDepth = Math.max(...ids.map((id) => depthOf(config, id)));
-    const columns = new Map<number, string[]>();
-    for (const id of ids) {
-      const col = maxDepth - depthOf(config, id);
-      const list = columns.get(col) ?? [];
-      list.push(id);
-      columns.set(col, list);
-    }
-
-    const pos = new Map<string, { x: number; y: number }>();
-    let rows = 0;
-    for (const [col, list] of columns) {
-      list.forEach((id, row) => {
-        pos.set(id, { x: col * (NODE_W + GAP_X), y: row * (NODE_H + GAP_Y) });
-      });
-      rows = Math.max(rows, list.length);
-    }
-
-    const width = (maxDepth + 1) * NODE_W + maxDepth * GAP_X;
-    const height = rows * NODE_H + (rows - 1) * GAP_Y;
-    const live = livePath(config, config.activeId);
-    setMapDepth(node, maxDepth >= 2);
-    // Drawn in, the first time only: a repaint (every 30 s, and on every burst
-    // of errors) used to replay the whole entrance — motion at rest.
-    const first = !holder.querySelector('svg.dash-map');
-
-    const sheet = svg('svg', {
-      class: 'dash-map',
-      // Its natural size, so the stylesheet can scale the map down into a
-      // narrow card without ever stretching it past 1:1. 6px of margin all
-      // round holds each node's focus ring inside the scroll box.
-      width: width + 12,
-      height: height + 12,
-      viewBox: `-6 -6 ${width + 12} ${height + 12}`,
-      // group, not img: img makes its children presentational, and the nodes
-      // are buttons a screen reader has to be able to reach.
-      role: 'group',
-      'aria-label': 'How your profiles route into each other',
-    });
-    // Scaled down it may go, but not below 85% — past that the labels are too
-    // small to read, and the box scrolls instead. 85 is what lets a three-column
-    // map still fit the full-width card at a 1080px window.
-    sheet.style.minWidth = `${Math.round((width + 12) * 0.85)}px`;
-
-    // Edges take their colour from the stylesheet, by class: the live path in
-    // the brand violet, everything else in a quiet grey. A solid stroke, not a
-    // gradient — a gradient in the default bounding-box units is not rendered
-    // at all on a perfectly flat edge (a zero-height box), which is exactly
-    // the shape an edge between two nodes on the same row takes.
-    // Edges first so nodes paint over their endpoints.
-    const edgeNodes: SVGPathElement[] = [];
-    for (const p of config.profiles) {
-      const from = pos.get(p.id);
-      if (!from) continue;
-      // Collapse repeated targets: eleven rules pointing at one proxy is one
-      // edge labelled "11 rules", not eleven overlapping curves.
-      const tally = new Map<string, number>();
-      const conditional = new Set<string>();
-      // Targets reached when nothing matches. Tracked apart from the rule count
-      // because a target can be both — "6 rules · default" is the honest label,
-      // and picking one of the two would misdescribe the edge.
-      const fallback = new Set<string>();
-      if (p.kind === 'switch') {
-        for (const rule of p.rules) {
-          if (!rule.enabled) continue;
-          tally.set(rule.targetId, (tally.get(rule.targetId) ?? 0) + 1);
-          conditional.add(rule.targetId);
-        }
-        tally.set(p.defaultTargetId, tally.get(p.defaultTargetId) ?? 0);
-        fallback.add(p.defaultTargetId);
-      } else if (p.kind === 'rulelist') {
-        tally.set(p.matchTargetId, 0);
-        conditional.add(p.matchTargetId);
-        tally.set(p.defaultTargetId, tally.get(p.defaultTargetId) ?? 0);
-        fallback.add(p.defaultTargetId);
-      } else if (p.kind === 'virtual') {
-        tally.set(p.targetId, 0);
-      }
-
-      for (const [targetId, count] of tally) {
-        const to = pos.get(targetId);
-        if (!to) continue;
-        const x1 = from.x + NODE_W;
-        const y1 = from.y + NODE_H / 2;
-        const x2 = to.x;
-        const y2 = to.y + NODE_H / 2;
-        const mx = (x1 + x2) / 2;
-        const isLive = live.has(p.id) && live.has(targetId);
-        const path = svg('path', {
-          class: `dash-edge${isLive ? ' live' : ''}`,
-          d: `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`,
-        });
-        // Dashed means "only sometimes". An edge that is also the fallback is
-        // always taken when nothing else matches, so it draws solid.
-        if (conditional.has(targetId) && !fallback.has(targetId)) {
-          path.setAttribute('stroke-dasharray', '5 4');
-        }
-        path.dataset.from = p.id;
-        path.dataset.to = targetId;
-
-        // What this edge is, on the edge itself rather than beside it. Drawn
-        // labels were tried and removed: a profile's edges fan out to targets
-        // that other profiles also point at, so the text stacked no matter
-        // where along the curve it was anchored, and the map — whose whole job
-        // is to be read at a glance — became the busiest thing on the page.
-        // The shape already carries the important half (solid vs dashed), and
-        // the count is a hover away.
-        const parts: string[] = [];
-        if (p.kind === 'virtual') parts.push('alias');
-        if (count > 0) parts.push(`${count} rule${count === 1 ? '' : 's'}`);
-        if (p.kind === 'rulelist' && conditional.has(targetId)) parts.push('match');
-        if (fallback.has(targetId)) parts.push('default');
-        path.append(
-          svg('title', {}, `${p.name} → ${nameOf(config, targetId)}${parts.length ? ` (${parts.join(' · ')})` : ''}`)
-        );
-
-        sheet.append(path);
-        edgeNodes.push(path);
-      }
-    }
-
-    // Proxies and the built-ins are leaves — they point at nothing. Without a
-    // switch, rule-list or alias profile above them there is no edge in the
-    // config at all, which is the "System proxy on, no routes yet" install.
-    if (!edgeNodes.length) {
-      drawEmpty();
-      return;
-    }
-
-    const nodeGroups: SVGGElement[] = [];
-    for (const id of ids) {
-      const at = pos.get(id);
-      if (!at) continue;
-      const info = nodeInfo(config, id);
-      const isLive = live.has(id);
-      const group = svg('g', {
-        class: `dash-node${id === config.activeId ? ' active' : ''}${isLive ? '' : ' faded'}`,
-        tabindex: '0',
-        role: 'button',
-        'aria-label': `${info.name} — ${info.sub}`,
-      });
-      group.dataset.id = id;
-      group.append(
-        svg('rect', { class: 'fr', x: at.x - 4, y: at.y - 4, width: NODE_W + 8, height: NODE_H + 8, rx: '14' }),
-        svg('rect', { class: 'bx', x: at.x, y: at.y, width: NODE_W, height: NODE_H, rx: '11' }),
-        svg('rect', { x: at.x + 11, y: at.y + 13, width: 20, height: 20, rx: '5', fill: info.color }),
-        svg(
-          'text',
+    if (!config.settings.exitIpCheck) {
+      tail.push(
+        el(
+          'button',
           {
-            x: at.x + 21,
-            y: at.y + 27,
-            'text-anchor': 'middle',
-            'font-size': '8.5',
-            'font-weight': '700',
-            fill: info.builtin ? '#ffffff' : textColorFor(info.color),
+            class: 'linklike',
+            type: 'button',
+            onclick: async () => {
+              if (!(await host.requestExitIp())) {
+                toast('Permission declined');
+                return;
+              }
+              host.config().settings.exitIpCheck = true;
+              host.save();
+            },
           },
-          info.initials
-        ),
-        svg('text', { class: 't1', x: at.x + 40, y: at.y + 20 }, fitText(info.name, NODE_FONT_NAME)),
-        svg('text', { class: 't2', x: at.x + 40, y: at.y + 35 }, fitText(info.sub, NODE_FONT_SUB))
+          'Show exit addresses'
+        )
       );
-      group.append(svg('title', {}, `${info.name} — ${info.sub}`));
-
-      const focusOn = (): void => {
-        for (const edge of edgeNodes) {
-          const related = edge.dataset.from === id || edge.dataset.to === id;
-          edge.classList.toggle('muted', !related);
-        }
-        for (const other of nodeGroups) {
-          const oid = other.dataset.id;
-          const related =
-            oid === id ||
-            edgeNodes.some(
-              (e) =>
-                (e.dataset.from === id && e.dataset.to === oid) ||
-                (e.dataset.to === id && e.dataset.from === oid)
-            );
-          other.classList.toggle('muted', !related);
-        }
-      };
-      const focusOff = (): void => {
-        for (const edge of edgeNodes) edge.classList.remove('muted');
-        for (const other of nodeGroups) other.classList.remove('muted');
-      };
-      group.addEventListener('mouseenter', focusOn);
-      group.addEventListener('focus', focusOn);
-      group.addEventListener('mouseleave', focusOff);
-      group.addEventListener('blur', focusOff);
-      const activate = (): void => {
-        if (id !== DIRECT && id !== SYSTEM) host.open(id);
-      };
-      group.addEventListener('click', activate);
-      group.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          activate();
-        }
-      });
-
-      sheet.append(group);
-      nodeGroups.push(group);
+    } else if (exitError) {
+      tail.push(el('button', { class: 'linklike', type: 'button', title: exitError, onclick: () => void runExitCheck(true) }, 'Exit lookup failed — retry'));
     }
-
-    holder.replaceChildren(sheet);
-    legend.replaceChildren(
-      el('span', {}, el('b', {}, 'Solid'), ' unconditional'),
-      el('span', {}, el('b', {}, 'Dashed'), ' decided per request'),
-      el('span', {}, el('b', {}, 'Colour'), ' the path traffic takes right now')
-    );
-
-    if (first && motionOk()) {
-      edgeNodes.forEach((path, i) => {
-        if (path.hasAttribute('stroke-dasharray')) return;
-        const len = path.getTotalLength();
-        path.animate(
-          [
-            { strokeDasharray: `${len}`, strokeDashoffset: `${len}` },
-            { strokeDasharray: `${len}`, strokeDashoffset: '0' },
-          ],
-          { duration: 520, delay: 60 * i, easing: 'cubic-bezier(.4,0,.2,1)' }
-        );
-      });
-    }
+    const kept = items.filter((n): n is HTMLElement => n !== null);
+    if (tail.length) kept.push(el('span', { class: 'yard-key-acts' }, ...tail));
+    node.replaceChildren(...kept);
   };
-
   return { node, refresh };
 }
 
-/* ---------------- config health ---------------- */
+/* ---------------- what needs attention ---------------- */
 
-let authGranted = false;
-
-function healthCard(): { node: HTMLElement; refresh: () => void } {
-  const node = card('dash-c5', cardHead('Config health'));
-  node.id = 'dash-health';
-
+function attentionSection(): { node: HTMLElement; refresh: () => void } {
+  const node = el('section', { class: 'ledger-col' });
+  node.setAttribute('aria-labelledby', 'todo-h');
   const refresh = (): void => {
     const config = host.config();
     const report = auditConfig(config, { authGranted, now: Date.now() });
-    // The sweep is an entrance, played once. Repaints come every 30 s and on
-    // every burst of errors, and replaying it each time was motion at rest.
-    const first = !node.querySelector('.dash-ring');
-
-    const CIRC = 2 * Math.PI * 33;
-    const arc = svg('circle', {
-      class: 'arc',
-      cx: '39',
-      cy: '39',
-      r: '33',
-      fill: 'none',
-      'stroke-width': '8',
-      'stroke-linecap': 'round',
-      'stroke-dasharray': CIRC.toFixed(1),
-      'stroke-dashoffset': (CIRC * (1 - report.score / 100)).toFixed(1),
-    });
-    const ring = svg('svg', { width: '78', height: '78', viewBox: '0 0 78 78' });
-    ring.setAttribute('aria-hidden', 'true');
-    // The arc's colour follows the score's band (.dash-ring.warn / .crit), so a
-    // bad configuration does not wear the brand's colour.
-    ring.append(svg('circle', { class: 'track', cx: '39', cy: '39', r: '33', fill: 'none', 'stroke-width': '8' }), arc);
-    if (first && motionOk()) {
-      arc.animate(
-        [{ strokeDashoffset: `${CIRC}` }, { strokeDashoffset: arc.getAttribute('stroke-dashoffset')! }],
-        { duration: 800, easing: 'cubic-bezier(.4,0,.2,1)' }
-      );
-    }
-
-    const summary = report.issues.length
-      ? `${report.issues.length} thing${report.issues.length === 1 ? '' : 's'} to look at`
-      : 'Nothing to fix';
-    const detail = report.issues.length
-      ? report.issues[0]!.title
-      : 'Every profile compiles, every rule can run, and every list is current.';
-
-    const children: Node[] = [
-      cardHead('Config health'),
+    // The audit already says when a proxy's sign-in is not allowed, with the
+    // same fix; listing the ask too would say it twice.
+    const asks = host.asks().filter((a) => a.id !== 'auth');
+    const rows = [...asks.map(askRow), ...report.issues.map(issueRow)];
+    const count = asks.length + report.issues.length;
+    rows.push(
       el(
-        'div',
-        { class: 'dash-health-top' },
+        'li',
+        { class: 'todo-ok' },
+        icon('check'),
         el(
           'div',
-          { class: `dash-ring${report.counts.error ? ' crit' : report.counts.warn ? ' warn' : ''}` },
-          ring,
-          el('span', { class: 'dash-ring-val' }, String(report.score))
-        ),
-        el(
-          'div',
-          { class: 'dash-health-sum' },
-          el('div', { class: 'dash-health-t' }, summary),
-          el('div', { class: 'dash-health-s' }, detail)
+          {},
+          el('h3', {}, count ? 'Everything else checks out' : 'Nothing needs attention'),
+          el('p', {}, 'Every profile compiles, every rule can run, and every list is current.')
         )
-      ),
-    ];
-    if (report.issues.length) {
-      children.push(el('div', { class: 'dash-issues' }, ...report.issues.map(issueRow)));
-    }
-    node.replaceChildren(...children);
+      )
+    );
+    node.replaceChildren(
+      el('h2', { class: 'ledger-h', id: 'todo-h' }, 'Needs attention', count ? el('span', { class: 'meta tnum' }, String(count)) : null),
+      el('ul', { class: 'todo' }, ...rows)
+    );
   };
-
   return { node, refresh };
 }
 
 function issueRow(issue: HealthIssue): HTMLElement {
-  const level = issue.level === 'error' ? 'crit' : issue.level;
-  const action = el(
-    'button',
-    { class: 'dash-mini', type: 'button', onclick: () => void applyFix(issue) },
-    issue.fix.label
-  );
+  const level = issue.level === 'error' ? 'bad' : issue.level === 'warn' ? 'warn' : 'info';
   return el(
-    'div',
-    { class: `dash-issue ${level}` },
-    el('span', { class: 'dash-issue-bar' }),
-    el(
-      'span',
-      { class: 'dash-issue-txt' },
-      el('b', {}, issue.title),
-      issue.detail ? el('span', { class: 'dash-issue-detail' }, issue.detail) : null
-    ),
-    action
+    'li',
+    { class: `todo-${level}` },
+    icon(level === 'bad' ? 'x' : level === 'warn' ? 'alert' : 'info'),
+    el('div', {}, el('h3', {}, issue.title), issue.detail ? el('p', {}, issue.detail) : null),
+    el('button', { class: 'btn sm', type: 'button', onclick: () => void applyFix(issue) }, issue.fix.label)
   );
 }
 
@@ -1278,619 +705,226 @@ async function applyFix(issue: HealthIssue): Promise<void> {
       toast('Added <local> to the bypass list');
       return;
     }
-    case 'update-list': {
-      if (!issue.profileId) return;
-      await host.refetchRuleList(issue.profileId);
+    case 'update-list':
+      if (issue.profileId) await host.refetchRuleList(issue.profileId);
       return;
-    }
     case 'add-proxy':
       host.createProxy();
       return;
   }
 }
 
-/* ---------------- proxy servers ---------------- */
+/* ---------------- this session ---------------- */
 
-function serversCard(): { node: HTMLElement; refresh: () => void } {
-  const node = card('dash-c7', cardHead('Proxy servers'));
-
-  const refresh = (): void => {
-    const config = host.config();
-    const proxies = config.profiles.filter((p): p is ProxyProfile => p.kind === 'proxy');
-    const lookupsOn = config.settings.exitIpCheck;
-
-    if (!proxies.length) {
-      node.replaceChildren(
-        cardHead('Proxy servers'),
-        el('p', { class: 'dash-empty' }, 'No proxy servers yet. Create one from the sidebar and it will appear here.')
-      );
-      return;
-    }
-
-    const testAll = el(
-      'button',
-      {
-        class: 'dash-mini',
-        type: 'button',
-        disabled: !lookupsOn,
-        title: lookupsOn
-          ? 'Test each server in turn'
-          : 'Turn on IP address lookups in Settings to test connections',
-        onclick: () => void testSequentially(proxies),
-      },
-      'Test all'
-    );
-
-    node.replaceChildren(
-      cardHead('Proxy servers', testAll),
-      el('div', { class: 'dash-srv-list' }, ...proxies.map((p) => serverRow(p, lookupsOn)))
-    );
-  };
-
-  return { node, refresh };
-}
-
-function serverRow(profile: ProxyProfile, lookupsOn: boolean): HTMLElement {
-  // The classes and data-profile attribute are the ones watchProxyTests() in
-  // options.ts already paints into, so a result lands here with no extra
-  // listener — the same contract the proxy editor uses.
-  const result = el('span', { class: 'test-result dash-srv-res', dataset: { profile: profile.id } });
-  const button = el(
-    'button',
-    {
-      class: 'dash-mini test-btn',
-      type: 'button',
-      disabled: !lookupsOn,
-      dataset: { profile: profile.id },
-      onclick: () => void requestTest(profile, result, button as HTMLButtonElement),
-    },
-    'Test'
-  );
-  return el(
-    'div',
-    { class: 'dash-srv' },
-    avatarEl(profile, 22),
-    el(
-      'div',
-      { class: 'dash-srv-id' },
-      el('div', { class: 'dash-srv-nm' }, profile.name),
-      el('div', { class: 'dash-srv-ep mono' }, `${SCHEME_LABELS[profile.scheme]} ${profile.host || '(no host)'}:${profile.port}`)
-    ),
-    result,
-    button
-  );
-}
-
-async function requestTest(
-  profile: ProxyProfile,
-  result: HTMLElement,
-  button: HTMLButtonElement
-): Promise<void> {
-  const config = host.config();
-  result.classList.remove('ok', 'bad');
-  if (!config.settings.exitIpCheck) {
-    result.textContent = 'Turn on IP address lookups in Settings.';
-    return;
-  }
-  if (!(await host.requestExitIp())) {
-    result.textContent = 'Needs access to ipconfig.is.';
-    return;
-  }
-  button.disabled = true;
-  result.textContent = 'Testing…';
-  await chrome.storage.session.set({
-    [TEST_KEY]: {
-      profileId: profile.id,
-      nonce: Date.now(),
-      scheme: profile.scheme,
-      host: profile.host,
-      port: profile.port,
-    },
-  });
-}
-
-/**
- * Test All, one at a time. The worker refuses a concurrent test outright (it
- * owns the single proxy scope), so firing them together would produce one
- * result and a row of "another test is already running".
- */
-async function testSequentially(proxies: ProxyProfile[]): Promise<void> {
-  for (const profile of proxies) {
-    const result = document.querySelector<HTMLElement>(
-      `.dash-srv-res[data-profile="${CSS.escape(profile.id)}"]`
-    );
-    const button = document.querySelector<HTMLButtonElement>(
-      `.test-btn[data-profile="${CSS.escape(profile.id)}"]`
-    );
-    if (!result || !button) continue;
-    await requestTest(profile, result, button);
-    // Wait for this one's verdict before starting the next. The worker's own
-    // timeout is 8 s and the restore adds a little; 14 s is the giving-up point.
-    await waitForResult(profile.id, 14_000);
-  }
-}
-
-function waitForResult(profileId: string, timeoutMs: number): Promise<void> {
-  return new Promise((resolve) => {
-    const done = (): void => {
-      chrome.storage.onChanged.removeListener(listener);
-      clearTimeout(timer);
-      resolve();
-    };
-    const listener = (
-      changes: Record<string, chrome.storage.StorageChange>,
-      area: string
-    ): void => {
-      if (area !== 'session' || !changes[TEST_RESULT_KEY]) return;
-      const value = changes[TEST_RESULT_KEY].newValue as { profileId?: string } | undefined;
-      if (value?.profileId === profileId) done();
-    };
-    const timer = setTimeout(done, timeoutMs);
-    chrome.storage.onChanged.addListener(listener);
-  });
-}
-
-/* ---------------- where your tabs go ---------------- */
-
-/**
- * Own sequence, NOT the panel's `generation`: this card re-queries on every
- * repaint, and bumping the shared counter would invalidate the panel's own
- * deferred reads (the sync measurement, the permission check) every few seconds.
- */
-let tabsSeq = 0;
-
-function tabsCard(): { node: HTMLElement; refresh: () => void } {
-  const node = card('dash-c5', cardHead('Where your tabs go'));
-
-  const refresh = (): void => {
-    const mine = ++tabsSeq;
-    void (async () => {
-      const granted = await chrome.permissions.contains(TABS_PERMS).catch(() => false);
-      if (mine !== tabsSeq || !root?.isConnected) return;
-      if (!granted) {
-        node.replaceChildren(
-          cardHead('Where your tabs go'),
-          el(
-            'div',
-            { class: 'dash-locked' },
-            el('span', { class: 'dash-locked-ic', innerHTML: ICON.lock }),
-            el('p', {}, el('b', {}, 'See where each open tab routes'), el('br', {}), 'Needs the optional “tabs” permission — the same one the per-tab badge uses. Sockitt reads tab URLs only to resolve them locally; nothing is stored or sent.'),
-            el(
-              'button',
-              {
-                class: 'dash-mini',
-                type: 'button',
-                onclick: async () => {
-                  const ok = await chrome.permissions.request(TABS_PERMS).catch(() => false);
-                  if (ok) repaintDashboard();
-                  else toast('Permission declined');
-                },
-              },
-              'Grant access'
-            )
-          )
-        );
-        return;
-      }
-
-      const tabs = await chrome.tabs.query({}).catch(() => [] as chrome.tabs.Tab[]);
-      if (mine !== tabsSeq || !root?.isConnected) return;
-      const config = host.config();
-      const active = profileById(config, config.activeId);
-
-      const tally = new Map<string, number>();
-      let counted = 0;
-      for (const tab of tabs) {
-        const target = tabTarget(tab);
-        if (!target) continue;
-        counted++;
-        let key = DIRECT;
-        if (config.activeId === SYSTEM) {
-          key = SYSTEM;
-        } else if (active) {
-          const route = resolveRoute(config, active, pacRequestUrl(target.url), target.host);
-          key = route.bypassed ? DIRECT : route.targetId;
-        }
-        tally.set(key, (tally.get(key) ?? 0) + 1);
-      }
-
-      if (mine !== tabsSeq || !root?.isConnected) return;
-      node.replaceChildren(
-        cardHead('Where your tabs go', `${counted} tab${counted === 1 ? '' : 's'}`),
-        counted === 0
-          ? el('p', { class: 'dash-empty' }, 'No ordinary web pages are open — extension and settings tabs are not routed.')
-          : donut(config, tally, counted)
-      );
-    })();
-  };
-
-  return { node, refresh };
-}
-
-function donut(config: Config, tally: Map<string, number>, total: number): HTMLElement {
-  const entries = [...tally.entries()].sort((a, b) => b[1] - a[1]);
-  const R = 40;
-  const CIRC = 2 * Math.PI * R;
-  const ring = svg('svg', { width: '108', height: '108', viewBox: '0 0 108 108' });
-  ring.setAttribute('aria-hidden', 'true');
-
-  let offset = 0;
-  for (const [id, count] of entries) {
-    const info = nodeInfo(config, id);
-    const fraction = count / total;
-    // A 2.5px gap between arcs; without it two adjacent segments of similar
-    // colour read as one.
-    const arc = Math.max(0, fraction * CIRC - 2.5);
-    ring.append(
-      svg('circle', {
-        cx: '54',
-        cy: '54',
-        r: String(R),
-        fill: 'none',
-        stroke: info.color,
-        'stroke-width': '15',
-        'stroke-dasharray': `${arc.toFixed(2)} ${(CIRC - arc).toFixed(2)}`,
-        'stroke-dashoffset': (-offset * CIRC).toFixed(2),
-      })
-    );
-    offset += fraction;
-  }
-
-  return el(
-    'div',
-    { class: 'dash-donut-row' },
-    el(
-      'div',
-      { class: 'dash-donut' },
-      ring,
-      el(
-        'div',
-        { class: 'dash-donut-mid' },
-        el('b', {}, String(total)),
-        el('span', {}, total === 1 ? 'tab' : 'tabs')
-      )
-    ),
-    el(
-      'div',
-      { class: 'dash-legend' },
-      ...entries.map(([id, count]) => {
-        const info = nodeInfo(config, id);
-        const swatch = el('i', {});
-        swatch.style.background = info.color;
-        return el(
-          'div',
-          { class: 'dash-legend-li' },
-          swatch,
-          el('span', { class: 'dash-legend-n' }, info.name),
-          el('span', { class: 'dash-legend-v' }, `${count} · ${Math.round((count / total) * 100)}%`)
-        );
-      })
-    )
-  );
-}
-
-/* ---------------- session timeline ---------------- */
-
-let history: ActivationEntry[] = [];
-
-function timelineCard(): { node: HTMLElement; refresh: () => void } {
-  const node = card('dash-c12', cardHead('Profile timeline'));
-
+function sessionSection(): { node: HTMLElement; refresh: () => void } {
+  const node = el('section', { class: 'ledger-col' });
+  node.setAttribute('aria-labelledby', 'sess-h');
   const refresh = (): void => {
     const config = host.config();
     const log = host.errorLog();
     const now = Date.now();
+    const head = el('h2', { class: 'ledger-h', id: 'sess-h' }, 'This session');
+    const children: Node[] = [head];
 
-    if (history.length === 0) {
-      node.replaceChildren(
-        cardHead('Profile timeline', 'this browser session'),
-        el(
-          'p',
-          { class: 'dash-empty' },
-          'The timeline fills in as you switch profiles. It is session-scoped — it starts fresh with the browser.'
+    if (history.length) {
+      const start = history[0]!.at;
+      const span = Math.max(now - start, 60_000);
+      const bar = el('div', { class: 'tl', role: 'img' });
+      const said: string[] = [];
+      history.forEach((entry, i) => {
+        const until = history[i + 1]?.at ?? now;
+        const seg = paintRoute(el('i', { title: `${nameOf(config, entry.id)} — ${hm(entry.at)} to ${i === history.length - 1 ? 'now' : hm(until)}` }), colourOf(config, entry.id));
+        seg.style.flex = String(Math.max(until - entry.at, span / 200));
+        bar.append(seg);
+        said.push(`${nameOf(config, entry.id)} from ${hm(entry.at)}`);
+      });
+      bar.setAttribute('aria-label', `${said.join(', ')}, until now`);
+      const shown = history.slice(-6);
+      const earlier = history.length - shown.length;
+      const switches = el(
+        'ol',
+        { class: 'switches' },
+        ...shown.map((entry, i) =>
+          el(
+            'li',
+            {},
+            el('span', { class: 'mono' }, hm(entry.at)),
+            paintRoute(el('span', { class: `key${entry.id === SYSTEM ? ' system' : ''}` }), colourOf(config, entry.id)),
+            el('span', { class: 'sw-name' }, nameOf(config, entry.id)),
+            i === shown.length - 1 ? el('span', { class: 'meta' }, 'now') : el('span')
+          )
         )
       );
-      return;
+      children.push(bar, switches);
+      if (earlier > 0) children.push(el('p', { class: 'meta switches-more' }, `…and ${earlier} earlier`));
+    } else {
+      children.push(el('p', { class: 'meta' }, 'Switches made in this browser session show here. The log starts fresh with the browser.'));
     }
 
-    const start = history[0]!.at;
-    const span = Math.max(now - start, 60_000);
-    const bar = el('div', { class: 'dash-tl' });
-    history.forEach((entry, i) => {
-      const until = history[i + 1]?.at ?? now;
-      const info = nodeInfo(config, entry.id);
-      const seg = el('i', {
-        title: `${info.name} — ${new Date(entry.at).toLocaleTimeString()} to ${
-          i === history.length - 1 ? 'now' : new Date(until).toLocaleTimeString()
-        }`,
-      });
-      seg.style.flex = String(Math.max(until - entry.at, span / 200));
-      seg.style.background = info.color;
-      bar.append(seg);
-    });
-
-    const marks = el('div', { class: 'dash-tl-marks' });
-    for (const entry of log) {
-      if (entry.at < start) continue;
-      const mark = el('i', { title: `${errorHeadline(entry)} — ${new Date(entry.at).toLocaleTimeString()}` });
-      mark.style.left = `${(((entry.at - start) / span) * 100).toFixed(2)}%`;
-      marks.append(mark);
-    }
-
-    node.replaceChildren(
-      cardHead('Profile timeline', `this session · since ${new Date(start).toLocaleTimeString()}`),
-      bar,
-      marks,
+    const errors = log.reduce((sum, e) => sum + e.count, 0);
+    const alert = host.alert();
+    const sync = !config.settings.syncEnabled
+      ? 'sync off'
+      : syncBytes >= 0
+        ? `sync on, ${(syncBytes / 1024).toFixed(1)} of 100 KB used`
+        : syncBytes === -1
+          ? 'sync on'
+          : 'sync on, size unavailable';
+    children.push(
       el(
-        'div',
-        { class: 'dash-tl-axis' },
-        el('span', {}, new Date(start).toLocaleTimeString()),
-        el('span', {}, `${history.length} switch${history.length === 1 ? '' : 'es'}`),
-        el('span', {}, 'now')
+        'p',
+        { class: 'sess-sum' },
+        `${history.length ? Math.max(0, history.length - 1) : 0} switch${history.length === 2 ? '' : 'es'} · `,
+        errors
+          ? el('button', { class: `linklike st ${alert ? 'bad' : 'warn'}`, type: 'button', onclick: () => host.open('@errors') }, `${errors} proxy error${errors === 1 ? '' : 's'}`)
+          : 'no proxy errors',
+        ` · ${sync}`
       )
     );
+    node.replaceChildren(...children);
   };
-
   return { node, refresh };
 }
 
-/* ---------------- rule lists ---------------- */
-
-function ruleListsCard(): { node: HTMLElement; refresh: () => void } {
-  const node = card('dash-c7', cardHead('Rule lists'));
-
-  const refresh = (): void => {
-    const config = host.config();
-    const lists = config.profiles.filter((p) => p.kind === 'rulelist');
-    if (!lists.length) {
-      node.replaceChildren(
-        cardHead('Rule lists'),
-        el(
-          'p',
-          { class: 'dash-empty' },
-          'No rule lists. They route by a published domain list — AutoProxy/GFWList, or one domain per line.'
-        )
-      );
-      return;
-    }
-
-    const rows = el('div', { class: 'dash-rl-list' });
-    for (const list of lists) {
-      if (list.kind !== 'rulelist') continue;
-      const parsed = parseRuleList(list.format, list.text);
-      // Auto-update needs a URL as well as an interval: the worker only arms an
-      // alarm for a list that has one, and health only calls such a list stale.
-      // A pasted list keeps its default 24 h interval, so reading the interval
-      // alone would promise a refresh here that can never happen.
-      const autoUpdates = Boolean(list.url) && list.updateIntervalH > 0;
-      const age = list.lastUpdated ? Date.now() - list.lastUpdated : null;
-      const intervalMs = list.updateIntervalH * 3_600_000;
-      // How far through its refresh window this list is. Over 1 means overdue.
-      const wear = autoUpdates && age !== null ? age / intervalMs : 0;
-      const stale = wear > 1;
-
-      const source = list.lastUpdated
-        ? `fetched ${relativeTime(list.lastUpdated)}`
-        : list.url
-          ? 'never fetched'
-          : 'pasted';
-      const cadence = autoUpdates
-        ? ` · every ${list.updateIntervalH} h`
-        : list.url
-          ? ' · auto-update off'
-          : ' · no auto-update';
-
-      const sub = el(
-        'div',
-        { class: `dash-rl-sub${stale ? ' stale' : ''}` },
-        `${parsed.count.toLocaleString()} entr${parsed.count === 1 ? 'y' : 'ies'} · ${source}${cadence}`
-      );
-
-      const fill = el('i', {});
-      fill.style.width = `${Math.min(100, Math.max(3, wear * 100))}%`;
-      fill.style.background = stale ? 'var(--amber)' : 'var(--ok)';
-
-      // A list with no source URL has nothing to fetch, but a disabled button is
-      // a dead end: it takes no focus, so the title explaining why never reaches
-      // the keyboard or a touch screen. Offer the repair instead — the editor is
-      // where a URL goes, and that is one click from here.
-      const button = list.url
-        ? el(
-            'button',
-            {
-              class: 'dash-mini',
-              type: 'button',
-              title: `Fetch ${list.url}`,
-              onclick: async () => {
-                (button as HTMLButtonElement).disabled = true;
-                button.textContent = 'Fetching…';
-                await host.refetchRuleList(list.id);
-              },
-            },
-            'Fetch now'
-          )
-        : el(
-            'button',
-            {
-              class: 'dash-mini',
-              type: 'button',
-              title: 'This list has no source URL — add one to fetch it and keep it up to date',
-              onclick: () => host.open(list.id),
-            },
-            'Add URL'
-          );
-
-      rows.append(
-        el(
-          'div',
-          { class: 'dash-rl' },
-          avatarEl(list, 22),
-          el(
-            'div',
-            { class: 'dash-rl-id' },
-            el('div', { class: 'dash-rl-nm' }, list.name),
-            sub,
-            autoUpdates ? el('div', { class: 'dash-freshbar' }, fill) : null
-          ),
-          button
-        )
-      );
-    }
-
-    node.replaceChildren(cardHead('Rule lists'), rows);
-  };
-
-  return { node, refresh };
+function hm(at: number): string {
+  return new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-/* ---------------- inline route tester ---------------- */
+/* ---------------- connection tests ---------------- */
 
-function testerCard(): { node: HTMLElement; refresh: () => void } {
-  const input = el('input', {
-    class: 'input mono',
-    value: 'https://example.com/',
-    spellcheck: false,
-    ariaLabel: 'URL to resolve',
-  }) as HTMLInputElement;
-  const verdict = el('div', { class: 'dash-verdict' });
-
-  const run = (): void => {
-    const config = host.config();
-    const raw = input.value.trim();
-    if (!raw) {
-      verdict.replaceChildren(el('span', { class: 'note' }, 'Type a URL or a hostname.'));
-      return;
-    }
-    let url: URL;
-    try {
-      url = new URL(/^[a-z]+:\/\//i.test(raw) ? raw : `https://${raw}`);
-    } catch {
-      verdict.replaceChildren(el('span', { class: 'note error' }, 'That is not a URL Sockitt can parse.'));
-      return;
-    }
-
-    const active = profileById(config, config.activeId);
-    if (!active) {
-      verdict.replaceChildren(
-        el(
-          'span',
-          { class: 'note' },
-          config.activeId === SYSTEM
-            ? 'A System profile is active — your operating system decides, and Sockitt cannot see its rules.'
-            : 'Direct is active, so every request goes straight out.'
-        )
-      );
-      return;
-    }
-
-    const route = resolveRoute(config, active, pacRequestUrl(url.href), url.hostname);
-    const target = route.bypassed ? DIRECT : route.targetId;
-    const info = nodeInfo(config, target);
-    // The reason has to fit the profile that produced it: "no rule matched" is
-    // nonsense from a plain proxy, which has no rules to match.
-    const why = route.bypassed
-      ? 'the bypass list sends it direct'
-      : route.ruleId
-        ? 'matched a rule'
-        : active.kind === 'proxy'
-          ? 'everything routes through this proxy'
-          : active.kind === 'virtual'
-            ? 'alias'
-            : 'nothing matched — the default target';
-    // The answer first — where it goes — and why on the line under it. With the
-    // reason between the two names, the destination (the one thing this card
-    // is for) wrapped onto a line of its own in every state.
-    verdict.replaceChildren(
-      el('span', { class: 'chain-chip' }, tileFor(config, config.activeId, 18), nodeInfo(config, config.activeId).name),
-      el('span', { class: 'dash-arrow', role: 'img', ariaLabel: 'routes to' }),
-      el('span', { class: 'chain-chip' }, tileFor(config, target, 18), info.name),
-      el('span', { class: 'dash-why' }, why)
-    );
-  };
-
-  input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') run();
+async function requestTest(profile: ProxyProfile): Promise<void> {
+  const config = host.config();
+  if (!config.settings.exitIpCheck) {
+    toast('Turn on IP address lookups in Settings to test');
+    return;
+  }
+  if (!(await host.requestExitIp())) {
+    toast('Needs access to ipconfig.is');
+    return;
+  }
+  wireVerdicts();
+  testing.add(profile.id);
+  repaintDashboard();
+  await chrome.storage.session.set({
+    [TEST_KEY]: { profileId: profile.id, nonce: Date.now(), scheme: profile.scheme, host: profile.host, port: profile.port },
   });
-
-  const node = card(
-    'dash-c5',
-    cardHead('Try a URL'),
-    el(
-      'div',
-      { class: 'dash-tester' },
-      input,
-      el('button', { class: 'btn primary', type: 'button', onclick: run }, 'Resolve')
-    ),
-    verdict,
-    el(
-      'p',
-      { class: 'note' },
-      'Resolved locally by the same matcher the generated routing script uses — no request is made. ',
-      el(
-        'button',
-        { class: 'linklike', type: 'button', onclick: () => host.open('@inspect') },
-        'Open the full inspector'
-      ),
-      ' for the step-by-step trace.'
-    )
-  );
-
-  run();
-  // Deliberately not repainted: this card holds the one text field on the page,
-  // and a storage event must never take a half-typed URL away.
-  return { node, refresh: () => undefined };
+  // The worker answers within ~8 s; a test it drops still has to give the button back.
+  setTimeout(() => {
+    if (!testing.delete(profile.id)) return;
+    repaintDashboard();
+  }, 15_000);
 }
 
-/* ---------------- panel ---------------- */
+/** Keep each proxy's last verdict, so it survives the repaint that follows it. */
+function wireVerdicts(): void {
+  if (verdictsWired) return;
+  verdictsWired = true;
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'session' || !changes[TEST_RESULT_KEY]) return;
+    const r = changes[TEST_RESULT_KEY].newValue as (Omit<TestVerdict, 'at'> & { profileId?: string }) | undefined;
+    if (!r?.profileId) return;
+    testing.delete(r.profileId);
+    verdicts.set(r.profileId, { ok: !!r.ok, ip: r.ip, iso: r.iso, country: r.country, ms: r.ms, error: r.error, at: Date.now() });
+    repaintDashboard();
+  });
+}
+
+/* ---------------- tabs on each line ---------------- */
+
+async function countTabs(): Promise<void> {
+  const mine = ++tabsSeq;
+  const granted = await chrome.permissions.contains(TABS_PERMS).catch(() => false);
+  if (mine !== tabsSeq || !root?.isConnected) return;
+  tabsGranted = granted;
+  if (!granted) {
+    tally = null;
+    repaintDashboard();
+    return;
+  }
+  const tabs = await chrome.tabs.query({}).catch(() => [] as chrome.tabs.Tab[]);
+  if (mine !== tabsSeq || !root?.isConnected) return;
+  const config = host.config();
+  const layout = layoutYard(config, config.activeId, FULL, overrides);
+  const next = new Map<string, number>();
+  for (const tab of tabs) {
+    const target = tabTarget(tab);
+    if (!target) continue;
+    const t = traceYard(config, layout, pacRequestUrl(target.url), target.host, overrides);
+    next.set(t.targetId, (next.get(t.targetId) ?? 0) + 1);
+  }
+  tally = next;
+  repaintDashboard();
+}
+
+/* ---------------- the exit lookup ---------------- */
+
+async function runExitCheck(force = false): Promise<void> {
+  const config = host.config();
+  if (!config.settings.exitIpCheck) return;
+  if (exitBusy && !force) return;
+  if (!force && exitInfo && Date.now() - exitAt < 60_000) return;
+  if (!(await chrome.permissions.contains(EXIT_IP_PERMS).catch(() => false))) return;
+  const mine = ++exitSeq;
+  exitBusy = true;
+  exitStartedAt = Date.now();
+  exitError = null;
+  exitForId = config.activeId;
+  repaintDashboard();
+  try {
+    const info = await checkExitIp(8000);
+    if (mine !== exitSeq) return;
+    exitInfo = info;
+    exitAt = Date.now();
+  } catch (e) {
+    if (mine !== exitSeq) return;
+    exitInfo = null;
+    exitError = e instanceof Error ? e.message : 'lookup failed';
+  } finally {
+    if (mine === exitSeq) {
+      exitBusy = false;
+      repaintDashboard();
+    }
+  }
+}
+
+/* ---------------- the panel ---------------- */
 
 export function dashboardPanel(h: DashboardHost): HTMLElement {
   host = h;
   generation++;
-  refreshers = [];
+  wireVerdicts();
 
-  const cards = [
-    heroCard(),
-    statStrip(),
-    routingMap(),
-    healthCard(),
-    serversCard(),
-    tabsCard(),
-    timelineCard(),
-    ruleListsCard(),
-    testerCard(),
-  ];
+  const alerts = alertSection();
+  const head = headSection();
+  const yard = yardSection();
+  const key = keySection();
+  const attention = attentionSection();
+  const session = sessionSection();
 
-  const bento = el('div', { class: 'dash-bento' }, ...cards.map((c) => c.node));
-  refreshers = cards.map((c) => c.refresh);
-  cardNodes = cards.map((c) => c.node);
-
-  const headSub = el('span', { class: 'dash-head-sub' });
   const panel = el(
     'div',
-    { class: 'pane dash' },
-    el('div', { class: 'dash-head' }, el('h2', { class: 'dash-title' }, 'Overview'), headSub),
-    bento
+    { class: 'pane ov' },
+    alerts.node,
+    head.node,
+    el('div', { class: 'band' }, traceSection(), yard.node, key.node),
+    el('div', { class: 'ledger' }, attention.node, session.node)
   );
   root = panel;
 
-  // The head line rides the refresh list so it ages with everything else on the
-  // 30-second tick, rather than freezing at whatever it said on first paint.
-  refreshers.push(() => {
-    headSub.textContent = appliedAt ? `Route applied ${relativeTime(appliedAt)}` : '';
-  });
-
+  const sections = [alerts, head, yard, key, attention, session];
+  refreshers = sections.map((s) => s.refresh);
+  sectionNodes = sections.map((s) => s.node);
   for (const refresh of refreshers) refresh();
 
-  // Deferred reads: each fills in and repaints when it lands, so first paint is
-  // never held up by a permission check or a storage measurement.
+  // Deferred reads: each repaints when it lands, so first paint never waits.
   const mine = generation;
   void (async () => {
-    const [granted, session, log] = await Promise.all([
+    const config = host.config();
+    const [granted, session, log, temp] = await Promise.all([
       chrome.permissions.contains(AUTH_PERMS).catch(() => false),
-      chrome.storage.session
-        .get([CONTROL_KEY, APPLIED_KEY])
-        .catch(() => ({}) as Record<string, unknown>),
+      chrome.storage.session.get([CONTROL_KEY, APPLIED_KEY]).catch(() => ({}) as Record<string, unknown>),
       loadHistory(),
+      loadTempRules(config.activeId, 'regular').catch(() => [] as SwitchRule[]),
     ]);
     if (mine !== generation || !root?.isConnected) return;
     authGranted = granted;
@@ -1902,23 +936,23 @@ export function dashboardPanel(h: DashboardHost): HTMLElement {
     const forId = store[APPLIED_KEY]?.activeId;
     if (typeof forId === 'string') exitForId = forId;
     history = log;
+    overrides = temp;
     repaintDashboard();
+    void countTabs();
   })();
 
   void measureSync();
   void runExitCheck();
-  // The map's labels are measured on a canvas, which uses whatever face has
-  // loaded at that moment. On a cold open the bundled ones can land just after
-  // first paint, so measure again once they have: a label sized against the
-  // fallback ran 38px out of its node.
   void document.fonts?.ready.then(() => {
     if (mine === generation) repaintDashboard();
   });
 
   clearInterval(relTimer);
   relTimer = setInterval(() => {
-    if (root?.isConnected) repaintDashboard();
-    else clearInterval(relTimer);
+    if (root?.isConnected) {
+      repaintDashboard();
+      void countTabs();
+    } else clearInterval(relTimer);
   }, REL_TICK_MS);
 
   return panel;
@@ -1930,113 +964,86 @@ async function measureSync(): Promise<void> {
     const bytes = await chrome.storage.sync.getBytesInUse(null);
     if (mine !== generation || !root?.isConnected) return;
     syncBytes = bytes;
-    repaintDashboard();
   } catch {
-    // sync unavailable (signed out, or disabled by policy) — the tile says so
-    // rather than claiming zero bytes or measuring forever.
     syncBytes = -2;
-    repaintDashboard();
   }
+  repaintDashboard();
 }
 
 /**
- * Repaint every card in place. Safe to call from any storage listener: no card
- * except the tester holds user input, and the tester opts out.
+ * Repaint every section in place. Safe from any storage listener: the trace
+ * field is not a section, so nothing being typed is ever rebuilt. A section
+ * holding focus is repainted and focus is put back on the control that took
+ * its place — the control pressed is very often the one whose result the
+ * repaint is there to show.
  */
 export function repaintDashboard(): void {
   if (!root?.isConnected) return;
   refreshers.forEach((refresh, i) => {
-    const card = cardNodes[i];
+    const section = sectionNodes[i];
     const focused = document.activeElement;
-    if (!card || !(focused instanceof Element) || focused === card || !card.contains(focused)) {
+    if (!section || !(focused instanceof Element) || focused === section || !section.contains(focused)) {
       refresh();
       return;
     }
-    // The card is rebuilt wholesale, which takes the focused control out of the
-    // document and drops a keyboard user to the top of the page — every 30 s,
-    // and on every burst of errors. So repaint, then put focus back on the
-    // control that took its place. Not skipping the card instead: the control
-    // focused is very often the one just pressed (Fix, Measure), and its card
-    // has to show what that did.
     const key = focusKey(focused);
     refresh();
-    if (card.contains(document.activeElement)) return; // the refresh kept it
-    const twin = [...card.querySelectorAll<HTMLElement | SVGElement>('*')].find((n) => focusKey(n) === key);
+    if (section.contains(document.activeElement)) return;
+    const twin = [...section.querySelectorAll<HTMLElement>('button, a, input, select')].find((n) => focusKey(n) === key);
     if (twin) twin.focus({ preventScroll: true });
     else {
-      // What was focused is gone (a fixed finding's button): stay in the card.
-      card.tabIndex = -1;
-      card.focus({ preventScroll: true });
+      section.tabIndex = -1;
+      section.focus({ preventScroll: true });
     }
   });
 }
 
-/** What a control is, independent of the node that happens to draw it. */
 function focusKey(node: Element): string {
   const data = (node as HTMLElement).dataset ?? {};
-  const cls = (node.getAttribute('class') ?? '')
-    .split(/\s+/)
-    .filter((c) => !['muted', 'faded', 'active'].includes(c))
-    .join(' ');
-  return [node.tagName, cls, data.id ?? data.profile ?? '', (node.textContent ?? '').trim().slice(0, 80)].join('|');
+  const cls = (node.getAttribute('class') ?? '').split(/\s+/).filter((c) => !['lit', 'faded', 'good', 'bad', 'st'].includes(c)).join(' ');
+  return [node.tagName, cls, data.profile ?? '', (node.textContent ?? '').trim().slice(0, 80)].join('|');
 }
 
-/** True when the dashboard is the mounted page. */
 export function dashboardMounted(): boolean {
   return Boolean(root?.isConnected);
 }
 
-/**
- * Adopt an auth-permission change.
- *
- * The health card's "credentials but cannot use them" check is the only thing
- * on this page that depends on a permission the user can revoke from
- * chrome://extensions at any moment — including while this page is open. The
- * options page already recomputes that answer on permissions.onAdded /
- * onRemoved for its own banner; this is how the dashboard hears about it.
- * Without it the card kept whatever it read when the panel was built, so a
- * revoked grant raised no finding and a fresh grant left a stale one.
- */
 export function setAuthGranted(granted: boolean): void {
   if (granted === authGranted) return;
   authGranted = granted;
   repaintDashboard();
 }
 
-/** Adopt a control-level change pushed by the worker. */
 export function setControlLevel(level: string): void {
   if (level === controlLevel) return;
   controlLevel = level;
   repaintDashboard();
 }
 
-/** Adopt a fresh activation history (the worker appends to it). */
 export function setHistory(entries: ActivationEntry[]): void {
   history = entries;
   repaintDashboard();
 }
 
+/** Overrides changed (the popup set or ended one): they are the map's first junction. */
+export function setOverrides(rules: SwitchRule[]): void {
+  overrides = rules;
+  repaintDashboard();
+  void countTabs();
+}
+
 /**
- * The worker applied a route.
- *
- * Re-measures the exit only when the destination actually changed: the worker
- * re-applies on every rule edit and every permission grant too, and firing an
- * ipconfig.is lookup at each of those would turn an options tab left open into
- * a steady trickle of requests to a third party — not the deal this extension
- * makes anywhere else.
+ * The worker applied a route. Re-measure the exit only when the destination
+ * actually changed — re-applying after a rule edit or a permission grant must
+ * not become a steady trickle of lookups to a third party.
  */
 export function setApplied(activeId: string, at: number): void {
   appliedAt = at;
-  // A settled answer for this same profile still describes it — this is the
-  // rule-edit and permission-grant case the note above is about.
   if (activeId === exitForId && exitInfo) {
     repaintDashboard();
+    void countTabs();
     return;
   }
-  // One still in flight only counts if it left AFTER this apply landed.
-  // Started before it, it was measuring the route that has just been replaced,
-  // and treating it as covering the new one is what let the old proxy's exit
-  // be printed under the new profile's name.
   if (activeId === exitForId && exitBusy && exitStartedAt >= at) {
     repaintDashboard();
     return;
@@ -2045,4 +1052,19 @@ export function setApplied(activeId: string, at: number): void {
   exitInfo = null;
   exitError = null;
   void runExitCheck(true);
+  void countTabs();
 }
+
+/** The first-run tile and the editor's tile share one look. */
+export function tileFor(config: Config, id: string, size: number): HTMLElement {
+  const p: Profile | undefined = id === DIRECT || id === SYSTEM ? undefined : profileById(config, id);
+  if (!p) return builtinTile(id === SYSTEM ? 'S' : 'D', size);
+  return avatarEl(p, size);
+}
+
+/** For callers that need a destination's colour without importing the layout module. */
+export function lineColour(config: Config, id: string): string {
+  return id === DIRECT || id === SYSTEM ? BUILTIN_FILL : colourOf(config, id);
+}
+
+export { RULE_LABEL };

@@ -37,6 +37,18 @@ export function relativeTime(at: number, now = Date.now()): string {
   return hours < 24 ? `${hours} h ago` : `${Math.round(hours / 24)} d ago`;
 }
 
+/**
+ * A mask icon from theme.css's set (--i-alert, --i-check, …), painted in the
+ * text colour around it. setProperty, not el()'s style object: Object.assign
+ * onto a CSSStyleDeclaration silently drops custom properties.
+ */
+export function icon(name: string, cls = ''): HTMLElement {
+  const node = el('span', { class: `ic${cls ? ` ${cls}` : ''}` });
+  node.style.setProperty('--i', `var(--i-${name})`);
+  node.setAttribute('aria-hidden', 'true');
+  return node;
+}
+
 /** SVG needs its own namespace — el() creates HTML elements only. */
 export function svg<K extends keyof SVGElementTagNameMap>(
   tag: K,

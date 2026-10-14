@@ -56,11 +56,15 @@ src/
   background.ts          service worker: the only chrome.proxy caller
   popup/                 popup.html / .ts / .css
   options/               options UI: dashboard.ts (Overview), network.ts
-                         (network monitor), docs.ts (in-app docs),
-                         releases.ts (release history), settings, editors
+                         (Activity › Requests), yardview.ts (paints the
+                         track map), docs.ts (in-app docs), releases.ts
+                         (release history), settings, editors
+  shared/yard.ts         lays a profile out as a track map (pure; tested)
+  shared/colour.ts       a profile colour's line and text variants per theme
+  shared/strip.ts        one request's route, drawn small (popup, Activity)
   theme.css              design tokens and shared components for both pages
                          (the spec is docs/design.md — read it before UI work)
-static/fonts/            DM Sans + JetBrains Mono, subset from upstream; the
+static/fonts/            Archivo + IBM Plex Mono, subset from upstream; the
                          README there says how they were cut, and why not npm
 scripts/gen-icons.mjs    logo-source.png to PNG icon set (ImageMagick)
 scripts/gen-store-shots.mjs  README + Web Store screenshots, captured from the built UI
@@ -100,23 +104,26 @@ rather than a grid of empty states.
 
 Every scene is composed on a 1280×800 canvas — the size the store requires, so
 this is a 1x capture — with the headline above and the real UI in an `<iframe>`
-below, set on the options page's own canvas colour. The rounded corners are the
+below, set on the map band's tint (`--yard`). The rounded corners are the
 frame's: it clips the iframe with `border-radius` and `overflow: hidden`, so
-nothing here depends on a transparent capture. The popup scene fills a 720×520
-frame, exactly what `popup.css` pins; the options scenes use a 1200×670 frame
-that bleeds off the bottom edge, so only its top corners are rounded.
+nothing here depends on a transparent capture. The popup scene shows two 400×600
+frames side by side — the size `popup.css` pins — one in each theme (a frame
+names its variant in its URL's hash: `#dark`, `#tab2`); the options scenes use a
+1200×650 frame that bleeds off the bottom edge, so only its top corners are
+rounded.
 
-The options page boots on the Overview, so a scene names a sidebar entry with
-`clickNav` to capture anything else — a page (`'Route inspector'`, `'Network
-monitor'`, `'Docs'`) or a profile by name (`'Office routing'`). It is matched and
-clicked the way a user would, rather than by reaching into private state, so a
-renamed nav entry fails the run instead of silently shooting the wrong page.
+The options page boots on the Overview, so a scene names a tab with `clickNav`
+to capture anything else — a page (`'Inspector'`, `'Activity'`, `'Docs'`) or a
+profile by name (`'Office routing'`), which is found on the Profiles page. It is
+matched and clicked the way a user would, rather than by reaching into private
+state, so a renamed tab fails the run instead of silently shooting the wrong
+page.
 
-The network-monitor scene is driven rather than drawn. The shim's
+The Activity scene is driven rather than drawn. The shim's
 `chrome.webRequest` events are dispatchable, and the scene's `traffic` array
 fires real `onBeforeRequest` / `onCompleted` / `onErrorOccurred` events through
 the live panel, so the shot shows the panel's own rendering and its own computed
-"Routed via" column. Two timings matter: the traffic goes out a turn *after* the
+Route column; `openRow` then opens the failed request, the way a user would. Two timings matter: the traffic goes out a turn *after* the
 nav click, because the monitor attaches its listeners behind a permission check
 and a storage read and anything fired in the same tick arrives before it is
 listening; and each request completes on its own timer, because finishing in the

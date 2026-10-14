@@ -171,7 +171,7 @@ export type Profile = ProxyProfile | SwitchProfile | VirtualProfile | RuleListPr
 /**
  * Profile kinds in the order every surface lists them, and what each group of
  * them is called. Here rather than in a UI file because more than one surface
- * groups by kind — the options sidebar's sections and the dashboard switcher's
+ * groups by kind — the Profiles page's list and the route picker's
  * optgroups — and two copies of a display order is two chances to drift, the
  * same reason SCHEME_LABELS lives here.
  */
@@ -195,7 +195,7 @@ export interface Settings {
   /** Re-apply our proxy settings if another extension overrides them. */
   revertExternal: boolean;
   confirmDeletion: boolean;
-  /** Quick-added rules go to the bottom (true) or top (false) of the table. */
+  /** Rules added from the popup go to the bottom (true) or top (false) of the table. */
   addToBottom: boolean;
   /** Reload the active tab after switching profiles from the popup. */
   refreshOnSwitch: boolean;

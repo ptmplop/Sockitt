@@ -169,12 +169,12 @@ chosen target. Two formats:
 
 ### Making a domain list
 
-1. Sidebar → **Create** → **Rule list**.
-2. Set **Format** to *Domain list (one per line)*.
+1. **Profiles** → **New** → **Rule list**.
+2. Under **Source**, set **Format** to *Domain list (one per line)*.
 3. Paste the list into **List content**, or set a **URL** and press **Update now**.
-4. Under **Routing**, pick where matching sites go (*Matching entries route via*)
-   and where everything else goes (*Everything else*).
-5. Activate the profile from the popup, or point an Auto switch rule at it.
+4. Under **Routing**, pick where entries on the list go (*On the list, route via*)
+   and where everything else goes (*Everything else, via*).
+5. Switch to the profile, or point an Auto switch rule at it.
 
 One entry per line; the common case needs no punctuation at all:
 

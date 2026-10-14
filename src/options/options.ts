@@ -1,16 +1,24 @@
 import { avatarEl, builtinTile, initialsFor } from '../shared/avatar';
+import { BUILTIN_FILL, paintRoute } from '../shared/colour';
 import {
+  PermAsk,
+  askRow,
   dashboardMounted,
   dashboardPanel,
+  lineColour,
+  tracedYard,
   repaintDashboard,
   setApplied,
   setAuthGranted,
   setControlLevel,
   setHistory,
+  setOverrides,
 } from './dashboard';
+import { COMPACT, FULL, YardLayout, edgeRuleIndex, layoutYard } from '../shared/yard';
+import { yardSvg } from './yardview';
 import { docsPanel } from './docs';
 import { EXIT_IP_PERMS, flagSrc } from '../shared/exitip';
-import { TraceEdge, pacRequestUrl, patternError, resolveRoute } from '../shared/match';
+import { TraceEdge, hostLooksReal, pacRequestUrl, patternError, resolveRoute } from '../shared/match';
 import { RULE_LIST_MAX_BYTES, looksLikeSwitchyOmega, parseRuleList } from '../shared/rulelist';
 import { networkPanel } from './network';
 import { releasesPanel } from './releases';
@@ -19,7 +27,6 @@ import {
   ERROR_LOG_KEY,
   ProxyAlert,
   ProxyErrorEntry,
-  ProxyRef,
   clearErrorLog,
   clearProxyAlert,
   describeCarrier,
@@ -38,12 +45,16 @@ import {
   OPEN_PAGE_KEY,
   TEST_KEY,
   TEST_RESULT_KEY,
+  ThemePref,
   UiPrefs,
+  applyTheme,
   defaultUiPrefs,
   loadConfig,
   loadHistory,
   loadTempRules,
   loadUiPrefs,
+  onTempRulesChanged,
+  onThemeChanged,
   newProxyProfile,
   newRuleListProfile,
   newSwitchProfile,
@@ -83,7 +94,7 @@ import {
   schemeSupportsAuth,
   uid,
 } from '../shared/types';
-import { el, relativeTime, toast } from '../shared/ui';
+import { el, icon, toast } from '../shared/ui';
 import { PendingUpdate, UPDATE_KEY, loadPendingUpdate } from '../shared/update';
 
 const app = document.getElementById('app')!;
@@ -93,17 +104,23 @@ const DOCS_ID = '@docs';
 const INSPECT_ID = '@inspect';
 const ERRORS_ID = '@errors';
 const NETWORK_ID = '@network';
-/** Reached from the Documentation page; deliberately not in the sidebar. */
+/** The Profiles tab with nothing chosen yet — it picks one on arrival. */
+const PROFILES_ID = '@profiles';
+/** Reached from the Documentation page; it has no tab of its own. */
 const RELEASES_ID = '@releases';
 /**
  * The nav entries that are pages rather than profiles. Kept as one set so a new
  * page cannot be forgotten by the "selected profile was deleted" check below —
  * forgetting it there silently bounces the user off the page on any config change.
- * A page with no sidebar entry belongs here too: it is still somewhere the user
+ * A page with no tab of its own belongs here too: it is still somewhere the user
  * can be standing when the config changes under them.
  */
 const PAGE_IDS = new Set<string>([
   DASH_ID,
+  PROFILES_ID,
+  // The two built-ins have a pane on the Profiles page of their own.
+  DIRECT,
+  SYSTEM,
   SETTINGS_ID,
   DOCS_ID,
   INSPECT_ID,
@@ -111,48 +128,6 @@ const PAGE_IDS = new Set<string>([
   NETWORK_ID,
   RELEASES_ID,
 ]);
-
-/**
- * Feather-style icons for the "Extension" nav items. Crisp, uniformly sized
- * SVGs replace the old font glyphs (⚙ / ⌕ / ?), which rendered at very
- * different visual sizes at the tile's ~9px glyph size (the ⌕ magnifier
- * especially looked tiny next to the gear).
- */
-const NAV_ICON = {
-  // A bento of unequal panes — the dashboard's own layout, at 14px.
-  overview:
-    '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="8" height="10" rx="1.5"/><rect x="13" y="3" width="8" height="6" rx="1.5"/><rect x="3" y="15" width="8" height="6" rx="1.5"/><rect x="13" y="11" width="8" height="10" rx="1.5"/></svg>',
-  settings:
-    '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
-  search:
-    '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
-  // Points down when the disclosure it sits in is open; CSS does the turning.
-  chevron:
-    '<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>',
-  // A trace, the way a monitor draws one.
-  activity:
-    '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 12 7 12 10 5 14 19 17 12 21 12"/></svg>',
-  help:
-    '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
-  grip:
-    '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="6" x2="9" y2="6"/><line x1="15" y1="6" x2="15" y2="6"/><line x1="9" y1="12" x2="9" y2="12"/><line x1="15" y1="12" x2="15" y2="12"/><line x1="9" y1="18" x2="9" y2="18"/><line x1="15" y1="18" x2="15" y2="18"/></svg>',
-  plus:
-    '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
-  alert:
-    '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
-};
-
-/**
- * A nav glyph in a box the size of a profile tile. No tile of its own — a grey
- * square behind every page icon made the extension's own pages read as more
- * profiles — but the same footprint, so every label in the sidebar starts on
- * one line whether its row leads with a page icon or a profile's initials.
- */
-function iconTile(svg: string, size: number): HTMLElement {
-  const node = el('span', { class: 'nav-ic', innerHTML: svg });
-  node.style.width = node.style.height = `${size}px`;
-  return node;
-}
 
 let fieldSeq = 0;
 
@@ -186,36 +161,47 @@ const KIND_ONE: Record<Profile['kind'], string> = {
 };
 
 /**
- * The title a page opens on — the Overview's own head, so the first line holds
- * still as you move down the sidebar instead of jumping between a 24px title
- * and a panel heading 20px further down. An editor names the profile it edits.
+ * The title a page opens on, and the line under it. Every page has one; the
+ * permission notices go in the slot under it (updatePermBanners).
  */
-function pageHead(title: string, sub?: string): HTMLElement {
+function pageHead(title: string, sub?: string | Node, ...trailing: Array<Node | null>): HTMLElement {
   return el(
-    'div',
-    { class: 'dash-head page-head' },
-    el('h2', { class: 'dash-title' }, title),
-    sub ? el('span', { class: 'dash-head-sub' }, sub) : null
+    'header',
+    { class: 'page-head' },
+    el('div', { class: 'page-head-text' }, el('h1', { class: 't-title' }, title), sub ? el('p', { class: 'ink2' }, sub) : null),
+    trailing.length ? el('div', { class: 'page-head-acts' }, ...trailing) : null
   );
 }
 
-/** The head every editor opens on: the profile's name, and what kind it is. */
+/** The head every editor opens on: the profile's tile and name, what it is, and what you can do to it. */
 function editorHead(profile: Profile): HTMLElement {
+  const active = config.activeId === profile.id;
   const kind = profile.kind === 'proxy' ? `${SCHEME_LABELS[profile.scheme]} proxy` : KIND_ONE[profile.kind];
-  return pageHead(profile.name, config.activeId === profile.id ? `${kind} · active` : kind);
+  const what: Record<Profile['kind'], string> = {
+    proxy: 'everything goes through it, except the bypass list',
+    switch: 'rules are tried top to bottom, and the first match takes the request',
+    rulelist: 'requests on the list go one way, the rest another',
+    virtual: 'one name for a route, retargeted in one place',
+  };
+  return el(
+    'header',
+    { class: 'ed-head' },
+    avatarEl(profile, 44),
+    el('div', { class: 'ed-title' }, el('h1', { class: 't-title' }, profile.name), el('p', { class: 'ink2' }, `${kind} · ${what[profile.kind]}`)),
+    el(
+      'div',
+      { class: 'ed-acts' },
+      active
+        ? el('span', { class: 'st good' }, 'Active')
+        : el('button', { class: 'btn primary', type: 'button', onclick: () => dashboardHost.activate(profile.id) }, 'Switch to it'),
+      el('button', { class: 'btn quiet', type: 'button', onclick: () => duplicateProfile(profile) }, 'Duplicate'),
+      el('button', { class: 'btn quiet danger', type: 'button', onclick: () => deleteProfile(profile) }, 'Delete')
+    )
+  );
 }
 
 let config: Config;
 let selectedId: string | null = null;
-/**
- * Whether the sidebar's Create disclosure is open.
- *
- * Module scope because sidebar() is rebuilt on every render(), so a flag held
- * inside it would close the list under anyone whose click caused a repaint.
- * Not persisted: it is transient, and it resets itself — addProfile() closes it,
- * since creating the thing is what the list was open for.
- */
-let createOpen = false;
 /** Per-device page preferences — deliberately not part of Config; see state.ts. */
 let uiPrefs: UiPrefs = defaultUiPrefs();
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
@@ -284,252 +270,475 @@ function confirmMaybe(message: string): boolean {
   return !config.settings.confirmDeletion || confirm(message);
 }
 
-/* ---------- sidebar ---------- */
+/* ---------- the top bar ---------- */
+
+/** A profile, or one of the two built-ins — the things the Profiles page can show. */
+function isProfileId(id: string | null): boolean {
+  return !!id && (id === DIRECT || id === SYSTEM || config.profiles.some((p) => p.id === id));
+}
+
+interface NavTab {
+  id: string;
+  label: string;
+  lit: (id: string | null) => boolean;
+}
 
 /**
- * The four things you can make, behind one row.
- *
- * They used to be four permanent rows under a CREATE label at the foot of the
- * nav: five rows and most of a screen-height of sidebar spent on an action
- * taken rarely, as far from where a new install starts as the nav allows. The
- * four identical + tiles were most of the weight, so the options here carry no
- * tile at all — the row above them says Create, and their text lines up with
- * the labels of the tiled rows so the indent reads as belonging rather than as
- * a mistake.
- *
- * A disclosure rather than a popup menu: the sidebar has no floating surface
- * anywhere, and one would need anchoring, outside-click and escape handling to
- * behave. This is a row that opens.
+ * Six sections across the top. The profiles used to be the sidebar's spine;
+ * they are a page of their own now, with the active one always on the right of
+ * this bar, where it can be switched from anywhere.
  */
-function createDisclosure(): HTMLElement {
-  const option = (label: string, factory: (existing: Profile[]) => Profile) =>
-    el(
-      'button',
-      { class: 'nav-item nav-sub', onclick: () => addProfile(factory) },
-      el('span', { class: 'name' }, label)
-    );
+const NAV_TABS: NavTab[] = [
+  { id: DASH_ID, label: 'Overview', lit: (id) => id === DASH_ID },
+  { id: PROFILES_ID, label: 'Profiles', lit: (id) => id === PROFILES_ID || isProfileId(id) },
+  { id: NETWORK_ID, label: 'Activity', lit: (id) => id === NETWORK_ID || id === ERRORS_ID },
+  { id: INSPECT_ID, label: 'Inspector', lit: (id) => id === INSPECT_ID },
+  { id: SETTINGS_ID, label: 'Settings', lit: (id) => id === SETTINGS_ID },
+  { id: DOCS_ID, label: 'Docs', lit: (id) => id === DOCS_ID || id === RELEASES_ID },
+];
 
-  const toggle = el(
-    'button',
-    {
-      class: `nav-item nav-create-toggle${createOpen ? ' open' : ''}`,
-      ariaExpanded: String(createOpen),
-      onclick: () => {
-        createOpen = !createOpen;
-        render();
-      },
-    },
-    iconTile(NAV_ICON.plus, 22),
-    el('span', { class: 'name' }, 'Create'),
-    el('span', { class: 'nav-chevron', innerHTML: NAV_ICON.chevron })
+/** Where the Profiles tab lands: what was open, else the active profile, else the first. */
+function profilesLanding(): string {
+  if (isProfileId(selectedId)) return selectedId!;
+  if (config.profiles.some((p) => p.id === config.activeId)) return config.activeId;
+  return config.profiles[0]?.id ?? PROFILES_ID;
+}
+
+function topNav(): HTMLElement {
+  const asks = pendingAsks();
+  const tabs = el(
+    'nav',
+    { class: 'tabs', ariaLabel: 'Sections' },
+    ...NAV_TABS.map((t) => {
+      const btn = el(
+        'button',
+        {
+          class: 'tab',
+          type: 'button',
+          onclick: () => goTo(t.id === PROFILES_ID ? profilesLanding() : t.id),
+        },
+        t.label,
+        // The count rides the tab only while failures are live; the page
+        // itself is always reachable, because the log outlives the incident.
+        t.id === NETWORK_ID && proxyAlert
+          ? el(
+              'span',
+              { class: 'count tnum' },
+              icon('alert', 'sm'),
+              proxyAlert.streak > 99 ? '99+' : String(proxyAlert.streak),
+              el('span', { class: 'vh' }, ' failing requests')
+            )
+          : null,
+        // Settings switched on that cannot work until the user says yes.
+        t.id === SETTINGS_ID && asks
+          ? el('span', { class: 'count warn tnum' }, icon('alert', 'sm'), String(asks), el('span', { class: 'vh' }, asks === 1 ? ' setting needs your OK' : ' settings need your OK'))
+          : null
+      );
+      if (t.lit(selectedId)) btn.setAttribute('aria-current', 'page');
+      return btn;
+    })
   );
-
-  // Wrapped, not appended as siblings: under 820px .nav becomes a multi-column
-  // grid, and loose rows would be dealt into its columns with an indent that
-  // then means nothing. The container spans every column instead — the same
-  // move .nav .section-label already makes there.
   return el(
-    'div',
-    { class: 'nav-create' },
-    toggle,
-    createOpen
-      ? el(
-          'div',
-          { class: 'nav-create-list', role: 'group', ariaLabel: 'Create a profile' },
-          option('Proxy', newProxyProfile),
-          option('Auto switch', newSwitchProfile),
-          option('Rule list', newRuleListProfile),
-          option('Alias', newVirtualProfile)
-        )
-      : null
+    'header',
+    { class: 'top' },
+    el(
+      'div',
+      { class: 'wrap top-in' },
+      el(
+        'button',
+        { class: 'brand', type: 'button', title: 'Overview', onclick: () => goTo(DASH_ID) },
+        el('img', { class: 'mark', src: 'img/logo-mark.png', alt: '' }),
+        el('span', {}, 'Sockitt')
+      ),
+      tabs,
+      el('div', { class: 'top-end' }, routePicker())
+    )
   );
 }
 
-function sidebar(): HTMLElement {
-  const item = (p: Profile) =>
-    el(
-      'button',
-      {
-        class: `nav-item${p.id === selectedId ? ' selected' : ''}`,
-        onclick: () => {
-          selectedId = p.id;
-          render();
-        },
-      },
-      avatarEl(p, 22),
-      el('span', { class: 'name' }, p.name),
-      // A word, not a capsule: it qualifies the name beside it.
-      config.activeId === p.id ? el('span', { class: 'badge' }, 'Active') : null
-    );
+const PICK_ID = 'route-pick';
+/**
+ * A run of changes inside this window collapses into one activation: a focused
+ * closed <select> steps its value on every arrow key, and each step would
+ * otherwise be a config write, a proxy re-apply and a sync push.
+ */
+const PICK_DEBOUNCE_MS = 260;
+let pickTimer: ReturnType<typeof setTimeout> | undefined;
 
-  const groups = PROFILE_KINDS.flatMap((kind) => {
-    const items = config.profiles.filter((p) => p.kind === kind);
-    return items.length
-      ? [el('div', { class: 'section-label' }, KIND_LABEL[kind]), ...items.map(item)]
-      : [];
+/**
+ * The active profile, on every page. A native select, so the list is the
+ * platform's own and works with a keyboard and a screen reader; the line key
+ * beside it is the colour the profile routes in, which an option cannot show.
+ */
+function routePicker(): HTMLElement {
+  const select = el('select', { class: 'picker-select', id: PICK_ID }) as HTMLSelectElement;
+  select.append(el('option', { value: DIRECT }, 'Direct'), el('option', { value: SYSTEM }, 'System'));
+  for (const kind of PROFILE_KINDS) {
+    const members = config.profiles.filter((p) => p.kind === kind);
+    if (!members.length) continue;
+    const group = el('optgroup', {}) as HTMLOptGroupElement;
+    group.label = KIND_LABEL[kind];
+    for (const p of members) group.append(el('option', { value: p.id }, p.name));
+    select.append(group);
+  }
+  select.value = config.activeId;
+  select.onchange = () => {
+    const id = select.value;
+    const hadFocus = document.activeElement === select;
+    clearTimeout(pickTimer);
+    pickTimer = setTimeout(() => {
+      dashboardHost.activate(id);
+      if (hadFocus) document.getElementById(PICK_ID)?.focus();
+    }, PICK_DEBOUNCE_MS);
+  };
+  const key = paintRoute(
+    el('span', { class: `key${config.activeId === SYSTEM ? ' system' : ''}` }),
+    lineColour(config, config.activeId)
+  );
+  return el('label', { class: 'picker', htmlFor: PICK_ID }, el('span', { class: 't-label' }, 'Routing'), key, select);
+}
+
+/* ---------- the Profiles page's list ---------- */
+
+/** What the list's filter field holds. Module scope, so a repaint keeps it. */
+let profileFilter = '';
+/** Whether the New menu is open. Transient; closing it is part of choosing. */
+let newMenuOpen = false;
+
+const NEW_KINDS: Array<[string, string, (existing: Profile[]) => Profile]> = [
+  ['Proxy server', 'SOCKS5, SOCKS4, HTTP or HTTPS, with a bypass list', newProxyProfile],
+  ['Auto switch', 'Rules that send each site its own way', newSwitchProfile],
+  ['Rule list', 'A subscribed list, such as AutoProxy or GFWList', newRuleListProfile],
+  ['Alias', 'One name for a route you retarget often', newVirtualProfile],
+];
+
+function newMenu(): HTMLElement {
+  const button = el(
+    'button',
+    {
+      class: 'btn sm new-btn',
+      type: 'button',
+      ariaExpanded: String(newMenuOpen),
+      ariaHasPopup: 'menu',
+      onclick: () => {
+        newMenuOpen = !newMenuOpen;
+        refreshChrome();
+        if (newMenuOpen) document.querySelector<HTMLElement>('.new-wrap .menu-it')?.focus();
+      },
+    },
+    icon('plus', 'sm'),
+    'New',
+    icon('chevron', 'sm')
+  );
+  const menu = newMenuOpen
+    ? el(
+        'div',
+        { class: 'menu', role: 'menu', ariaLabel: 'New profile' },
+        ...NEW_KINDS.map(([title, desc, factory]) =>
+          el(
+            'button',
+            {
+              class: 'menu-it',
+              role: 'menuitem',
+              type: 'button',
+              onclick: () => {
+                newMenuOpen = false;
+                addProfile(factory);
+              },
+            },
+            el('b', {}, title),
+            el('span', {}, desc)
+          )
+        )
+      )
+    : null;
+  return el('div', { class: 'new-wrap' }, button, menu);
+}
+
+/** Close the New menu on a click elsewhere or on Escape — wired once. */
+function wireMenuDismissal(): void {
+  document.addEventListener('click', (e) => {
+    if (!newMenuOpen) return;
+    if ((e.target as Element | null)?.closest?.('.new-wrap')) return;
+    newMenuOpen = false;
+    refreshChrome();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || !newMenuOpen) return;
+    newMenuOpen = false;
+    refreshChrome();
+    document.querySelector<HTMLElement>('.new-btn')?.focus();
+  });
+}
+
+/** What each profile is, in the list's right-hand column. */
+function listSub(p: Profile): { text: string; mono: boolean } {
+  switch (p.kind) {
+    case 'proxy':
+      return { text: p.scheme, mono: true };
+    case 'switch':
+      return { text: config.activeId === p.id ? 'Active' : `${p.rules.length} rule${p.rules.length === 1 ? '' : 's'}`, mono: false };
+    case 'rulelist': {
+      const n = parseRuleList(p.format, p.text).count;
+      return { text: config.activeId === p.id ? 'Active' : `${n.toLocaleString()} entr${n === 1 ? 'y' : 'ies'}`, mono: false };
+    }
+    case 'virtual':
+      return { text: nameFor(p.targetId), mono: false };
+  }
+}
+
+function nameFor(id: string): string {
+  if (id === DIRECT) return 'Direct';
+  if (id === SYSTEM) return 'System';
+  return config.profiles.find((p) => p.id === id)?.name ?? 'Direct';
+}
+
+function profileColumn(): HTMLElement {
+  const row = (id: string, name: string, sub: { text: string; mono: boolean }, colour: string, system = false): HTMLElement => {
+    const active = config.activeId === id;
+    const node = el(
+      'button',
+      { class: 'plist-row', type: 'button', onclick: () => goTo(id) },
+      paintRoute(el('span', { class: `key${system ? ' system' : ''}` }), colour),
+      el('span', { class: 'nm' }, name),
+      el('span', { class: `sub${sub.mono ? ' mono' : ''}` }, active && sub.text !== 'Active' ? 'Active' : sub.text)
+    );
+    node.dataset.search = `${name} ${sub.text}`.toLowerCase();
+    if (selectedId === id) node.setAttribute('aria-current', 'page');
+    return node;
+  };
+
+  const groups: HTMLElement[] = [
+    el(
+      'div',
+      { class: 'plist-group' },
+      el('p', { class: 't-label' }, 'Built in'),
+      row(DIRECT, 'Direct', { text: 'No proxy', mono: false }, BUILTIN_FILL),
+      row(SYSTEM, 'System', { text: 'OS settings', mono: false }, BUILTIN_FILL, true)
+    ),
+  ];
+  const labels: Record<Profile['kind'], string> = {
+    proxy: 'Proxy servers',
+    switch: 'Auto switch',
+    rulelist: 'Rule lists',
+    virtual: 'Aliases',
+  };
+  for (const kind of PROFILE_KINDS) {
+    const members = config.profiles.filter((p) => p.kind === kind);
+    if (!members.length) {
+      if (kind === 'virtual' && config.profiles.length) {
+        groups.push(
+          el(
+            'div',
+            { class: 'plist-group plist-hint' },
+            el('p', { class: 't-label' }, labels[kind]),
+            el(
+              'p',
+              { class: 'plist-empty' },
+              'One name for a route you change often. Point rules at an alias, then retarget them all at once. ',
+              el('button', { class: 'linklike', type: 'button', onclick: () => addProfile(newVirtualProfile) }, 'New alias')
+            )
+          )
+        );
+      }
+      continue;
+    }
+    groups.push(
+      el('div', { class: 'plist-group' }, el('p', { class: 't-label' }, labels[kind]), ...members.map((p) => row(p.id, p.name, listSub(p), p.color)))
+    );
+  }
+
+  const filter = el('input', {
+    class: 'input',
+    type: 'search',
+    placeholder: 'Filter profiles',
+    ariaLabel: 'Filter profiles',
+    value: profileFilter,
+    spellcheck: false,
+    oninput: (e: Event) => {
+      profileFilter = (e.currentTarget as HTMLInputElement).value;
+      applyProfileFilter();
+    },
   });
 
   return el(
     'aside',
-    { class: 'side' },
+    { class: 'plist', ariaLabel: 'Profiles' },
+    el('div', { class: 'plist-head' }, el('h2', { class: 't-h3' }, 'Profiles'), newMenu()),
+    el('div', { class: 'search plist-find' }, filter),
+    ...groups,
+    el('p', { class: 'plist-none meta hidden' }, 'No profile matches.')
+  );
+}
+
+/** Hide rows that don't match, in place — never a rebuild, so typing keeps focus. */
+function applyProfileFilter(): void {
+  const list = app.querySelector('.plist');
+  if (!list) return;
+  const q = profileFilter.trim().toLowerCase();
+  let any = false;
+  list.querySelectorAll<HTMLElement>('.plist-group').forEach((group) => {
+    let shown = false;
+    group.querySelectorAll<HTMLElement>('.plist-row').forEach((r) => {
+      const hit = !q || (r.dataset.search ?? '').includes(q);
+      r.classList.toggle('hidden', !hit);
+      if (hit) shown = true;
+    });
+    group.classList.toggle('hidden', !!q && (!shown || group.classList.contains('plist-hint')));
+    if (shown) any = true;
+  });
+  list.querySelector('.plist-none')?.classList.toggle('hidden', any || !q);
+}
+
+/* ---------- the footer ---------- */
+
+function footer(): HTMLElement {
+  let version = '';
+  try {
+    version = chrome.runtime.getManifest().version;
+  } catch {
+    /* a preview build */
+  }
+  const link = (href: string, text: string, title?: string): HTMLElement =>
+    el('a', { href, target: '_blank', rel: 'noopener noreferrer', title: title ?? '' }, text);
+  return el(
+    'footer',
+    { class: 'foot' },
     el(
       'div',
-      { class: 'brand' },
-      el('img', { class: 'mark', src: 'img/logo-mark.png', alt: '' }),
-      el(
-        'span',
-        { class: 'brand-text' },
-        el('span', { class: 'brand-name' }, 'Sockitt'),
-        el('span', { class: 'brand-sub' }, 'Proxy Switcher')
-      )
-    ),
+      { class: 'wrap foot-in' },
+      el('span', {}, version ? `Sockitt ${version}` : 'Sockitt'),
+      link('https://ipconfig.is', 'Check your IP', 'Open ipconfig.is in a new tab'),
+      link('https://github.com/ptmplop/Sockitt', 'Source on GitHub'),
+      // A plain link, not their widget: an MV3 page cannot run a third party's
+      // script, and it should contact nobody until it is clicked.
+      link('https://buymeacoffee.com/ipbadger', 'Buy me a coffee', 'Support Sockitt — opens buymeacoffee.com in a new tab'),
+      el('span', { class: 'grow' }, 'MIT licensed')
+    )
+  );
+}
+
+/* ---------- first run, and the built-ins ---------- */
+
+/** Three ways in, for an install with nothing set up yet. */
+function startList(): HTMLElement {
+  const item = (n: string, title: string, text: string, ...actions: HTMLElement[]): HTMLElement =>
+    el('li', {}, el('span', { class: 'start-n mono' }, n), el('div', {}, el('h3', {}, title), el('p', {}, text)), el('div', { class: 'start-acts' }, ...actions));
+  return el(
+    'section',
+    { class: 'starts', ariaLabel: 'Three ways to start' },
+    el('h2', { class: 't-h3' }, 'Three ways to start'),
     el(
-      'nav',
-      { class: 'nav' },
-      // The home, above the profile groups rather than inside "Extension" —
-      // it is where the page opens, not one of its tools.
+      'ol',
+      {},
+      item('1', 'Add a proxy server', 'SOCKS5, SOCKS4, HTTP or HTTPS. It gets its own line on the map, and the toolbar switches to it in one click.',
+        el('button', { class: 'btn primary', type: 'button', onclick: () => addProfile(newProxyProfile) }, 'Add a proxy server')),
+      item('2', 'Start an auto switch', 'Send some sites through a proxy and everything else direct, by host, keyword, IP range or time of day.',
+        el('button', { class: 'btn', type: 'button', onclick: () => addProfile(newSwitchProfile) }, 'Start an auto switch')),
+      item('3', 'Bring your setup across', 'Import a backup from another Sockitt, or turn Sync on and your profiles arrive from your other browsers.',
+        el('button', { class: 'btn', type: 'button', onclick: importConfig }, 'Import…'),
+        el('button', { class: 'btn quiet', type: 'button', onclick: () => goTo(SETTINGS_ID) }, 'Sync settings'))
+    )
+  );
+}
+
+/** A one-line map: everything to the active built-in, nothing deciding. */
+function builtinMap(id: string, compact: boolean): HTMLElement {
+  const layout = layoutYard(config, id, compact ? COMPACT : FULL);
+  const names = new Map([[id, { name: id === SYSTEM ? 'System' : 'Direct', sub: id === SYSTEM ? 'your OS settings' : 'no proxy' }]]);
+  return el(
+    'figure',
+    { class: compact ? 'ed-map' : 'yard-wrap' },
+    yardSvg({
+      layout,
+      names: compact ? names : undefined,
+      origin: compact ? undefined : { title: 'All requests', sub: 'from every tab' },
+      ariaLabel: `All requests go to ${id === SYSTEM ? 'System, your operating system’s settings' : 'Direct, with no proxy'}.`,
+    })
+  );
+}
+
+function firstRunPane(): HTMLElement {
+  const id = config.activeId === DIRECT ? DIRECT : SYSTEM;
+  const layout = layoutYard(config, id, FULL);
+  const terminus = paintRoute(
+    el(
+      'li',
+      { class: 'term' },
+      el('span', { class: `term-stop${id === SYSTEM ? ' dashed' : ''}` }),
       el(
-        'button',
-        {
-          class: `nav-item${selectedId === DASH_ID ? ' selected' : ''}`,
-          onclick: () => {
-            selectedId = DASH_ID;
-            render();
-          },
-        },
-        iconTile(NAV_ICON.overview, 22),
-        el('span', { class: 'name' }, 'Overview')
+        'div',
+        { class: 'term-body' },
+        el('p', { class: 'term-name' }, id === SYSTEM ? 'System' : 'Direct', el('span', { class: 'meta' }, id === SYSTEM ? 'your OS settings' : 'no proxy')),
+        el('p', { class: 'term-sub' }, id === SYSTEM ? 'Whatever the OS says — often no proxy at all' : 'Your own connection')
       ),
-      createDisclosure(),
-      ...groups,
-      el('div', { class: 'section-label' }, 'Extension'),
-      el(
-        'button',
-        {
-          class: `nav-item${selectedId === SETTINGS_ID ? ' selected' : ''}`,
-          onclick: () => {
-            selectedId = SETTINGS_ID;
-            render();
-          },
-        },
-        iconTile(NAV_ICON.settings, 22),
-        el('span', { class: 'name' }, 'Settings')
-      ),
-      el(
-        'button',
-        {
-          class: `nav-item${selectedId === ERRORS_ID ? ' selected' : ''}`,
-          onclick: () => {
-            selectedId = ERRORS_ID;
-            render();
-          },
-        },
-        iconTile(NAV_ICON.alert, 22),
-        el('span', { class: 'name' }, 'Proxy errors'),
-        // The count only rides the nav while failures are live; the page itself
-        // is always reachable, because the log outlives the incident.
-        proxyAlert
-          ? el('span', { class: 'badge alert' }, proxyAlert.streak > 9 ? '9+' : String(proxyAlert.streak))
-          : null
-      ),
-      el(
-        'button',
-        {
-          class: `nav-item${selectedId === INSPECT_ID ? ' selected' : ''}`,
-          onclick: () => {
-            selectedId = INSPECT_ID;
-            render();
-          },
-        },
-        iconTile(NAV_ICON.search, 22),
-        el('span', { class: 'name' }, 'Route inspector')
-      ),
-      el(
-        'button',
-        {
-          class: `nav-item${selectedId === NETWORK_ID ? ' selected' : ''}`,
-          onclick: () => {
-            selectedId = NETWORK_ID;
-            render();
-          },
-        },
-        iconTile(NAV_ICON.activity, 22),
-        el('span', { class: 'name' }, 'Network monitor')
-      ),
-      el(
-        'button',
-        {
-          // Lit for the release history too. It has no entry of its own and is
-          // only reachable from Docs, so leaving the whole sidebar unlit there
-          // reads as having fallen off the page rather than gone a level down.
-          class: `nav-item${selectedId === DOCS_ID || selectedId === RELEASES_ID ? ' selected' : ''}`,
-          onclick: () => {
-            selectedId = DOCS_ID;
-            render();
-          },
-        },
-        iconTile(NAV_ICON.help, 22),
-        el('span', { class: 'name' }, 'Docs')
-      )
+      el('span')
+    ),
+    BUILTIN_FILL
+  );
+  terminus.style.top = `${layout.trunkY}px`;
+  const ends = el('ol', { class: 'termini', ariaLabel: 'Where the line ends' }, terminus);
+  ends.style.height = `${layout.height}px`;
+  return el(
+    'div',
+    { class: 'pane ov first' },
+    el(
+      'section',
+      { class: 'ov-head' },
+      el('p', { class: 't-label' }, 'Routing now'),
+      el('h1', { class: 't-display' }, id === SYSTEM ? 'System' : 'Direct'),
+      el('p', { class: 'ov-sub' }, id === SYSTEM ? 'Your operating system’s proxy settings decide. Sockitt isn’t routing anything yet.' : 'Every request goes straight out. Sockitt isn’t routing anything yet.')
     ),
     el(
       'div',
-      { class: 'tools' },
-      el('button', { class: 'btn ghost', onclick: exportConfig }, 'Export'),
-      el('button', { class: 'btn ghost', onclick: importConfig }, 'Import'),
-      el('button', { class: 'btn ghost danger', onclick: resetConfig }, 'Reset')
-    ),
-    el(
-      'div',
-      { class: 'side-footer' },
+      { class: 'band' },
       el(
-        'a',
-        {
-          class: 'side-link ipcheck',
-          href: 'https://ipconfig.is',
-          target: '_blank',
-          rel: 'noopener noreferrer',
-          title: 'Open ipconfig.is in a new tab to check your current IP and location',
-          innerHTML:
-            '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18"/></svg>',
-        },
-        el('span', {}, 'Check your IP')
-      ),
-      el(
-        'a',
-        {
-          class: 'side-link',
-          href: 'https://github.com/ptmplop/Sockitt',
-          target: '_blank',
-          rel: 'noopener noreferrer',
-          innerHTML:
-            '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="currentColor"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>',
-        },
-        el('span', {}, 'View on GitHub')
-      ),
-      // Buy Me a Coffee ship a <script> widget, which an MV3 extension cannot
-      // use: the default extension CSP is script-src 'self', and remotely
-      // hosted code is barred from the store outright. It would also mean a
-      // third party seeing every visit to this page, which is not a trade this
-      // extension makes anywhere else. So: a plain link, wearing their colours,
-      // that contacts nobody until it is clicked.
-      el(
-        'a',
-        {
-          class: 'side-link bmc',
-          href: 'https://buymeacoffee.com/ipbadger',
-          target: '_blank',
-          rel: 'noopener noreferrer',
-          title: 'Support Sockitt — opens buymeacoffee.com in a new tab',
-          innerHTML:
-            '<svg class="bmc-cup" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
-            '<path d="M4 9h13v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z"/>' +
-            '<path d="M17 11h1.5a2.5 2.5 0 0 1 0 5H17"/>' +
-            '<path d="M8 3v2M12 2.5V5"/>' +
-            '</svg>',
-        },
-        el('span', {}, 'Buy me a coffee')
+        'div',
+        { class: 'yard-wrap' },
+        el(
+          'div',
+          { class: 'yard' },
+          yardSvg({ layout, origin: { title: 'All requests', sub: 'from every tab' }, ariaLabel: `All requests go to ${id === SYSTEM ? 'System' : 'Direct'}.` }),
+          ends
+        )
       )
+    ),
+    startList()
+  );
+}
+
+/** Direct and System have nothing to edit, but they are profiles you can pick. */
+function builtinPane(id: string): HTMLElement {
+  const system = id === SYSTEM;
+  const active = config.activeId === id;
+  return el(
+    'div',
+    { class: 'ed-pane' },
+    el(
+      'header',
+      { class: 'ed-head' },
+      builtinTile(system ? 'S' : 'D', 44),
+      el(
+        'div',
+        { class: 'ed-title' },
+        el('h1', { class: 't-title' }, system ? 'System' : 'Direct'),
+        el('p', { class: 'ink2' }, system ? 'Built in · your operating system’s proxy settings' : 'Built in · no proxy')
+      ),
+      el(
+        'div',
+        { class: 'ed-acts' },
+        active
+          ? el('span', { class: 'st good' }, 'Active')
+          : el('button', { class: 'btn primary', type: 'button', onclick: () => dashboardHost.activate(id) }, `Switch to ${system ? 'System' : 'Direct'}`)
+      )
+    ),
+    builtinMap(id, true),
+    el(
+      'p',
+      { class: 'ed-note' },
+      system
+        ? 'System hands every request to your operating system’s own proxy settings — a PAC file, a manual proxy, or none. Sockitt cannot see those rules, so the map ends here. Nothing to set up.'
+        : 'Direct sends every request straight to the network, through your own connection. It is also where any rule set to Direct, and any bypass list, ends up. Nothing to set up.'
     )
   );
 }
@@ -538,9 +747,6 @@ function addProfile(factory: (existing: Profile[]) => Profile): void {
   const profile = factory(config.profiles);
   config.profiles.push(profile);
   selectedId = profile.id;
-  // The list was open to do this; leaving it open would push the profile groups
-  // down on a page that has just navigated away to the new profile's editor.
-  createOpen = false;
   scheduleSave();
   render();
   // The very first proxy is a small occasion.
@@ -580,10 +786,6 @@ function confettiBurst(): void {
 /* ---------- shared editor chrome ---------- */
 
 function identityPanel(profile: Profile): HTMLElement {
-  const preview = el('div', { class: 'id-preview' });
-  const renderPreview = () => preview.replaceChildren(avatarEl(profile, 56));
-  renderPreview();
-
   const name = el('input', {
     class: 'input',
     value: profile.name,
@@ -593,8 +795,8 @@ function identityPanel(profile: Profile): HTMLElement {
       initials.placeholder = initialsFor({ name: profile.name });
       scheduleSave();
       renderPreview();
-      refreshSidebar();
-      app.querySelector('.content .page-head .dash-title')?.replaceChildren(profile.name);
+      refreshChrome();
+      app.querySelector('.ed-title h1')?.replaceChildren(profile.name);
     },
   }) as HTMLInputElement;
 
@@ -609,97 +811,108 @@ function identityPanel(profile: Profile): HTMLElement {
       profile.initials = v ? v.slice(0, 3) : undefined;
       scheduleSave();
       renderPreview();
-      refreshSidebar();
+      refreshChrome();
     },
   }) as HTMLInputElement;
 
-  return el(
+  // The head's tile is the preview: it is the toolbar icon in miniature.
+  const renderPreview = (): void => {
+    app.querySelector('.ed-head > .avatar')?.replaceWith(avatarEl(profile, 44));
+  };
+
+  const swatches = el(
     'div',
-    { class: 'card panel' },
-    el('h3', {}, 'Identity'),
+    { class: 'sw-grid', role: 'radiogroup', ariaLabel: 'Line colour' },
+    ...PALETTE.map((color) => {
+      const on = profile.color.toLowerCase() === color;
+      const b = el('button', {
+        class: 'swatch',
+        type: 'button',
+        role: 'radio',
+        title: color,
+        ariaLabel: color,
+        onclick: () => {
+          profile.color = color;
+          scheduleSave();
+          render();
+        },
+      });
+      b.style.background = color;
+      b.setAttribute('aria-checked', String(on));
+      return b;
+    })
+  );
+
+  return section(
+    'Name and colour',
+    'The colour is this profile’s line on every map, and its toolbar icon.',
     el(
       'div',
-      { class: 'id-row' },
-      preview,
-      el(
-        'div',
-        { class: 'id-fields' },
-        field('Name', name),
-        field('Initials', initials, { extra: [el('span', { class: 'note' }, 'Toolbar icon text')] }),
-        el(
-          'div',
-          { class: 'field id-colors' },
-          el('label', {}, 'Colour'),
-          el(
-            'div',
-            { class: 'swatches' },
-            ...PALETTE.map((color) =>
-              el('button', {
-                class: `swatch${profile.color === color ? ' selected' : ''}`,
-                style: { background: color },
-                title: color,
-                onclick: () => {
-                  profile.color = color;
-                  scheduleSave();
-                  render();
-                },
-              })
-            )
-          )
-        )
-      )
+      { class: 'ident-grid' },
+      field('Name', name),
+      field('Toolbar initials', initials, { cls: 'fld-s' }),
+      el('div', { class: 'field ident-colours' }, el('span', { class: 'field-label' }, 'Line colour'), swatches)
     )
   );
 }
 
-function dangerZone(profile: Profile): HTMLElement {
+/**
+ * One editor section: a title and a line on the left, the controls on the
+ * right. Every editor and the Settings page is made of these.
+ */
+function section(title: string, sub: string | Node | null, ...body: Array<Node | null | false>): HTMLElement {
   return el(
-    'div',
-    { class: 'card panel danger-zone' },
-    el('h3', {}, 'Danger zone'),
-    el(
-      'div',
-      { class: 'danger-row' },
-      el('span', { class: 'muted' }, 'Remove this profile and any rules pointing at it.'),
-      el(
-        'button',
-        {
-          class: 'btn danger',
-          onclick: () => {
-            if (!confirmMaybe(`Delete “${profile.name}”?`)) return;
-            config.profiles = config.profiles.filter((p) => p.id !== profile.id);
-            for (const p of config.profiles) {
-              switch (p.kind) {
-                case 'switch':
-                  if (p.defaultTargetId === profile.id) p.defaultTargetId = DIRECT;
-                  for (const r of p.rules) if (r.targetId === profile.id) r.targetId = DIRECT;
-                  break;
-                case 'virtual':
-                  if (p.targetId === profile.id) p.targetId = DIRECT;
-                  break;
-                case 'rulelist':
-                  if (p.matchTargetId === profile.id) p.matchTargetId = DIRECT;
-                  if (p.defaultTargetId === profile.id) p.defaultTargetId = DIRECT;
-                  break;
-                case 'proxy':
-                  break;
-              }
-            }
-            config.settings.quickSwitchIds = config.settings.quickSwitchIds.filter(
-              (id) => id !== profile.id
-            );
-            if (config.settings.startupProfileId === profile.id) config.settings.startupProfileId = '';
-            if (config.settings.incognitoProfileId === profile.id) config.settings.incognitoProfileId = '';
-            if (config.activeId === profile.id) config.activeId = SYSTEM;
-            selectedId = config.profiles[0]?.id ?? null;
-            scheduleSave();
-            render();
-          },
-        },
-        'Delete profile'
-      )
-    )
+    'section',
+    { class: 'pform' },
+    el('div', { class: 'pform-h' }, el('h2', { class: 't-h3' }, title), sub ? el('p', { class: 'meta' }, sub) : null),
+    el('div', { class: 'pform-body' }, ...body.filter((n): n is Node => Boolean(n)))
   );
+}
+
+function deleteProfile(profile: Profile): void {
+  if (!confirmMaybe(`Delete “${profile.name}”? Rules pointing at it will go Direct.`)) return;
+  config.profiles = config.profiles.filter((p) => p.id !== profile.id);
+  for (const p of config.profiles) {
+    switch (p.kind) {
+      case 'switch':
+        if (p.defaultTargetId === profile.id) p.defaultTargetId = DIRECT;
+        for (const r of p.rules) if (r.targetId === profile.id) r.targetId = DIRECT;
+        break;
+      case 'virtual':
+        if (p.targetId === profile.id) p.targetId = DIRECT;
+        break;
+      case 'rulelist':
+        if (p.matchTargetId === profile.id) p.matchTargetId = DIRECT;
+        if (p.defaultTargetId === profile.id) p.defaultTargetId = DIRECT;
+        break;
+      case 'proxy':
+        break;
+    }
+  }
+  config.settings.quickSwitchIds = config.settings.quickSwitchIds.filter((id) => id !== profile.id);
+  if (config.settings.startupProfileId === profile.id) config.settings.startupProfileId = '';
+  if (config.settings.incognitoProfileId === profile.id) config.settings.incognitoProfileId = '';
+  if (config.activeId === profile.id) config.activeId = SYSTEM;
+  selectedId = config.profiles[0]?.id ?? PROFILES_ID;
+  scheduleSave();
+  render();
+}
+
+/**
+ * A copy to change without touching the original — every rule with a fresh id,
+ * so editing the copy's rules can never reach back into the source's.
+ */
+function duplicateProfile(profile: Profile): void {
+  const copy = JSON.parse(JSON.stringify(profile)) as Profile;
+  copy.id = uid();
+  copy.name = `${profile.name} copy`;
+  copy.initials = undefined;
+  if (copy.kind === 'switch') copy.rules = copy.rules.map((r) => ({ ...r, id: uid() }));
+  config.profiles.push(copy);
+  selectedId = copy.id;
+  scheduleSave();
+  render();
+  toast('Duplicated');
 }
 
 /**
@@ -880,125 +1093,238 @@ async function ensureExitIpPermission(): Promise<boolean> {
 }
 
 /**
- * `action` is optional: pinning is done from Chrome's own puzzle-piece menu,
- * which no extension API can open, so that banner has to say where to go rather
- * than offer to take you there. A button that only pretended to would be worse
- * than none.
+ * Every setting that is switched on but inert until the user acts. Most need a
+ * grant only the user can give; two (pinning, a staged update) need something
+ * no extension API can do at all, so they say where to go instead of offering
+ * a button that would only pretend to. Listed on Settings, under the Overview's
+ * "Needs attention", and counted on the Settings tab while any needs a yes.
  */
-function warnBanner(message: string, action?: string, onclick?: () => void): HTMLElement {
-  return el(
-    'div',
-    { class: 'warn-banner' },
-    el('span', {}, message),
-    action ? el('button', { class: 'btn sm', onclick }, action) : null
-  );
-}
-
-/** One banner per setting that is switched on but inert without its grant. */
-function permWarningBanners(): HTMLElement[] {
-  const banners: HTMLElement[] = [];
+function permAsks(): PermAsk[] {
+  const asks: PermAsk[] = [];
   if (authPermMissing()) {
-    banners.push(
-      warnBanner(
-        'A proxy profile has credentials, but the permission to answer authentication challenges hasn’t been granted — proxy auth is inactive.',
-        'Enable authentication',
-        () => void requestAuthPermission()
-      )
-    );
+    asks.push({
+      id: 'auth',
+      tone: 'warn',
+      icon: 'lock',
+      title: 'Proxy sign-in isn’t allowed yet',
+      body: 'A proxy has a username and password, but Chrome won’t let Sockitt answer a proxy’s sign-in until you allow it, so requests through it stop at a login prompt.',
+      action: { label: 'Allow sign-in', run: () => void requestAuthPermission() },
+    });
   }
   if (badgePermMissing()) {
-    banners.push(
-      warnBanner(
-        'The per-tab route badge is switched on, but the optional "tabs" permission hasn’t been granted — the badge stays blank.',
-        'Enable badge',
-        () => void requestTabsPermission()
-      )
-    );
+    asks.push({
+      id: 'badge',
+      tone: 'warn',
+      icon: 'alert',
+      title: 'The route badge can’t see your tabs',
+      body: 'It is switched on, but the optional “tabs” permission it needs hasn’t been granted, so the badge stays blank.',
+      action: { label: 'Allow', run: () => void requestTabsPermission() },
+    });
   }
   if (badgeNavPermMissing()) {
-    banners.push(
-      warnBanner(
-        'The per-tab route badge can’t see a page start loading, only finish. Chrome reports a navigation when it commits, so a site that hangs — the moment you look at the badge to ask why — leaves it naming the previous page’s profile until the load gives up. Granting “webNavigation” fixes that; it asks for “Read your browsing history”, which is the same thing the badge’s existing permission already asks for, so Chrome shows no new warning.',
-        'Fix the badge',
-        () => void requestTabsPermission()
-      )
-    );
+    asks.push({
+      id: 'badge-nav',
+      tone: 'warn',
+      icon: 'alert',
+      title: 'The route badge can’t see a page start loading',
+      body: 'Chrome reports a navigation only when it commits, so a site that hangs — the moment you look at the badge to ask why — leaves it naming the last page’s profile. Navigation access fixes that, and adds no new warning: the badge’s permission already covers it.',
+      action: { label: 'Allow', run: () => void requestTabsPermission() },
+    });
   }
   if (incognitoAccessMissing()) {
-    banners.push(
-      warnBanner(
-        'Incognito windows are set to use their own profile, but Chrome hasn’t allowed Sockitt in incognito — those windows follow the regular profile instead. Only you can turn that on: no extension is allowed to grant itself incognito access, so this opens Sockitt’s details page and the switch is yours to flip.',
-        'Open Sockitt’s details',
-        openExtensionDetails
-      )
-    );
+    asks.push({
+      id: 'incognito',
+      tone: 'warn',
+      icon: 'incognito',
+      title: 'Chrome hasn’t let Sockitt into incognito',
+      body: `Incognito windows are set to use ${nameFor(config.settings.incognitoProfileId)}, but until you switch on Allow in Incognito they follow the regular profile. No extension can grant itself that, so this opens Sockitt’s details for you to flip it.`,
+      action: { label: 'Open Sockitt’s details', run: openExtensionDetails },
+    });
   }
   if (actionUnpinned()) {
-    banners.push(
-      warnBanner(
-        'Sockitt isn’t pinned to the toolbar, so its icon shows the plain Sockitt mark instead of the active profile. Unpinned, the icon appears only in Chrome’s puzzle-piece menu, which reads it once when the menu opens and never updates it — it could show a profile that has since changed, or another window’s. To pin: click the puzzle piece in the toolbar, then the pin beside Sockitt.'
-      )
-    );
+    // No button: pinning is done from Chrome's own puzzle-piece menu, which no
+    // extension API can open.
+    asks.push({
+      id: 'pin',
+      tone: 'info',
+      icon: 'pin',
+      title: 'Sockitt isn’t pinned to the toolbar',
+      body: 'Unpinned, its icon shows the plain mark instead of the active profile, and the puzzle-piece menu reads it once and never updates it. Click the puzzle piece in the toolbar, then the pin beside Sockitt.',
+    });
   }
   if (pendingUpdate) {
-    // No button, for the same reason the unpinned banner has none: nothing
+    // No button, for the same reason the unpinned notice has none: nothing
     // Sockitt can call would finish this. chrome.runtime.reload() does apply a
     // staged version, but it would also tear the worker down mid-connection-test
     // — and a test holds the live proxy configuration and puts it back in a
     // finally that a reload never reaches. Restarting the browser is both the
     // safe way and the user's own.
-    const waited = pendingUpdate.at > 0 ? ` It arrived ${relativeTime(pendingUpdate.at)}.` : '';
-    banners.push(
-      warnBanner(
-        `Sockitt ${pendingUpdate.version} has been downloaded, but this window is still running ${chrome.runtime.getManifest().version}. Chrome only swaps a new version in while the extension is idle, and Sockitt wakes often enough — for rule lists, proxy errors, the popup — that it may not offer one for days.${waited} Restart the browser to finish the update.`
-      )
-    );
+    const waited = pendingUpdate.at > 0 ? ` It arrived ${agoInWords(pendingUpdate.at)}.` : '';
+    asks.push({
+      id: 'update',
+      tone: 'info',
+      icon: 'refresh',
+      title: `Sockitt ${pendingUpdate.version} is downloaded but not running`,
+      body: `This window still runs ${chrome.runtime.getManifest().version}. Chrome swaps a new version in only while Sockitt is idle, and Sockitt wakes often enough that it may not be offered one for days.${waited} Restarting the browser finishes it now.`,
+    });
   }
-  return banners;
+  return asks;
+}
+
+/** The ones that need a yes — what the Settings tab counts. Information alone is not a count. */
+function pendingAsks(): number {
+  return permAsks().filter((a) => a.tone === 'warn').length;
 }
 
 /**
- * Toggle the banners in place instead of re-rendering the page: permission
- * state can change while the user is mid-typing in the editor (the prompt is
- * triggered from a field's onchange), and a full render would wipe the
- * uncommitted sibling field.
+ * What needs a yes, in the tinted panel — the same count the Settings tab
+ * carries — and, under it, what is only worth knowing: those have no button,
+ * because no extension can do them, so they are not asks.
  */
-function updatePermBanners(): void {
-  const content = document.querySelector('.content');
-  if (!content) return;
-  content.querySelectorAll('.perm-banners').forEach((n) => n.remove());
-  const banners = permWarningBanners();
-  if (!banners.length) return;
-  // One block, so several read as one ruled panel rather than being spaced
-  // apart by the page column's gap. Under the page's title, not above it: four
-  // warnings stacked over a page you had not yet been told the name of read
-  // as an error page. A page with no title (the first-run welcome) still
-  // takes them at the top.
-  const group = el('div', { class: 'perm-banners' }, ...banners);
-  const head = content.querySelector(':scope > .pane > :is(.page-head, .dash-head, .doc-head)');
-  if (head) head.after(group);
-  else content.prepend(group);
+function asksSections(asks: PermAsk[]): HTMLElement[] {
+  const out: HTMLElement[] = [];
+  const needs = asks.filter((a) => a.tone === 'warn');
+  const notes = asks.filter((a) => a.tone !== 'warn');
+  if (needs.length) {
+    const node = el(
+      'section',
+      { class: 'asks' },
+      el('h2', { class: 't-h3', id: 'asks-h' }, 'Needs your OK', el('span', { class: 'meta tnum' }, String(needs.length))),
+      el('ul', { class: 'todo' }, ...needs.map(askRow))
+    );
+    node.setAttribute('aria-labelledby', 'asks-h');
+    out.push(node);
+  }
+  if (notes.length) {
+    const node = el('section', { class: 'notes' }, el('h2', { class: 'vh', id: 'notes-h' }, 'Worth knowing'), el('ul', { class: 'todo' }, ...notes.map(askRow)));
+    node.setAttribute('aria-labelledby', 'notes-h');
+    out.push(node);
+  }
+  return out;
 }
 
-function proxyEditor(profile: ProxyProfile): HTMLElement {
-  const schemeSel = el('select', { class: 'input' }) as HTMLSelectElement;
-  for (const [value, label] of Object.entries(SCHEME_LABELS)) {
-    schemeSel.append(el('option', { value }, label));
-  }
-  schemeSel.value = profile.scheme;
-  schemeSel.onchange = () => {
-    // Deliberately keep username/password: a transient flip through a SOCKS
-    // option (misclick, arrow-keying past) must not destroy saved credentials.
-    // The sanitizer drops them at the load boundary if the profile is left on
-    // a scheme that can't use them.
-    profile.scheme = schemeSel.value as ProxyScheme;
-    scheduleSave();
-    render();
-  };
+/** Repaint the lists in place — never a full render, which would eat a half-typed field. */
+function paintAsks(): void {
+  const slot = app.querySelector<HTMLElement>('.asks-slot');
+  if (!slot) return;
+  slot.replaceChildren(...asksSections(permAsks()));
+}
 
-  // role="alert" makes each error node a live region, so a screen reader
-  // announces the validation message when it appears — the invalid state is no
-  // longer signalled by border colour + hover title alone.
+/** "yesterday", "3 days ago" — relativeTime's abbreviations read badly in a sentence. */
+function agoInWords(at: number, now = Date.now()): string {
+  const minutes = Math.max(0, Math.round((now - at) / 60_000));
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+  const days = Math.round(hours / 24);
+  return days === 1 ? 'yesterday' : `${days} days ago`;
+}
+
+/**
+ * Bring every place an ask is shown up to date, in place: permission state can
+ * change while the user is mid-typing in an editor (the prompt is triggered
+ * from a field's onchange), and a full render would wipe the uncommitted
+ * sibling field.
+ */
+function updatePermBanners(): void {
+  paintAsks();
+  refreshNav();
+  if (selectedId === DASH_ID && dashboardMounted()) repaintDashboard();
+}
+
+/* ---------- the editors' map ---------- */
+
+/**
+ * Names for a compact map's line ends. Read from the map's own kind, not the
+ * profile's: an alias draws the profile it points at, and its lines mean what
+ * that profile's do.
+ */
+function mapNames(layout: YardLayout): Map<string, { name: string; sub?: string }> {
+  const names = new Map<string, { name: string; sub?: string }>();
+  for (const t of layout.tracks) {
+    let sub: string | undefined;
+    if (layout.kind === 'proxy') sub = t.isDefault ? 'everything else' : 'the bypass list';
+    else if (t.isDefault && (layout.kind === 'switch' || layout.kind === 'rulelist')) sub = 'everything else';
+    else if (layout.kind === 'rulelist') sub = 'on the list';
+    names.set(t.id, { name: nameFor(t.id), sub });
+  }
+  return names;
+}
+
+/** The map at the top of an editor: how this profile routes, compact. */
+function editorMapSvg(profile: Profile, hilite: string | null = null): SVGSVGElement {
+  const layout = layoutYard(config, profile.id, COMPACT);
+  const parts = layout.junctions.map((j) =>
+    j.key === 'bypass'
+      ? `its bypass list (${j.fullText}) goes direct`
+      : j.key === 'list'
+        ? `list entries go to ${j.targets.map(nameFor).join(', ') || nameFor(layout.defaultTarget)}`
+        : `rule ${j.label}${j.off ? ' (off)' : ''} ${j.fullText}${j.targets.length ? ` to ${j.targets.map(nameFor).join(', ')}` : ''}`
+  );
+  return yardSvg({
+    layout,
+    names: mapNames(layout),
+    hilite,
+    ariaLabel: `Track map of ${profile.name}: ${parts.length ? parts.join('; ') + '; ' : ''}everything else goes to ${nameFor(layout.defaultTarget)}.`,
+  });
+}
+
+/**
+ * A target picker with the chosen destination's line key inside it. Offers
+ * Direct plus every profile that would not create a cycle back to the owner.
+ */
+function viaSelect(ownerId: string, value: string, onChange: (v: string) => void, opts: { quiet?: boolean; label?: string } = {}): HTMLElement {
+  const select = targetSelect(ownerId, value, () => undefined);
+  if (opts.label) select.setAttribute('aria-label', opts.label);
+  const key = el('span', { class: 'key' });
+  const paint = (): void => {
+    paintRoute(key, lineColour(config, select.value));
+    key.classList.toggle('system', select.value === SYSTEM);
+  };
+  paint();
+  select.onchange = () => {
+    paint();
+    onChange(select.value);
+  };
+  return el('div', { class: `via${opts.quiet ? ' quiet' : ''}` }, key, select);
+}
+
+/* ---------- proxy editor ---------- */
+
+function proxyEditor(profile: ProxyProfile): HTMLElement {
+  const mapHolder = el('figure', { class: 'ed-map' }, editorMapSvg(profile));
+  const repaintMap = (): void => mapHolder.replaceChildren(editorMapSvg(profile));
+
+  const seg = el(
+    'div',
+    { class: 'seg', role: 'radiogroup', ariaLabel: 'Protocol' },
+    ...Object.entries(SCHEME_LABELS).map(([value, label]) =>
+      el(
+        'label',
+        {},
+        el('input', {
+          type: 'radio',
+          name: `proto-${profile.id}`,
+          value,
+          checked: profile.scheme === value,
+          onchange: () => {
+            // Deliberately keep username/password: a transient flip through a
+            // SOCKS option must not destroy saved credentials. The sanitizer
+            // drops them at the load boundary if the profile stays on a scheme
+            // that can't use them.
+            profile.scheme = value as ProxyScheme;
+            scheduleSave();
+            render();
+          },
+        }),
+        label
+      )
+    )
+  );
+
+  // role="alert" makes each error a live region, so a screen reader announces
+  // the validation message when it appears.
   const hostErr = el('span', { class: 'note error', role: 'alert' });
   const host = el('input', {
     class: 'input mono',
@@ -1012,8 +1338,8 @@ function proxyEditor(profile: ProxyProfile): HTMLElement {
       host.ariaInvalid = err !== null ? 'true' : 'false';
       host.title = err ?? '';
       hostErr.textContent = err ?? '';
-      // Only commit a valid host — a blank or directive-breaking value must not
-      // be saved and applied, where it would fail silently to DIRECT.
+      // Only a valid host is committed: a blank or directive-breaking value
+      // would be applied and fail silently to DIRECT.
       if (!err) {
         profile.host = host.value.trim();
         scheduleSave();
@@ -1044,30 +1370,21 @@ function proxyEditor(profile: ProxyProfile): HTMLElement {
 
   const bypass = el('textarea', {
     class: 'input mono',
+    rows: 4,
     value: profile.bypass.join('\n'),
     placeholder: '<local>\n*.internal.example\n10.0.0.0/8',
     spellcheck: false,
     oninput: () => {
       profile.bypass = bypass.value.split('\n').map((s) => s.trim()).filter(Boolean);
       scheduleSave();
+      repaintMap();
     },
   }) as HTMLTextAreaElement;
 
-  const testResult = el('span', {
-    class: 'note test-result',
-    dataset: { profile: profile.id },
-  });
+  const testResult = el('span', { class: 'note test-result', dataset: { profile: profile.id } });
   /**
-   * Drop a previous verdict once the address it was about changes. The line is
-   * written by the test click and by watchProxyTests, and nothing else cleared
-   * it — so a green "Connection successful · 203.0.113.9 · 45 ms" would sit
-   * under a host the user had since retyped, which is a claim about a server
-   * that is no longer configured.
-   *
-   * A test already in flight is the same claim arriving late: the worker will
-   * still answer, and watchProxyTests keys only on the profile id, so its
-   * verdict would land under the edited address. Mark the line instead, and let
-   * watchProxyTests drop that answer.
+   * Drop a previous verdict once the address it was about changes; a test in
+   * flight is marked stale instead, and watchProxyTests drops its answer.
    */
   const invalidateTest = (): void => {
     if (!testResult.textContent) return;
@@ -1077,191 +1394,179 @@ function proxyEditor(profile: ProxyProfile): HTMLElement {
     testResult.classList.remove('ok', 'bad');
   };
 
-  const authPanel = schemeSupportsAuth(profile.scheme)
-    ? // Credentials decide the verdict as much as the address does — the test
-      // refuses to run without the auth grant precisely so a 407 cannot be
-      // misread as a dead proxy.
-      authSection(profile, invalidateTest)
-    : el('div', { class: 'field' }, el('span', { class: 'note' },
-        'Chromium cannot authenticate SOCKS proxies — secure the proxy by IP allow-list or a local tunnel (e.g. ssh -D).'));
-
   const ipLookupsOn = config.settings.exitIpCheck;
   const testBtn = el(
     'button',
     {
       class: 'btn test-btn',
-      disabled: !ipLookupsOn, // the test is an ipconfig.is lookup — gated by the master switch
+      type: 'button',
+      disabled: !ipLookupsOn,
       dataset: { profile: profile.id },
-      onclick: async () => {
-        testResult.classList.remove('ok', 'bad');
-        if (!config.settings.exitIpCheck) {
-          testResult.textContent = 'Turn on IP address lookups in Settings to test.';
-          return;
-        }
-        if (!(await ensureExitIpPermission())) {
-          testResult.textContent = 'Needs access to ipconfig.is to run the check.';
-          return;
-        }
-        if (
-          hasCredentials(profile) &&
-          !(await chrome.permissions.contains(AUTH_PERMS).catch(() => false))
-        ) {
-          // Without the auth grant a 407 goes unanswered and the test would
-          // paint a red dot on a proxy that is actually fine.
-          testResult.textContent =
-            'Credentials are set but the auth permission is missing — click Enable authentication first.';
-          return;
-        }
-        (testBtn as HTMLButtonElement).disabled = true;
-        testResult.textContent = 'Testing — briefly routing through this proxy…';
-        testResult.removeAttribute('title');
-        delete testResult.dataset.stale; // this verdict will be about what is on screen now
-        // The worker owns chrome.proxy; hand it the request — with the editor's
-        // current (possibly unsaved) values — over session storage, so the
-        // test needs no save and triggers no racing re-apply.
-        await chrome.storage.session.set({
-          [TEST_KEY]: {
-            profileId: profile.id,
-            nonce: Date.now(),
-            scheme: profile.scheme,
-            host: profile.host,
-            port: profile.port,
-          },
-        });
-      },
+      onclick: () => void startProxyTest(profile, testBtn as HTMLButtonElement, testResult),
     },
     'Test connection'
   );
-  const testRow = el(
-    'div',
-    { class: 'field' },
-    el('label', {}, 'Connection test'),
-    el('div', { class: 'test-row' }, testBtn, testResult),
-    el(
-      'span',
-      { class: 'note' },
-      ipLookupsOn
-        ? 'Routes your browsing through this proxy for a few seconds to fetch ipconfig.is (exit IP, country, latency), then restores your configuration.'
-        : 'The connection test uses ipconfig.is — turn on IP address lookups in Settings to enable it.'
-    )
-  );
+
+  const signIn = schemeSupportsAuth(profile.scheme)
+    ? authSection(profile, invalidateTest)
+    : el(
+        'p',
+        { class: 'note' },
+        'Chromium cannot sign in to a SOCKS proxy — secure it by IP allow-list, or reach it through a local tunnel (',
+        el('span', { class: 'mono nowrap' }, 'ssh -D'),
+        ').'
+      );
 
   return el(
     'div',
-    { class: 'pane' },
+    { class: 'ed-pane' },
     editorHead(profile),
-    identityPanel(profile),
-    el(
-      'div',
-      { class: 'card panel' },
-      el('h3', {}, 'Proxy server'),
-      el(
-        'div',
-        { class: 'field-grid trio' },
-        field('Protocol', schemeSel),
-        field('Host', host, { extra: [hostErr] }),
-        field('Port', port, { extra: [portErr] })
-      ),
-      authPanel,
-      testRow
+    mapHolder,
+    section(
+      'Server',
+      'Where Chrome connects.',
+      el('div', { class: 'field' }, el('span', { class: 'field-label' }, 'Protocol'), seg),
+      el('div', { class: 'pform-row port' }, field('Host', host, { extra: [hostErr] }), field('Port', port, { extra: [portErr] }))
     ),
-    el(
-      'div',
-      { class: 'card panel' },
-      el('h3', {}, 'Bypass list'),
-      field('One entry per line — these hosts connect directly', bypass, {
-        extra: [
-          el('span', { class: 'note' }, '<local> matches plain hostnames and localhost. Also accepts *.suffix wildcards and IPv4 CIDR blocks.'),
-        ],
+    section('Sign-in', schemeSupportsAuth(profile.scheme) ? 'Only if the proxy asks for one.' : null, signIn),
+    section(
+      'Bypass list',
+      'Goes straight out, never through the proxy.',
+      field('One host or pattern per line', bypass, {
+        extra: [el('span', { class: 'note' }, '<local> covers localhost, 127.0.0.1 and plain names with no dot. *.suffix wildcards and IPv4 CIDR blocks work too.')],
       })
     ),
-    dangerZone(profile)
+    section(
+      'Test',
+      el('span', {}, 'One request through the proxy to ', el('span', { class: 'mono' }, 'ipconfig.is'), '.'),
+      el('div', { class: 'test-row' }, testBtn, testResult),
+      el(
+        'p',
+        { class: 'note' },
+        ipLookupsOn
+          ? 'Routes your browsing through this proxy for a few seconds to fetch ipconfig.is — exit address, country, latency — then puts your configuration back.'
+          : 'The test asks ipconfig.is, a service the Sockitt developer runs — turn on IP address lookups in Settings to use it.'
+      )
+    ),
+    identityPanel(profile)
   );
 }
 
+/**
+ * Route one request through a proxy to ipconfig.is and report into `out`. The
+ * worker owns chrome.proxy, so the request — with the profile's current
+ * values, saved or not — goes over session storage; watchProxyTests paints the
+ * verdict into every result node for that profile and gives the button back.
+ */
+async function startProxyTest(profile: ProxyProfile, button: HTMLButtonElement, out: HTMLElement): Promise<void> {
+  out.classList.remove('ok', 'bad');
+  if (!config.settings.exitIpCheck) {
+    out.textContent = 'Turn on IP address lookups in Settings to test.';
+    return;
+  }
+  if (!(await ensureExitIpPermission())) {
+    out.textContent = 'Needs access to ipconfig.is to run the check.';
+    return;
+  }
+  if (hasCredentials(profile) && !(await chrome.permissions.contains(AUTH_PERMS).catch(() => false))) {
+    // Without the auth grant a 407 goes unanswered and the test would fail a
+    // proxy that is actually fine.
+    out.textContent = 'Credentials are set but sign-in is not allowed yet — allow it under Sign-in first.';
+    return;
+  }
+  button.disabled = true;
+  out.textContent = 'Testing — briefly routing through this proxy…';
+  out.removeAttribute('title');
+  delete out.dataset.stale;
+  await chrome.storage.session.set({
+    [TEST_KEY]: { profileId: profile.id, nonce: Date.now(), scheme: profile.scheme, host: profile.host, port: profile.port },
+  });
+}
+
 function authSection(profile: ProxyProfile, invalidateTest: () => void): HTMLElement {
+  const changed = (): void => {
+    invalidateTest();
+    scheduleSave();
+    if (hasCredentials(profile)) void requestAuthPermission().then(() => paintNote());
+    else {
+      updatePermBanners();
+      paintNote();
+    }
+  };
   const username = el('input', {
     class: 'input',
     value: profile.username ?? '',
-    placeholder: 'username (optional)',
     autocomplete: 'off',
     spellcheck: false,
     onchange: () => {
-      invalidateTest();
       profile.username = username.value.trim() || undefined;
-      scheduleSave();
-      if (hasCredentials(profile)) void requestAuthPermission();
-      else updatePermBanners(); // may have just cleared the banner's cause
+      changed();
     },
   }) as HTMLInputElement;
-
   const password = el('input', {
     class: 'input',
     type: 'password',
     value: profile.password ?? '',
-    placeholder: 'password',
     autocomplete: 'off',
     onchange: () => {
-      invalidateTest();
       profile.password = password.value || undefined;
-      scheduleSave();
-      if (hasCredentials(profile)) void requestAuthPermission();
-      else updatePermBanners(); // may have just cleared the banner's cause
+      changed();
     },
   }) as HTMLInputElement;
 
+  const note = el('div', { class: 'auth-note' });
+  const paintNote = (): void => {
+    if (hasCredentials(profile) && authPermGranted === false) {
+      note.replaceChildren(
+        el(
+          'div',
+          { class: 'callout' },
+          el('p', {}, 'Chrome won’t let Sockitt answer a proxy’s sign-in until you allow it, so requests through this proxy stop at a login prompt. Sockitt asks only now that it has a password to send.'),
+          el('div', { class: 'acts' }, el('button', { class: 'btn', type: 'button', onclick: () => void requestAuthPermission().then(paintNote) }, 'Allow sign-in'))
+        )
+      );
+    } else {
+      note.replaceChildren(
+        el('p', { class: 'note' }, 'Used only for HTTP and HTTPS proxies. Answering a sign-in needs an optional permission, asked for when you set credentials. Credentials stay on this device — they are never synced.')
+      );
+    }
+  };
+  paintNote();
+
   return el(
     'div',
-    { class: 'field' },
-    el('label', {}, 'Authentication'),
-    el(
-      // "plain": these two fields carry no labels of their own, so they opt out
-      // of the label/control/note bands the other field grids share.
-      'div',
-      { class: 'field-grid plain' },
-      el('div', { class: 'field' }, username),
-      el('div', { class: 'field' }, password)
-    ),
-    el(
-      'span',
-      { class: 'note' },
-      'Credentials are used only for HTTP/HTTPS proxies. Answering proxy auth needs an optional permission (webRequest + all sites); Sockitt asks for it when you set credentials here. Credentials stay on this device — they are not synced.'
-    ),
-    el(
-      'button',
-      {
-        class: 'btn',
-        style: { alignSelf: 'flex-start' },
-        onclick: () => void requestAuthPermission(),
-      },
-      'Enable authentication'
-    )
+    { class: 'auth' },
+    el('div', { class: 'pform-row' }, field('Username', username), field('Password', password)),
+    note
   );
 }
 
 /* ---------- switch editor ---------- */
 
 function switchEditor(profile: SwitchProfile): HTMLElement {
+  /** The rule whose row is pointed at — its junction is drawn heavier. */
+  let hilite: string | null = null;
+  const mapHolder = el('figure', { class: 'ed-map' });
+  const repaintMap = (): void => mapHolder.replaceChildren(editorMapSvg(profile, hilite));
+  repaintMap();
+
   const rulesBox = el('div', { class: 'rules' });
 
   const ruleRow = (rule: SwitchProfile['rules'][number], index: number): HTMLElement => {
     const typeSel = el('select', { class: 'input' }) as HTMLSelectElement;
-    for (const [value, label] of Object.entries(RULE_TYPES)) {
-      typeSel.append(el('option', { value }, label));
-    }
+    for (const [value, label] of Object.entries(RULE_TYPES)) typeSel.append(el('option', { value }, label));
     typeSel.value = rule.type;
+    typeSel.setAttribute('aria-label', `Condition, rule ${index + 1}`);
 
     const pattern = el('input', {
       class: 'input mono',
       value: rule.pattern,
       placeholder: placeholderFor(rule.type),
       spellcheck: false,
-      // The rule table is a grid with column headers rather than per-input
-      // labels, so name the field for screen readers directly.
-      ariaLabel: 'Rule pattern',
+      ariaLabel: `Pattern, rule ${index + 1}`,
     }) as HTMLInputElement;
 
-    const markValidity = () => {
+    const markValidity = (): void => {
       const err = patternError(rule);
       pattern.classList.toggle('invalid', !!err);
       pattern.ariaInvalid = err ? 'true' : 'false';
@@ -1274,23 +1579,25 @@ function switchEditor(profile: SwitchProfile): HTMLElement {
       pattern.placeholder = placeholderFor(rule.type);
       markValidity();
       scheduleSave();
+      repaintMap();
     };
     pattern.oninput = () => {
       rule.pattern = pattern.value;
       markValidity();
       scheduleSave();
+      repaintMap();
     };
 
     const enabled = el('input', {
       class: 'toggle',
       type: 'checkbox',
-      // Without a name a screen reader reads a column of identical "checkbox"es.
-      ariaLabel: `Rule ${index + 1} enabled`,
+      ariaLabel: `Rule ${index + 1} on`,
       checked: rule.enabled,
       onchange: () => {
         rule.enabled = enabled.checked;
         row.classList.toggle('disabled', !rule.enabled);
         scheduleSave();
+        repaintMap();
       },
     }) as HTMLInputElement;
 
@@ -1303,99 +1610,124 @@ function switchEditor(profile: SwitchProfile): HTMLElement {
         title: 'Drag to reorder, or focus and press Alt + ↑ / ↓',
         ariaLabel: `Reorder rule ${index + 1}`,
         draggable: true,
-        innerHTML: NAV_ICON.grip,
       }),
-      typeSel,
+      el('span', { class: 'rule-n mono' }, String(index + 1)),
+      el('div', { class: 'quiet-sel' }, typeSel),
       pattern,
-      targetSelect(profile.id, rule.targetId, (v) => {
+      viaSelect(profile.id, rule.targetId, (v) => {
         rule.targetId = v;
         scheduleSave();
-      }),
+        repaintMap();
+      }, { quiet: true, label: `Route via, rule ${index + 1}` }),
       enabled,
       el('button', {
-        class: 'btn ghost icon',
+        class: 'btn quiet icon sm rule-x',
+        type: 'button',
         title: 'Delete rule',
-        innerHTML: '&#10005;',
+        ariaLabel: `Delete rule ${index + 1}`,
         onclick: () => {
           profile.rules = profile.rules.filter((r) => r.id !== rule.id);
           scheduleSave();
           render();
         },
-      })
+      }, icon('x', 'sm'))
     );
+    row.querySelector('.grip')!.append(icon('grip', 'sm'));
+    // Pointing at a rule finds it on the map.
+    const point = (on: boolean): void => {
+      const next = on ? rule.id : null;
+      if (hilite === next) return;
+      hilite = next;
+      repaintMap();
+    };
+    row.addEventListener('mouseenter', () => point(true));
+    row.addEventListener('mouseleave', () => point(row.contains(document.activeElement)));
+    row.addEventListener('focusin', () => point(true));
+    row.addEventListener('focusout', (e) => point(row.contains(e.relatedTarget as Node | null)));
     wireDrag(row, rulesBox, () => {
-      const order = [...rulesBox.querySelectorAll<HTMLElement>('.rule')].map((n) => n.dataset.id);
+      const order = [...rulesBox.querySelectorAll<HTMLElement>('.rule:not(.rule-default)')].map((n) => n.dataset.id);
       profile.rules.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
       renumberRules();
       scheduleSave();
+      repaintMap();
     });
     return row;
   };
 
   /**
-   * The rule aria-labels carry a position, and reordering deliberately never
-   * re-renders — it moves the live row and sorts the model — so without this a
-   * dragged rule announces the place it was built in, forever.
+   * Reordering never re-renders — it moves the live row and sorts the model — so
+   * the numbers and the screen-reader names are put right here.
    */
   const renumberRules = (): void => {
-    rulesBox.querySelectorAll<HTMLElement>('.rule').forEach((n, i) => {
-      n.querySelector('.grip')?.setAttribute('aria-label', `Reorder rule ${i + 1}`);
-      n.querySelector('.toggle')?.setAttribute('aria-label', `Rule ${i + 1} enabled`);
+    rulesBox.querySelectorAll<HTMLElement>('.rule:not(.rule-default)').forEach((n, i) => {
+      const k = i + 1;
+      n.querySelector('.rule-n')!.textContent = String(k);
+      n.querySelector('.grip')?.setAttribute('aria-label', `Reorder rule ${k}`);
+      n.querySelector('.toggle')?.setAttribute('aria-label', `Rule ${k} on`);
+      n.querySelector('.rule-x')?.setAttribute('aria-label', `Delete rule ${k}`);
+      n.querySelector('select.input')?.setAttribute('aria-label', `Condition, rule ${k}`);
+      n.querySelector('input.mono')?.setAttribute('aria-label', `Pattern, rule ${k}`);
+      n.querySelector('.via select')?.setAttribute('aria-label', `Route via, rule ${k}`);
     });
   };
 
   rulesBox.append(
-    el('div', { class: 'rule-head' },
-      el('span'), el('span', {}, 'Condition'), el('span', {}, 'Pattern'),
-      el('span', {}, 'Route via'), el('span', {}, 'On'), el('span')),
-    ...profile.rules.map(ruleRow)
+    el(
+      'div',
+      { class: 'rule-head', ariaHidden: 'true' },
+      el('span'),
+      el('span', {}, '#'),
+      el('span', {}, 'Condition'),
+      el('span', {}, 'Pattern'),
+      el('span', {}, 'Route via'),
+      el('span', {}, 'On'),
+      el('span')
+    ),
+    ...profile.rules.map(ruleRow),
+    el(
+      'div',
+      { class: 'rule rule-default' },
+      el('span'),
+      el('span'),
+      el('span', { class: 'rule-default-t' }, el('b', {}, 'Everything else'), el('span', { class: 'meta' }, ' when no rule above matches')),
+      viaSelect(profile.id, profile.defaultTargetId, (v) => {
+        profile.defaultTargetId = v;
+        scheduleSave();
+        repaintMap();
+      }, { quiet: true, label: 'Route everything else via' }),
+      el('span'),
+      el('span')
+    )
+  );
+
+  const addRule = el(
+    'button',
+    {
+      class: 'btn sm',
+      type: 'button',
+      onclick: () => {
+        profile.rules.push({ id: uid(), enabled: true, type: 'hostWildcard', pattern: '', targetId: proxyProfiles(config)[0]?.id ?? DIRECT });
+        scheduleSave();
+        render();
+        [...app.querySelectorAll<HTMLInputElement>('.rules .rule:not(.rule-default) input.mono')].pop()?.focus();
+      },
+    },
+    icon('plus', 'sm'),
+    'Add rule'
   );
 
   return el(
     'div',
-    { class: 'pane' },
+    { class: 'ed-pane' },
     editorHead(profile),
-    identityPanel(profile),
+    mapHolder,
     el(
-      'div',
-      { class: 'card panel' },
-      el('h3', {}, 'Rules — first match wins'),
-      rulesBox,
-      el(
-        'button',
-        {
-          class: 'btn',
-          style: { alignSelf: 'flex-start' },
-          onclick: () => {
-            profile.rules.push({
-              id: uid(),
-              enabled: true,
-              type: 'hostWildcard',
-              pattern: '',
-              targetId: proxyProfiles(config)[0]?.id ?? DIRECT,
-            });
-            scheduleSave();
-            render();
-          },
-        },
-        '+ Add rule'
-      ),
-      (() => {
-        const sel = targetSelect(profile.id, profile.defaultTargetId, (v) => {
-          profile.defaultTargetId = v;
-          scheduleSave();
-        });
-        if (!sel.id) sel.id = `fld-${++fieldSeq}`;
-        return el(
-          'div',
-          { class: 'default-row' },
-          el('label', { htmlFor: sel.id }, 'Everything else'),
-          sel,
-          el('span', { class: 'note' }, 'Used when no rule above matches.')
-        );
-      })()
+      'section',
+      { class: 'rules-sec', ariaLabel: 'Rules' },
+      el('div', { class: 'rules-head' }, el('h2', { class: 't-h3' }, 'Rules'), el('p', { class: 'meta' }, 'Drag to reorder. Point at a rule to find it on the map.'), addRule),
+      rulesBox
     ),
-    dangerZone(profile)
+    identityPanel(profile)
   );
 }
 
@@ -1673,93 +2005,129 @@ function ruleListEditor(profile: RuleListProfile): HTMLElement {
     'Update now'
   );
 
+  const mapHolder = el('figure', { class: 'ed-map' }, editorMapSvg(profile));
+  const repaintMap = (): void => mapHolder.replaceChildren(editorMapSvg(profile));
+
   return el(
     'div',
-    { class: 'pane' },
+    { class: 'ed-pane' },
     editorHead(profile),
-    identityPanel(profile),
-    el(
-      'div',
-      { class: 'card panel' },
-      el('h3', {}, 'Source'),
+    mapHolder,
+    section(
+      'Source',
+      'Where the list comes from, and how often it is fetched again.',
       el(
         'div',
-        { class: 'field-grid' },
+        { class: 'pform-row url' },
         field('URL', url),
         // The unit belongs under the control, not in the label: a two-line label
-        // in a 150px column used to push this input off the URL input's baseline.
+        // in a narrow column used to push this input off the URL input's baseline.
         field('Auto-update', interval, { extra: [el('span', { class: 'note' }, 'Hours · 0 = off')] })
       ),
-      el(
-        'div',
-        { class: 'rl-actions' },
-        field('Format', format, { style: { flex: '1' } }),
-        updateNow
-      ),
-      field('List content', source, { extra: [status, rejects, formatWarn, sizeWarn, syntaxHelp] }),
-      el('span', { class: 'note' },
+      el('div', { class: 'rl-actions' }, field('Format', format), updateNow),
+      el('p', { class: 'note' },
         'The URL host must allow cross-origin requests (raw.githubusercontent.com does). GFWList base64 payloads are decoded automatically.')
     ),
-    el(
-      'div',
-      { class: 'card panel' },
-      el('h3', {}, 'Routing'),
+    section(
+      'Routing',
+      'Entries on the list go one way; the rest, and any whitelist line, the other.',
       el(
         'div',
-        { class: 'field-grid wide' },
-        field('Matching entries route via',
-          targetSelect(profile.id, profile.matchTargetId, (v) => {
+        { class: 'pform-row' },
+        field(
+          'On the list, route via',
+          viaSelect(profile.id, profile.matchTargetId, (v) => {
             profile.matchTargetId = v;
             scheduleSave();
-          })),
-        field('Everything else (and whitelist)',
-          targetSelect(profile.id, profile.defaultTargetId, (v) => {
+            repaintMap();
+          })
+        ),
+        field(
+          'Everything else, via',
+          viaSelect(profile.id, profile.defaultTargetId, (v) => {
             profile.defaultTargetId = v;
             scheduleSave();
-          }))
+            repaintMap();
+          })
+        )
       )
     ),
-    dangerZone(profile)
+    section('List content', el('span', {}, status), el('div', { class: 'field' }, source, rejects, formatWarn, sizeWarn, syntaxHelp)),
+    identityPanel(profile)
   );
 }
 
 /* ---------- virtual (alias) editor ---------- */
 
 function virtualEditor(profile: VirtualProfile): HTMLElement {
+  const mapHolder = el('figure', { class: 'ed-map' }, editorMapSvg(profile));
+  // Who leans on this alias: retargeting it moves every one of them at once,
+  // which is the reason to have one — so say who that is.
+  const users = config.profiles.filter(
+    (p) =>
+      (p.kind === 'switch' && (p.defaultTargetId === profile.id || p.rules.some((r) => r.targetId === profile.id))) ||
+      (p.kind === 'rulelist' && (p.matchTargetId === profile.id || p.defaultTargetId === profile.id))
+  );
   return el(
     'div',
-    { class: 'pane' },
+    { class: 'ed-pane' },
     editorHead(profile),
-    identityPanel(profile),
-    el(
-      'div',
-      { class: 'card panel' },
-      el('h3', {}, 'Alias target'),
+    mapHolder,
+    section(
+      'Target',
+      'Switching to the alias, or any rule pointed at it, routes here.',
       field(
-        'Activating or targeting this alias routes via',
-        targetSelect(profile.id, profile.targetId, (v) => {
+        'Routes via',
+        viaSelect(profile.id, profile.targetId, (v) => {
           profile.targetId = v;
           scheduleSave();
-        }),
-        {
-          extra: [
-            el('span', { class: 'note' },
-              'Point switch rules and rule lists at an alias, then swap the alias target to retarget them all at once.'),
-          ],
-        }
+          mapHolder.replaceChildren(editorMapSvg(profile));
+        })
+      ),
+      el(
+        'p',
+        { class: 'note' },
+        users.length
+          ? `Used by ${users.map((u) => u.name).join(', ')}. Retargeting the alias moves all of ${users.length === 1 ? 'it' : 'them'} at once.`
+          : 'Point switch rules and rule lists at an alias, then swap its target to retarget them all at once.'
       )
     ),
-    dangerZone(profile)
+    identityPanel(profile)
   );
 }
 
-/* ---------- settings panel ---------- */
+/* ---------- settings ---------- */
+
+/**
+ * One setting: what it is and what it does on the left, its control on the
+ * right. A button's row names it with plain text — a <label> for a button
+ * would say the same thing twice to a screen reader.
+ */
+function settingRow(label: string, description: string | Node | null, control: HTMLElement, ...extra: Array<Node | null | false>): HTMLElement {
+  // The label points at the field itself, inside any wrapper (keyed() puts a
+  // select in a div with its line key).
+  const target = control.matches('input, select, textarea') ? control : control.querySelector<HTMLElement>('input, select, textarea');
+  if (target && !target.id) target.id = `fld-${++fieldSeq}`;
+  return el(
+    'div',
+    { class: 'srow' },
+    el(
+      'div',
+      { class: 'srow-text' },
+      target ? el('label', { class: 'srow-t', htmlFor: target.id }, label) : el('span', { class: 'srow-t' }, label),
+      description ? el('p', {}, description) : null,
+      ...extra.filter((n): n is Node => Boolean(n))
+    ),
+    el('div', { class: 'srow-ctl' }, control)
+  );
+}
 
 function toggleRow(
   label: string,
-  description: string,
+  description: string | Node,
   checked: boolean,
-  onChange: (v: boolean) => void | Promise<boolean | void>
+  onChange: (v: boolean) => void | Promise<boolean | void>,
+  ...extra: Array<Node | null | false>
 ): HTMLElement {
   const input = el('input', {
     class: 'toggle',
@@ -1769,20 +2137,40 @@ function toggleRow(
       const result = await onChange(input.checked);
       if (result === false) input.checked = !input.checked; // rejected (e.g. permission denied)
       scheduleSave();
-      refreshSidebar();
     },
   }) as HTMLInputElement;
-  return el(
-    'label',
-    { class: 'setting-row' },
-    el(
-      'span',
-      { class: 'setting-text' },
-      el('span', { class: 'setting-label' }, label),
-      el('span', { class: 'note' }, description)
-    ),
-    input
+  return settingRow(label, description, input, ...extra);
+}
+
+/** A titled group of settings rows. */
+function settingsGroup(title: string, sub: string, ...rows: Array<Node | null | false>): HTMLElement {
+  const id = `set-${title.toLowerCase().replace(/\W+/g, '-')}`;
+  const node = el(
+    'section',
+    { class: 'sset' },
+    el('div', { class: 'sset-h' }, el('h2', { class: 't-h3', id }, title), el('p', { class: 'meta' }, sub)),
+    el('div', { class: 'srows' }, ...rows.filter((n): n is Node => Boolean(n)))
   );
+  node.setAttribute('aria-labelledby', id);
+  return node;
+}
+
+/**
+ * A select whose values are routes, with the chosen route's line key inside
+ * it. '' (no route chosen — "the last one used", "same as regular windows")
+ * shows no key.
+ */
+function keyed(select: HTMLSelectElement, resolve: (value: string) => string = (v) => v): HTMLElement {
+  const key = el('span', { class: 'key' });
+  const paint = (): void => {
+    const v = resolve(select.value);
+    key.classList.toggle('hidden', !v);
+    if (v) paintRoute(key, lineColour(config, v));
+    key.classList.toggle('system', v === SYSTEM);
+  };
+  paint();
+  select.addEventListener('change', paint);
+  return el('div', { class: 'via' }, key, select);
 }
 
 function settingsPanel(): HTMLElement {
@@ -1790,13 +2178,14 @@ function settingsPanel(): HTMLElement {
 
   const quickList = el(
     'div',
-    { class: 'quick-list' },
+    { class: 'ticks' },
     ...[
       { id: DIRECT, name: 'Direct' },
       { id: SYSTEM, name: 'System' },
       ...config.profiles.map((p) => ({ id: p.id, name: p.name })),
     ].map((entry) => {
       const check = el('input', {
+        class: 'check',
         type: 'checkbox',
         checked: s.quickSwitchIds.includes(entry.id),
         onchange: () => {
@@ -1806,13 +2195,13 @@ function settingsPanel(): HTMLElement {
           scheduleSave();
         },
       }) as HTMLInputElement;
-      return el('label', { class: 'quick-item' }, check, entry.name);
+      return el('label', { class: 'chk' }, check, entry.name);
     })
   );
 
   const startup = el('select', { class: 'input' }) as HTMLSelectElement;
   startup.append(
-    el('option', { value: '' }, 'Last used (default)'),
+    el('option', { value: '' }, 'The last one used'),
     el('option', { value: DIRECT }, 'Direct'),
     el('option', { value: SYSTEM }, 'System')
   );
@@ -1823,7 +2212,7 @@ function settingsPanel(): HTMLElement {
     scheduleSave();
   };
 
-  const incognito = el('select', { class: 'input', style: { maxWidth: '280px' } }) as HTMLSelectElement;
+  const incognito = el('select', { class: 'input' }) as HTMLSelectElement;
   incognito.append(
     el('option', { value: '' }, 'Same as regular windows'),
     el('option', { value: DIRECT }, 'Direct'),
@@ -1835,46 +2224,53 @@ function settingsPanel(): HTMLElement {
     s.incognitoProfileId = incognito.value;
     scheduleSave();
     // Choosing a profile is what makes missing incognito access matter — and
-    // clearing it is what stops it mattering. Neither reaches the banner on its
+    // clearing it is what stops it mattering. Neither reaches the asks on its
     // own, because no permission event fires for Chrome's own switch.
     updatePermBanners();
   };
+
   const landing = el('select', { class: 'input' }) as HTMLSelectElement;
-  landing.append(
-    el('option', { value: 'overview' }, 'Overview (default)'),
-    el('option', { value: 'last' }, 'The page I had open last')
-  );
+  landing.append(el('option', { value: 'overview' }, 'Overview'), el('option', { value: 'last' }, 'The page I had open last'));
   landing.value = uiPrefs.landing;
   landing.onchange = () => {
     uiPrefs = { ...uiPrefs, landing: landing.value as LandingPage };
     void saveUiPrefs(uiPrefs).then(() => toast('Saved'));
   };
 
-  const incognitoNote = el(
-    'span',
-    { class: 'note' },
-    'Route incognito windows through their own profile; regular windows are unaffected. Those windows show that profile in the toolbar and the popup, and it can be changed from there too.'
+  const theme = el('select', { class: 'input' }) as HTMLSelectElement;
+  theme.append(
+    el('option', { value: 'system' }, 'Match the system'),
+    el('option', { value: 'light' }, 'Light'),
+    el('option', { value: 'dark' }, 'Dark')
   );
+  theme.value = uiPrefs.theme;
+  theme.onchange = () => {
+    uiPrefs = { ...uiPrefs, theme: theme.value as ThemePref };
+    applyTheme(uiPrefs.theme);
+    void saveUiPrefs(uiPrefs).then(() => toast('Saved'));
+  };
+
   // The requirement belongs on the field in BOTH states. It used to replace the
-  // description above when access was missing — so whoever had it granted was
-  // never told what the setting depends on (and could not tell that revoking it
-  // would quietly undo this), while whoever had not was told the requirement
-  // instead of what the setting does. A second line says which, and names the
-  // exact switch rather than pointing at a page with dozens of them.
-  const incognitoAccessNote = el('span', { class: 'note' });
+  // description when access was missing — so whoever had it granted was never
+  // told what the setting depends on (and could not tell that revoking it would
+  // quietly undo this), while whoever had not was told the requirement instead
+  // of what the setting does. A second line says which, and names the exact
+  // switch rather than pointing at a page with dozens of them.
+  const incognitoAccessNote = el('p', { class: 'srow-note' });
   void chrome.extension
     .isAllowedIncognitoAccess()
     .then((allowed) => {
       if (allowed) {
-        incognitoAccessNote.textContent =
-          'Sockitt is allowed in incognito (Extensions › Sockitt › Details › Allow in Incognito), so this is in force.';
+        incognitoAccessNote.replaceChildren(
+          el('span', { class: 'st good' }, 'In force'),
+          ' — Sockitt is allowed in incognito (Extensions › Sockitt › Details › Allow in Incognito).'
+        );
         return;
       }
-      incognitoAccessNote.className = 'note warn';
-      incognitoAccessNote.setAttribute('role', 'alert');
       incognitoAccessNote.replaceChildren(
-        'Needs Chrome to allow Sockitt in incognito first — Extensions › Sockitt › Details › Allow in Incognito. That switch is yours alone; no extension can grant itself incognito access, so this opens the page rather than doing it for you. Until then incognito windows follow the regular profile. ',
-        el('button', { class: 'linklike', onclick: openExtensionDetails }, 'Open Sockitt’s details')
+        el('span', { class: 'st warn' }, 'Waiting for Chrome'),
+        ' — until Sockitt is allowed in incognito, those windows follow the regular profile. ',
+        el('button', { class: 'linklike', type: 'button', onclick: openExtensionDetails }, 'Open Sockitt’s details')
       );
     })
     .catch(() => undefined);
@@ -1887,79 +2283,65 @@ function settingsPanel(): HTMLElement {
   // than reported. The full setup, per browser, lives in the docs.
   const syncNeeds = el(
     'span',
-    { class: 'note' },
-    'Your browser has to be syncing for this to reach anything — signed into Chrome’s sync, or joined to a Brave sync chain, with Extensions among the types it carries. It is per browser, so Chrome reaches your other Chromes and Brave your other Braves, never each other. Where the browser has no sync, the configuration stays on this machine and Sockitt cannot tell the difference. ',
-    el(
-      'button',
-      { class: 'linklike', type: 'button', onclick: () => openDocsAt('doc-sync') },
-      'See Docs → Sync'
-    ),
-    ' for how each browser sets that up.'
+    {},
+    'Your other machines pick up changes; the newest change wins. The browser itself has to be syncing, with Extensions among what it carries — Chrome reaches your other Chromes and Brave your other Braves, never each other. ',
+    el('button', { class: 'linklike', type: 'button', onclick: () => openDocsAt('doc-sync') }, 'How each browser sets that up')
   );
-  // Amber only while Sync is OFF. Unlike the incognito requirement above —
-  // which holds in both states, so it is stated in both — this is the
-  // consequence of flipping the switch, and it is only pending while the switch
-  // is armed. Once Sync is on it stays on the page as history, in the ordinary
-  // tone. The toggle's own handler repaints it; nothing here re-renders.
-  const syncWarn = el(
-    'span',
-    { class: s.syncEnabled ? 'note' : 'note warn' },
-    'Switch Sync on before you set a machine up, not after. Turned on with a configuration already in sync, this machine’s is replaced by it; turned on when nothing is synced, this machine’s becomes the shared one and every other machine with Sync on takes it. Turning Sync off deletes the shared copy; each machine keeps what it has.'
-  );
+  // A warning only while Sync is OFF: it is the consequence of flipping the
+  // switch, and only pending while the switch is armed. Once Sync is on it
+  // stays as history, in the ordinary tone. The toggle's handler repaints it.
+  const syncWarn = el('p', { class: 'srow-note' });
+  const paintSyncWarn = (on: boolean): void => {
+    syncWarn.replaceChildren(
+      on ? '' : el('span', { class: 'st warn' }, 'Before you set a machine up'),
+      on ? '' : ' — ',
+      'turned on with a configuration already in sync, this machine’s is replaced by it; turned on when nothing is synced, this machine’s becomes the shared one. Turning Sync off deletes the shared copy; each machine keeps what it has.'
+    );
+  };
+  paintSyncWarn(s.syncEnabled);
 
   return el(
     'div',
-    { class: 'pane' },
-    pageHead('Settings'),
-    el(
-      'div',
-      { class: 'card panel' },
-      el('h3', {}, 'Switching'),
+    { class: 'pane set' },
+    pageHead('Settings', 'Changes save as you make them. With Sync on, they reach your other browsers too.'),
+    el('div', { class: 'asks-slot' }),
+    settingsGroup(
+      'Switching',
+      'What the toolbar icon does, and which profile runs where.',
       toggleRow(
         'Quick switch',
-        'Toolbar click cycles the profiles below instead of opening the popup. Tick at least two — with fewer, the cycle falls back to Direct, System, and every profile. The cycle keyboard shortcut always works (set it at chrome://extensions/shortcuts).',
+        'A click on the toolbar icon steps through the profiles ticked below instead of opening the popup. Tick at least two — with fewer it cycles Direct, System and every profile. The keyboard shortcut always works; set it at chrome://extensions/shortcuts.',
         s.quickSwitch,
         (v) => {
           s.quickSwitch = v;
-        }
+        },
+        quickList
       ),
-      quickList,
-      field('On browser startup, activate', startup, { style: { maxWidth: '280px' } }),
-      // The width goes on the select, not the field: this is the one field here
-      // carrying two lines of copy, and capping the whole column would set them
-      // in a 280px measure — four lines of amber in a ribbon down the page.
-      field('Incognito windows use', incognito, {
-        extra: [incognitoNote, incognitoAccessNote],
+      settingRow('On browser startup', 'The profile Sockitt turns on when the browser opens.', keyed(startup)),
+      settingRow(
+        'Incognito windows use',
+        'Their own profile, shown in the toolbar and the popup of those windows; regular windows are unaffected.',
+        keyed(incognito),
+        s.incognitoProfileId ? incognitoAccessNote : null
+      ),
+      toggleRow('Reload the tab after switching', 'Once you close the popup, so the page loads over its new route.', s.refreshOnSwitch, (v) => {
+        s.refreshOnSwitch = v;
+      })
+    ),
+    settingsGroup(
+      'Behaviour',
+      'Guard rails, and what Sockitt is allowed to look at.',
+      toggleRow('Guard proxy control', 'If another extension takes over the browser’s proxy settings, take them back, at most every 30 seconds.', s.revertExternal, (v) => {
+        s.revertExternal = v;
       }),
       toggleRow(
-        'Reload tab after switching',
-        'Refresh the active tab when you pick a profile — once you close the popup.',
-        s.refreshOnSwitch,
-        (v) => {
-          s.refreshOnSwitch = v;
-        }
-      )
-    ),
-    el(
-      'div',
-      { class: 'card panel' },
-      el('h3', {}, 'Behaviour'),
-      toggleRow(
-        'Guard proxy control',
-        'If another extension takes over proxy settings, take them back automatically (at most every 30 seconds).',
-        s.revertExternal,
-        (v) => {
-          s.revertExternal = v;
-        }
-      ),
-      toggleRow(
-        'Per-tab route badge',
-        'Show which profile the current tab routes through as a toolbar badge. Needs the optional "tabs" and "webNavigation" permissions — together they ask for “Read your browsing history” once. Sockitt reads the tab’s address to resolve it locally; nothing is stored or sent.',
+        'Route badge',
+        'The toolbar icon names the profile the current tab goes through. Sockitt reads the tab’s address to work it out locally; nothing is stored or sent. Asks once for “Read your browsing history”, which is what reading a tab’s address is called.',
         s.badgeResult,
         async (v) => {
           if (!v) {
             s.badgeResult = false;
-            updatePermBanners(); // the setting is off; nothing left to warn about
+            updatePermBanners(); // the setting is off; nothing left to ask for
             return;
           }
           if (!(await requestTabsPermission())) return false;
@@ -1969,7 +2351,13 @@ function settingsPanel(): HTMLElement {
       ),
       toggleRow(
         'IP address lookups',
-        'The popup’s exit-IP readout — the flag, IP, and latency shown under the active tab — and the proxy connection test. Off by default: both stay off until you turn this on, and turning it off disables them. Enabling asks for the network access it needs.',
+        el(
+          'span',
+          {},
+          'The popup’s exit line — flag, address and latency — and the proxy test ask ',
+          el('span', { class: 'mono' }, 'ipconfig.is'),
+          ', a service the Sockitt developer runs. Off until you turn it on; turning it on asks for access to that one site.'
+        ),
         s.exitIpCheck,
         async (v) => {
           if (v && !(await ensureExitIpPermission())) {
@@ -1979,49 +2367,36 @@ function settingsPanel(): HTMLElement {
           s.exitIpCheck = v;
         }
       ),
-      toggleRow(
-        'Quick-added rules go to the bottom',
-        'Rules added from the popup append below existing rules (off = they take top priority).',
-        s.addToBottom,
-        (v) => {
-          s.addToBottom = v;
-        }
-      ),
-      toggleRow(
-        'Confirm before deleting',
-        'Ask before profiles are deleted or everything is reset.',
-        s.confirmDeletion,
-        (v) => {
-          s.confirmDeletion = v;
-        }
-      ),
-      // Stored per device, outside the synced configuration on purpose — see
-      // the UI-preferences note in state.ts.
-      field('This page opens on', landing, {
-        style: { maxWidth: '280px' },
-        extra: [
-          el(
-            'span',
-            { class: 'note' },
-            'A per-device preference — it is not synced to your other browsers.'
-          ),
-        ],
+      toggleRow('Rules added in the popup go last', 'Off puts them first, ahead of every rule you already have.', s.addToBottom, (v) => {
+        s.addToBottom = v;
+      }),
+      toggleRow('Confirm before deleting', 'Ask before a profile is deleted or everything is reset.', s.confirmDeletion, (v) => {
+        s.confirmDeletion = v;
       })
     ),
-    el(
-      'div',
-      { class: 'card panel' },
-      el('h3', {}, 'Sync'),
-      syncError ? el('div', { class: 'banner' }, `Sync error: ${syncError}`) : null,
+    // Stored per device, outside the synced configuration on purpose — see the
+    // UI-preferences note in state.ts.
+    settingsGroup(
+      'Appearance',
+      'This device only — never synced.',
+      settingRow('Theme', 'Follow the system, or keep this browser light or dark.', theme),
+      settingRow('This page opens on', 'The Overview, or wherever you were last.', landing)
+    ),
+    settingsGroup(
+      'Sync',
+      'Through your browser’s own sync, never a Sockitt server.',
+      syncError
+        ? el('div', { class: 'callout bad', role: 'alert' }, el('div', {}, el('h3', {}, 'The last sync failed'), el('p', { class: 'mono' }, syncError)))
+        : null,
       toggleRow(
-        'Sync configuration',
-        'Mirror profiles and rules through your browser’s own sync so your other machines pick them up. Newest change wins.',
+        'Sync profiles and rules',
+        syncNeeds,
         s.syncEnabled,
         async (v) => {
           if (!v) {
             s.syncEnabled = false;
             void clearSync();
-            syncWarn.className = 'note warn';
+            paintSyncWarn(false);
             return;
           }
           // A remote written by an incompatible schema must not be joined:
@@ -2055,11 +2430,25 @@ function settingsPanel(): HTMLElement {
             return;
           }
           s.syncEnabled = true;
-          syncWarn.className = 'note';
-        }
+          paintSyncWarn(true);
+        },
+        syncWarn
+      )
+    ),
+    settingsGroup(
+      'Backup',
+      'Everything, as one file.',
+      settingRow(
+        'Export',
+        'Every profile, rule and setting as a JSON file — proxy passwords included, in plain text, so keep it somewhere safe.',
+        el('button', { class: 'btn', type: 'button', onclick: exportConfig }, 'Export')
       ),
-      syncNeeds,
-      syncWarn
+      settingRow('Import', 'Replaces what is here with the file’s contents.', el('button', { class: 'btn', type: 'button', onclick: importConfig }, 'Import…')),
+      settingRow(
+        'Reset everything',
+        'Deletes every profile and rule and returns to System. Settings are kept.',
+        el('button', { class: 'btn danger', type: 'button', onclick: resetConfig }, 'Reset…')
+      )
     )
   );
 }
@@ -2074,10 +2463,11 @@ function wireDrag(row: HTMLElement, container: HTMLElement, commit: () => void):
     const up = e.key === 'ArrowUp';
     if (!e.altKey || (!up && e.key !== 'ArrowDown')) return;
     e.preventDefault();
-    // The row above the first rule is .rule-head, so check the class rather
-    // than merely that a sibling exists.
+    // The row above the first rule is .rule-head and the one below the last is
+    // the default ("Everything else"), so check the class rather than merely
+    // that a sibling exists.
     const neighbour = up ? row.previousElementSibling : row.nextElementSibling;
-    if (!neighbour?.classList.contains('rule')) return;
+    if (!neighbour?.classList.contains('rule') || neighbour.classList.contains('rule-default')) return;
     container.insertBefore(row, up ? neighbour : neighbour.nextElementSibling);
     commit();
     grip.focus();
@@ -2164,216 +2554,172 @@ function resetConfig(): void {
 
 /* ---------- route inspector ---------- */
 
-function inspectChip(id: string): HTMLElement {
-  if (id === DIRECT) return el('span', { class: 'chain-chip' }, builtinTile('D', 18), 'Direct');
-  if (id === SYSTEM) return el('span', { class: 'chain-chip' }, builtinTile('S', 18), 'System');
-  const p = config.profiles.find((x) => x.id === id);
-  return p
-    ? el('span', { class: 'chain-chip' }, avatarEl(p, 18), p.name)
-    : el('span', { class: 'chain-chip' }, builtinTile('D', 18), 'Direct');
+/** What was typed, as a URL: an address, or just a host. */
+function parseInspect(raw: string): URL | null {
+  try {
+    const u = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`);
+    return hostLooksReal(u.hostname) ? u : null;
+  } catch {
+    return null;
+  }
 }
 
-function inspectEdgeLabel(e: TraceEdge): string {
+/** A route, named in its own line colour. */
+function routeName(id: string): HTMLElement {
+  return el(
+    'span',
+    { class: 'rv' },
+    paintRoute(el('span', { class: `key${id === SYSTEM ? ' system' : ''}` }), lineColour(config, id)),
+    el('b', {}, nameFor(id))
+  );
+}
+
+/** What one hop did, in words. */
+function inspectStep(e: TraceEdge): Array<Node | string> {
   switch (e.kind) {
-    case 'rule':
-      return `rule ${e.pattern} (${e.ruleType ? RULE_TYPES[e.ruleType] : 'rule'}) matched`;
+    case 'rule': {
+      const n = edgeRuleIndex(config, e);
+      return [`Rule ${n >= 0 ? n + 1 : ''} matches, `, el('span', { class: 'mono' }, e.pattern ?? ''), e.ruleType ? ` (${RULE_TYPES[e.ruleType].toLowerCase()})` : '', ', and sends it to'];
+    }
     case 'temp-rule':
-      return `popup override ${e.pattern} matched`;
+      return ['An override set from the popup matches, ', el('span', { class: 'mono' }, e.pattern ?? ''), ', ahead of every rule, and sends it to'];
     case 'default':
-      return 'no rule matched — everything else';
+      return ['No rule matches, so the default takes it, to'];
     case 'alias':
-      return 'alias points at';
+      return ['An alias, pointing at'];
     case 'list-match':
-      return 'rule list matched';
+      return ['It is on the list, so it goes to'];
     case 'list-default':
-      return 'no list match — default';
+      return ['It is not on the list, so it goes to'];
   }
 }
 
 function inspectorPanel(): HTMLElement {
-  const results = el('div', { class: 'inspect-results' });
+  const mapSlot = el('div', { class: 'insp-map' });
+  const steps = el('div', { class: 'insp-steps', role: 'status' });
   // Monotonic guard: runs await session storage, so a fast second keystroke
-  // could otherwise interleave with the first and stack a stale chain.
+  // could otherwise interleave with the first and paint a stale chain.
   let inspectSeq = 0;
 
   const urlInput = el('input', {
     class: 'input mono',
+    type: 'search',
     value: inspectUrl,
-    placeholder: 'https://foo.example.com/path  (or just a hostname)',
+    placeholder: 'https://example.com/path, or just a host',
+    ariaLabel: 'Address to inspect',
     spellcheck: false,
   }) as HTMLInputElement;
 
   const startSel = el('select', { class: 'input' }) as HTMLSelectElement;
-  startSel.append(el('option', { value: '' }, 'Active profile'));
+  startSel.setAttribute('aria-label', 'Start at');
+  // '' follows whatever is active, so it is named for it — and keyed in its colour.
+  startSel.append(el('option', { value: '' }, `${nameFor(config.activeId)} (active)`));
   for (const p of config.profiles) startSel.append(el('option', { value: p.id }, p.name));
-  startSel.value = [...startSel.options].some((o) => o.value === inspectStartId)
-    ? inspectStartId
-    : '';
+  startSel.value = [...startSel.options].some((o) => o.value === inspectStartId) ? inspectStartId : '';
 
-  /** Holds the panel's shape before anything is typed, instead of a bare strip. */
-  const emptyState = (): HTMLElement =>
-    el(
-      'p',
-      { class: 'inspect-empty' },
-      'Nothing to resolve yet — type a URL above and the chain appears here.'
-    );
-
-  const runInspect = async (): Promise<void> => {
+  const paint = async (): Promise<void> => {
     const seq = ++inspectSeq;
     inspectUrl = urlInput.value;
     inspectStartId = startSel.value;
-    results.replaceChildren();
-    const raw = urlInput.value.trim();
-    if (!raw) {
-      results.append(emptyState());
-      return;
-    }
-
-    let u: URL;
-    try {
-      u = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`);
-    } catch {
-      results.append(el('span', { class: 'note' }, 'That does not parse as a URL or hostname.'));
-      return;
-    }
-    const matchUrl = pacRequestUrl(u.href);
-
     const startId = startSel.value || config.activeId;
+    const raw = urlInput.value.trim();
+    const u = raw ? parseInspect(raw) : null;
+    // Match real routing: the overrides set from the popup take part only when
+    // inspecting the profile that is actually active.
+    const temp = startId === config.activeId && startId !== DIRECT && startId !== SYSTEM ? await loadTempRules(config.activeId, 'regular').catch(() => []) : [];
+    if (seq !== inspectSeq) return; // a newer run owns the page
+    const req = u ? { url: pacRequestUrl(u.href), host: u.hostname, shown: u.hostname } : null;
+    mapSlot.replaceChildren(tracedYard(dashboardHost, startId, req, temp));
+
+    if (!raw) {
+      steps.replaceChildren(el('p', { class: 'ink2' }, 'Type an address above and its path lights up on the map, with every step it takes written out here.'));
+      return;
+    }
+    if (!u || !req) {
+      steps.replaceChildren(el('p', { class: 'st warn' }, 'That doesn’t read as an address or a host name.'));
+      return;
+    }
     if (startId === DIRECT || startId === SYSTEM) {
-      results.append(
+      steps.replaceChildren(
         el(
-          'div',
-          { class: 'chain' },
-          inspectChip(startId),
-          el(
-            'span',
-            { class: 'chain-final note' },
-            startId === DIRECT
-              ? 'Direct is active — every request goes straight to the network.'
-              : 'System is active — the OS proxy settings decide; Sockitt rules do not apply.'
-          )
+          'p',
+          { class: 'ink2' },
+          el('b', { class: 'mono host' }, u.hostname),
+          startId === DIRECT ? ' goes straight out: Direct is active.' : ' goes wherever your operating system’s settings send it — Sockitt cannot see those rules.'
         )
       );
       return;
     }
     const start = config.profiles.find((p) => p.id === startId);
     if (!start) {
-      results.append(el('span', { class: 'note' }, 'Profile not found.'));
+      steps.replaceChildren(el('p', { class: 'st warn' }, 'That profile no longer exists.'));
       return;
     }
-
-    // Match real routing: the overrides set from the popup participate only
-    // when inspecting the profile that is actually active.
-    const temp = startId === config.activeId ? await loadTempRules(config.activeId, 'regular') : [];
-    if (seq !== inspectSeq) return; // a newer run owns the results box
     const trace: TraceEdge[] = [];
-    const route = resolveRoute(config, start, matchUrl, u.hostname, temp, new Date(), trace);
+    const route = resolveRoute(config, start, req.url, req.host, temp, new Date(), trace);
 
-    const chain = el('div', { class: 'chain' }, inspectChip(start.id));
-    for (const edge of trace) {
-      chain.append(
-        el('span', { class: 'chain-step' }, el('span', { class: 'chain-why' }, inspectEdgeLabel(edge))),
-        inspectChip(edge.to)
-      );
-    }
-
+    const list = el('ol', { class: 'steps' });
+    list.append(el('li', {}, el('span', { class: 'step-n mono' }, '1'), el('p', {}, 'Starts at ', routeName(start.id), '.')));
+    trace.forEach((edge, i) => {
+      list.append(el('li', {}, el('span', { class: 'step-n mono' }, String(i + 2)), el('p', {}, ...inspectStep(edge), ' ', routeName(edge.to), '.')));
+    });
     const terminal = config.profiles.find((p) => p.id === route.targetId);
-    const verdict =
+    const landing: Array<Node | string> =
       route.targetId === DIRECT
-        ? 'Goes direct — no proxy.'
+        ? ['Goes out with no proxy, over your own connection.']
         : terminal && terminal.kind === 'proxy'
-          ? `Routes via ${terminal.name} — ${SCHEME_LABELS[terminal.scheme]} ${terminal.host}:${terminal.port}${route.bypassed ? ', but its bypass list sends this host direct' : ''}.`
-          : 'Goes direct.';
+          ? route.bypassed
+            ? [`${terminal.name}’s bypass list matches it, so it goes out `, el('b', {}, 'Direct'), ' instead.']
+            : ['Goes out through ', el('b', {}, terminal.name), ' at ', el('span', { class: 'mono' }, `${SCHEME_LABELS[terminal.scheme]} ${terminal.host}:${terminal.port}`), '.']
+          : ['Goes out with no proxy.'];
+    list.append(el('li', { class: 'step-end' }, el('span', { class: 'step-n' }, icon('arrow', 'sm')), el('p', {}, ...landing)));
 
-    results.append(
-      chain,
-      el('div', { class: `chain-final${route.bypassed ? ' bypassed' : ''}` }, verdict)
-    );
-    if (matchUrl !== u.href) {
-      results.append(
+    const out: HTMLElement[] = [el('h2', { class: 't-h3' }, 'Step by step'), list];
+    if (req.url !== u.href) {
+      out.push(
         el(
-          'span',
-          { class: 'note' },
-          `Note: Chrome hides the path of ${u.protocol}// URLs from routing, so this was matched as ${matchUrl}.`
+          'p',
+          { class: 'meta' },
+          `Chrome hides the path of ${u.protocol}// addresses from proxy routing, so this was matched as `,
+          el('span', { class: 'mono' }, req.url),
+          '.'
         )
       );
     }
+    steps.replaceChildren(...out);
   };
 
-  urlInput.oninput = () => void runInspect();
-  startSel.onchange = () => void runInspect();
-
-  if (inspectUrl.trim()) void runInspect();
-  else results.append(emptyState());
+  urlInput.oninput = () => void paint();
+  startSel.onchange = () => void paint();
+  void paint();
 
   return el(
     'div',
-    { class: 'pane' },
-    pageHead('Route inspector'),
-    el(
-      'div',
-      { class: 'card panel' },
-      el(
-        'p',
-        { class: 'note' },
-        'Type a URL to see exactly how it would route right now: which rule fires, the chain it walks, and where it lands. Runs the same resolver as real routing, including the overrides set from the popup on the active profile.'
-      ),
-      el('div', { class: 'inspect-form' }, urlInput, startSel),
-      results
-    )
+    { class: 'pane insp' },
+    pageHead(
+      'Inspector',
+      'Type an address to see how it would route right now: which rule takes it, every profile it passes through, and where it lands. It runs the same rules as real routing — popup overrides included — and sends nothing.'
+    ),
+    el('div', { class: 'insp-form' }, el('div', { class: 'search insp-url' }, urlInput), el('div', { class: 'insp-start' }, el('span', { class: 't-label' }, 'Start at'), keyed(startSel, (v) => v || config.activeId))),
+    el('div', { class: 'band insp-band' }, mapSlot),
+    steps
   );
 }
 
+/* ---------- proxy errors ---------- */
 
-/* ---------- proxy errors page ---------- */
-
-/** The profile that was active, linking to its editor when it still exists. */
-function errorProfileChip(entry: ProxyErrorEntry): HTMLElement {
-  if (entry.profileId === DIRECT) {
-    return el('span', { class: 'chain-chip' }, builtinTile('D', 18), 'Direct');
-  }
-  const profile = config.profiles.find((p) => p.id === entry.profileId);
-  if (!profile) {
-    // System, or a profile deleted since. Either way the recorded name is the
-    // truthful answer — resolving it against today's config would rewrite history.
-    return el('span', { class: 'chain-chip' }, builtinTile('S', 18), entry.profileName);
-  }
-  return el(
-    'button',
-    {
-      class: 'chain-chip link',
-      title: `Open ${profile.name}`,
-      onclick: () => {
-        selectedId = profile.id;
-        render();
-      },
-    },
-    avatarEl(profile, 18),
-    profile.name
-  );
-}
-
-/** A proxy server named in an entry; clicking it opens that proxy's editor. */
-function errorProxyChip(ref: ProxyRef): HTMLElement {
-  const profile = config.profiles.find((p) => p.id === ref.id);
-  const inner = [
-    profile ? avatarEl(profile, 18) : builtinTile('P', 18),
-    el('span', {}, ref.name),
-    el('span', { class: 'err-endpoint mono' }, ref.endpoint),
+/** A route named in a log entry; a button to its editor while it still exists. */
+function errorRoute(id: string, name: string, endpoint?: string): HTMLElement {
+  const profile = config.profiles.find((p) => p.id === id);
+  const inner: Node[] = [
+    paintRoute(el('span', { class: `key${id === SYSTEM ? ' system' : ''}` }), profile ? profile.color : BUILTIN_FILL),
+    // The recorded name, not today's: resolving it against the current config
+    // would rewrite history for a profile renamed or deleted since.
+    el('b', {}, name),
   ];
-  if (!profile) return el('span', { class: 'chain-chip' }, ...inner);
-  return el(
-    'button',
-    {
-      class: 'chain-chip link',
-      title: `Open ${profile.name} — check the address, or run a connection test`,
-      onclick: () => {
-        selectedId = profile.id;
-        render();
-      },
-    },
-    ...inner
-  );
+  if (endpoint) inner.push(el('span', { class: 'mono meta' }, endpoint));
+  if (!profile) return el('span', { class: 'rv' }, ...inner);
+  return el('button', { class: 'rv', type: 'button', title: `Open ${profile.name}`, onclick: () => goTo(profile.id) }, ...inner);
 }
 
 /**
@@ -2384,138 +2730,101 @@ function errorProxyChip(ref: ProxyRef): HTMLElement {
  */
 function errorCarrier(entry: ProxyErrorEntry): HTMLElement {
   if (entry.via) {
-    return el(
-      'div',
-      { class: 'err-carrier' },
-      viaIsSelf(entry)
-        ? el('div', { class: 'chain' }, errorProxyChip(entry.via))
-        : el(
-            'div',
-            { class: 'chain' },
-            errorProfileChip(entry),
-            el('span', { class: 'chain-step' }, el('span', { class: 'chain-why' }, 'routes everything via')),
-            errorProxyChip(entry.via)
-          )
-    );
+    return viaIsSelf(entry)
+      ? el('p', { class: 'carrier' }, 'Through ', errorRoute(entry.via.id, entry.via.name, entry.via.endpoint), '.')
+      : el(
+          'p',
+          { class: 'carrier' },
+          errorRoute(entry.profileId, entry.profileName),
+          ' routes everything through ',
+          errorRoute(entry.via.id, entry.via.name, entry.via.endpoint),
+          '.'
+        );
   }
   if (entry.candidates?.length) {
     return el(
       'div',
-      { class: 'err-carrier' },
-      el('div', { class: 'chain' }, errorProfileChip(entry)),
-      el(
-        'span',
-        { class: 'note' },
-        `${entry.profileName} picks a server per request, and the browser does not report which one failed. It can route to:`
-      ),
-      el('div', { class: 'chain' }, ...entry.candidates.map(errorProxyChip))
-    );
-  }
-  return el('div', { class: 'err-carrier' }, el('div', { class: 'chain' }, errorProfileChip(entry)));
-}
-
-function errorStatusCard(): HTMLElement {
-  if (proxyAlert) {
-    const alert = proxyAlert;
-    const heading =
-      alert.streak > 1
-        ? `${alert.streak} proxy errors, the last one ${relativeTime(alert.lastAt)}`
-        : `A proxy error, ${relativeTime(alert.lastAt)}`;
-    return el(
-      'div',
-      { class: 'card panel err-status failing' },
-      el('h3', {}, 'Live status'),
-      el('div', { class: 'err-status-head' }, el('span', { class: 'err-live-dot' }), el('span', { class: 'err-status-title' }, heading)),
-      el('p', { class: 'err-code mono' }, errorHeadline(alert)),
-      alert.details ? el('p', { class: 'err-detail' }, alert.details) : null,
-      errorCarrier(alert),
+      { class: 'carrier' },
       el(
         'p',
-        { class: 'note' },
-        `Started ${relativeTime(alert.at)}. This clears itself — count and all — once 30 seconds go by with no further error. The browser reports failures but never recoveries, so a quiet spell is what “working again” looks like from here.`
+        {},
+        errorRoute(entry.profileId, entry.profileName),
+        ' picks a server per request, and Chrome does not say which one failed. It can route to:'
+      ),
+      el('p', { class: 'carrier-list' }, ...entry.candidates.map((c) => errorRoute(c.id, c.name, c.endpoint)))
+    );
+  }
+  return el('p', { class: 'carrier' }, 'While ', errorRoute(entry.profileId, entry.profileName), ' was active.');
+}
+
+function errorStatus(): HTMLElement {
+  if (proxyAlert) {
+    const alert = proxyAlert;
+    const via = alert.via ? config.profiles.find((p) => p.id === alert.via!.id) : undefined;
+    const heading =
+      alert.streak > 1 ? `${alert.streak} requests failed, the last ${agoInWords(alert.lastAt)}` : `A request failed ${agoInWords(alert.lastAt)}`;
+    const advice = errorAdvice(alert);
+    return el(
+      'div',
+      { class: 'callout bad err-live', role: 'alert' },
+      el(
+        'div',
+        {},
+        el('h3', {}, heading),
+        el('p', {}, el('span', { class: 'mono' }, errorHeadline(alert)), alert.details ? ` — ${alert.details}` : ''),
+        errorCarrier(alert),
+        advice ? el('p', {}, advice) : null,
+        el(
+          'p',
+          { class: 'meta' },
+          `Started ${agoInWords(alert.at)}. This clears itself once 30 seconds go by with no further error: Chrome reports failures but never recoveries, so a quiet spell is what working again looks like from here.`
+        )
       ),
       el(
         'div',
-        { class: 'err-actions' },
-        el('button', { class: 'btn', dataset: { errAction: 'dismiss' }, onclick: () => void clearProxyAlert() }, 'Dismiss'),
-        el('button', { class: 'btn', dataset: { errAction: 'copy' }, onclick: () => void copyErrorReport() }, 'Copy report')
+        { class: 'acts' },
+        via && via.kind === 'proxy'
+          ? el('button', { class: 'btn primary', type: 'button', dataset: { errAction: 'test' }, onclick: () => goTo(via.id) }, `Check ${via.name}`)
+          : null,
+        el('button', { class: 'btn', type: 'button', dataset: { errAction: 'copy' }, onclick: () => void copyErrorReport() }, 'Copy report'),
+        el('button', { class: 'btn quiet', type: 'button', dataset: { errAction: 'dismiss' }, onclick: () => void clearProxyAlert() }, 'Dismiss')
       )
     );
   }
-
   const last = errorLog[0];
-  if (!last) {
-    return el(
-      'div',
-      { class: 'card panel err-status clear' },
-      el('h3', {}, 'Live status'),
-      el('div', { class: 'err-status-head' }, el('span', { class: 'err-ok-dot' }), el('span', { class: 'err-status-title' }, 'No proxy errors')),
-      el(
-        'p',
-        { class: 'doc-p' },
-        'Nothing has failed since this browser started. If a proxy does go down, Sockitt fails the request rather than quietly sending it direct — so you will see the page error, a red mark on the toolbar icon, and the details here.'
-      )
-    );
-  }
   return el(
     'div',
-    { class: 'card panel err-status clear' },
-    el('h3', {}, 'Live status'),
-    el('div', { class: 'err-status-head' }, el('span', { class: 'err-ok-dot' }), el('span', { class: 'err-status-title' }, 'No errors right now')),
+    { class: 'err-quiet' },
+    el('p', { class: 'st good' }, last ? 'No errors right now' : 'No proxy errors'),
     el(
       'p',
-      { class: 'doc-p' },
-      `The last failure was ${relativeTime(last.lastAt)} and nothing has failed since. The log below is kept so you can still see what happened.`
+      { class: 'ink2' },
+      last
+        ? `The last failure was ${agoInWords(last.lastAt)}, and nothing has failed since. The log below is kept so you can still see what happened.`
+        : 'Nothing has failed since this browser started. If a proxy does go down, Sockitt fails the request rather than quietly sending it direct — so you will see the page error, a red mark on the toolbar icon, and the details here.'
     ),
-    el(
-      'div',
-      { class: 'err-actions' },
-      el('button', { class: 'btn', dataset: { errAction: 'copy' }, onclick: () => void copyErrorReport() }, 'Copy report')
-    )
-  );
-}
-
-/** Plain-English meaning of the most recent failure, when we have one to give. */
-function errorMeaningCard(entry: ProxyErrorEntry): HTMLElement | null {
-  const advice = errorAdvice(entry);
-  if (!advice) return null;
-  return el(
-    'div',
-    { class: 'card panel' },
-    el('h3', {}, 'What this means'),
-    el('p', { class: 'doc-p' }, advice),
-    el(
-      'p',
-      { class: 'note' },
-      'Route inspector shows where a URL lands; a proxy profile’s Test connection says whether that server is reachable at all.'
-    )
+    last ? el('div', { class: 'acts' }, el('button', { class: 'btn', type: 'button', dataset: { errAction: 'copy' }, onclick: () => void copyErrorReport() }, 'Copy report')) : null
   );
 }
 
 function errorRow(entry: ProxyErrorEntry): HTMLElement {
   return el(
-    'div',
-    { class: `err-row${entry.fatal ? '' : ' warn'}` },
+    'li',
+    { class: 'elog-row' },
     el(
-      'div',
-      { class: 'err-when' },
-      el('span', { class: 'err-time mono', title: new Date(entry.at).toLocaleString() }, new Date(entry.at).toLocaleTimeString()),
-      entry.count > 1
-        ? el(
-            'span',
-            { class: 'err-count', title: `Last repeat ${new Date(entry.lastAt).toLocaleTimeString()}` },
-            `×${entry.count}`
-          )
-        : null
+      'span',
+      { class: 'elog-when mono', title: new Date(entry.at).toLocaleString() },
+      new Date(entry.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }),
+      entry.count > 1 ? el('span', { class: 'elog-n', title: `Last repeat ${new Date(entry.lastAt).toLocaleTimeString()}` }, `×${entry.count}`) : null
     ),
     el(
       'div',
-      { class: 'err-body' },
-      el('div', { class: 'err-code mono' }, errorHeadline(entry)),
-      entry.details ? el('div', { class: 'err-detail' }, entry.details) : null,
-      el('div', { class: 'err-route' }, describeCarrier(entry))
+      { class: 'elog-body' },
+      el('p', { class: 'elog-code mono' }, errorHeadline(entry)),
+      entry.details ? el('p', { class: 'elog-detail' }, entry.details) : null,
+      el('p', { class: 'meta' }, describeCarrier(entry))
     ),
-    el('span', { class: `err-tag${entry.fatal ? ' fatal' : ''}` }, entry.fatal ? 'fatal' : 'warning')
+    el('span', { class: `st ${entry.fatal ? 'bad' : 'warn'}` }, entry.fatal ? 'Failed' : 'Warning')
   );
 }
 
@@ -2535,82 +2844,113 @@ async function copyErrorReport(): Promise<void> {
 }
 
 function errorsPanel(): HTMLElement {
-  const newest = proxyAlert ?? errorLog[0] ?? null;
   return el(
     'div',
-    { class: 'pane' },
-    pageHead('Proxy errors'),
-    errorStatusCard(),
-    newest ? errorMeaningCard(newest) : null,
+    { class: 'errs' },
+    errorStatus(),
     el(
-      'div',
-      { class: 'card panel' },
-      el('h3', {}, 'Error log'),
-      el(
-        'p',
-        { class: 'note' },
-        'Newest first. Repeats of the same failure collapse into one line with a count, so a proxy that has been down for an hour reads as one entry rather than a thousand. Kept for this browser session only — never written to your saved configuration, and never synced.'
-      ),
-      errorLog.length
-        ? el('div', { class: 'err-log' }, ...errorLog.map(errorRow))
-        : el('p', { class: 'note' }, 'Nothing logged yet.'),
+      'section',
+      { class: 'elog' },
       el(
         'div',
-        { class: 'err-actions' },
+        { class: 'elog-head' },
+        el('h2', { class: 't-h3' }, 'Log'),
         el(
-          'button',
-          {
-            class: 'btn danger',
-            dataset: { errAction: 'clear' },
-            disabled: !errorLog.length,
-            onclick: () => {
-              if (!confirmMaybe('Clear the proxy error log?')) return;
-              void clearErrorLog();
-            },
-          },
-          'Clear log'
+          'p',
+          { class: 'meta' },
+          'Newest first. Repeats of one failure collapse into a line with a count, so a proxy down for an hour reads as one entry, not a thousand.'
         ),
-        // Only alongside something to copy — the Copy report button lives in
-        // the status card above, and vanishes with the log.
         errorLog.length
           ? el(
-              'span',
-              { class: 'note' },
-              'A copied report includes your proxy addresses and ports — but never a username or password, which the log does not record.'
+              'button',
+              {
+                class: 'btn quiet danger',
+                type: 'button',
+                dataset: { errAction: 'clear' },
+                onclick: () => {
+                  if (!confirmMaybe('Clear the proxy error log?')) return;
+                  void clearErrorLog();
+                },
+              },
+              'Clear log'
             )
           : null
-      )
+      ),
+      errorLog.length ? el('ol', { class: 'elog-list' }, ...errorLog.map(errorRow)) : el('p', { class: 'meta' }, 'Nothing logged yet.'),
+      errorLog.length
+        ? el('p', { class: 'meta' }, 'A copied report includes your proxy addresses and ports, but never a username or password — the log does not record them.')
+        : null
     )
   );
 }
 
+/* ---------- the Activity page ---------- */
+
+/** Requests recorded by the monitor this visit — the Requests sub-tab's figure. */
+let requestCount = 0;
+
+function activitySubtabs(sub: 'requests' | 'errors'): HTMLElement {
+  const tab = (id: string, label: string, count: Node | null): HTMLElement => {
+    const b = el('button', { class: 'subtab', type: 'button', onclick: () => goTo(id) }, label, count);
+    if ((id === NETWORK_ID) === (sub === 'requests')) b.setAttribute('aria-current', 'page');
+    return b;
+  };
+  const errCount = proxyAlert
+    ? el('span', { class: 'count tnum' }, icon('alert', 'sm'), proxyAlert.streak > 99 ? '99+' : String(proxyAlert.streak), el('span', { class: 'vh' }, ' failing requests'))
+    : errorLog.length
+      ? el('span', { class: 'meta tnum' }, String(errorLog.length))
+      : null;
+  return el(
+    'nav',
+    { class: 'subtabs', ariaLabel: 'Activity views' },
+    tab(NETWORK_ID, 'Requests', el('span', { class: 'meta tnum req-count' }, requestCount ? requestCount.toLocaleString() : '')),
+    tab(ERRORS_ID, 'Proxy errors', errCount)
+  );
+}
+
+function activityPage(sub: 'requests' | 'errors'): HTMLElement {
+  return el(
+    'div',
+    { class: 'pane act' },
+    pageHead(
+      'Activity',
+      sub === 'requests'
+        ? 'Every request this browser makes while the page is open, and the route Sockitt gave it. Nothing is kept once you leave.'
+        : 'Requests a proxy failed. Kept for this browser session only — never written to your configuration, never synced.'
+    ),
+    activitySubtabs(sub),
+    sub === 'requests' ? networkPanel(networkHost) : errorsPanel()
+  );
+}
+
 /**
- * Repaint the errors page without losing the reader's place. A proxy that is
+ * Repaint the errors view without losing the reader's place. A proxy that is
  * down reports on every failed request, and this page is precisely where
  * someone sits while that happens — a full render() would rebuild the log
- * several times a second, snapping its scroll back to the top and dropping
- * keyboard focus to the body each time. So swap only the pane, and put the
- * scroll position and the focused action back afterwards.
+ * several times a second and drop keyboard focus to the body each time. So
+ * swap only the view, and put the focused action back afterwards.
  */
 function repaintErrorsPage(): void {
-  const pane = app.querySelector('.content > .pane');
-  if (!pane) {
+  const view = app.querySelector('.act .errs');
+  const tabs = app.querySelector<HTMLElement>('.act .subtabs');
+  if (!view || !tabs) {
     render(); // first paint, or some other page is up — nothing to preserve
     return;
   }
-  const scrollTop = pane.querySelector('.err-log')?.scrollTop ?? 0;
   // Focus goes back by role, not by node: the whole subtree is replaced, so the
   // element the user was on no longer exists to re-focus.
-  const focused =
-    document.activeElement instanceof HTMLElement ? document.activeElement.dataset.errAction : undefined;
-
+  const focused = document.activeElement instanceof HTMLElement ? document.activeElement.dataset.errAction : undefined;
   const fresh = errorsPanel();
-  pane.replaceWith(fresh);
-  updatePermBanners(); // they lived in the pane just replaced
-  const log = fresh.querySelector('.err-log');
-  if (log) log.scrollTop = scrollTop;
+  view.replaceWith(fresh);
+  swapKeepingFocus(tabs, activitySubtabs('errors'));
   if (focused) fresh.querySelector<HTMLElement>(`[data-err-action="${focused}"]`)?.focus();
-  refreshSidebar(); // the nav count moves with the alert
+  refreshNav(); // the tab's count moves with the alert
+}
+
+/** The Requests view is live; only the sub-tabs' error figure moves under it. */
+function repaintActivityTabs(): void {
+  const tabs = app.querySelector<HTMLElement>('.act .subtabs');
+  if (tabs) swapKeepingFocus(tabs, activitySubtabs(selectedId === ERRORS_ID ? 'errors' : 'requests'));
 }
 
 /** How long a run of failure events is allowed to collapse into one repaint. */
@@ -2632,10 +2972,13 @@ function watchProxyErrors(): void {
     // pages that show this data repaint in place; everywhere else only the nav
     // badge moves.
     if (selectedId === ERRORS_ID) repaintErrorsPage();
-    else if (selectedId === DASH_ID) {
+    else if (selectedId === NETWORK_ID) {
+      repaintActivityTabs();
+      refreshNav();
+    } else if (selectedId === DASH_ID) {
       repaintDashboard();
-      refreshSidebar();
-    } else refreshSidebar();
+      refreshNav();
+    } else refreshNav();
   };
   // Coalesce the burst. A proxy that is down fails every request through it,
   // and each failure is its own storage write — so an open Overview was
@@ -2688,18 +3031,25 @@ function watchDashboardSignals(): void {
 const PAGE_REQUEST_TTL_MS = 15_000;
 
 /**
- * Honour "open Options on the errors page" from the popup. Handled both at boot
- * and live, because chrome.runtime.openOptionsPage may create a page or focus
- * one that is already open, and the popup cannot tell which.
+ * Honour the popup's "open Options on…" requests: the errors view, or a new
+ * auto switch. Handled both at boot and live, because
+ * chrome.runtime.openOptionsPage may create a page or focus one that is
+ * already open, and the popup cannot tell which.
  */
 function watchPageRequests(): void {
   const open = (raw: unknown): void => {
     const request = raw as { page?: unknown; at?: unknown } | undefined;
-    if (request?.page !== 'errors') return;
+    if (request?.page !== 'errors' && request?.page !== 'new-switch') return;
     // Consume it either way, so a request that never reached a page cannot
     // hijack some unrelated visit to Options later on.
     void chrome.storage.session.remove(OPEN_PAGE_KEY).catch(() => undefined);
     if (typeof request.at === 'number' && Date.now() - request.at > PAGE_REQUEST_TTL_MS) return;
+    if (request.page === 'new-switch') {
+      // The popup's "New auto switch": make one and open its editor, which is
+      // what the button was pressed for.
+      addProfile(newSwitchProfile);
+      return;
+    }
     if (selectedId === ERRORS_ID) return;
     selectedId = ERRORS_ID;
     render();
@@ -2715,45 +3065,41 @@ function watchPageRequests(): void {
 
 /* ---------- render ---------- */
 
-function emptyPane(): HTMLElement {
-  // No logo here: the mark already heads the sidebar beside it, and a large
-  // one in the middle of the page is decoration standing where the first
-  // instruction should be.
-  return el(
-    'div',
-    { class: 'card hero' },
-    el('h2', {}, 'Route traffic your way'),
-    el('p', {}, 'Create a proxy profile (SOCKS5, SOCKS4, HTTP, or HTTPS), then add an Auto switch profile to route sites by rule — host wildcards, regex, CIDR blocks, keywords, or time windows.'),
-    el(
-      'div',
-      { class: 'cta' },
-      el('button', { class: 'btn primary', onclick: () => addProfile(newProxyProfile) }, 'Create a proxy'),
-      el('button', { class: 'btn', onclick: () => addProfile(newSwitchProfile) }, 'Create auto switch')
-    )
-  );
+let topNode: HTMLElement | null = null;
+
+/** What a control is, independent of the node that draws it — for putting focus back. */
+function controlKey(n: Element): string {
+  return `${n.tagName}|${n.getAttribute('class') ?? ''}|${(n.textContent ?? '').trim().slice(0, 60)}`;
 }
 
-let sideNode: HTMLElement;
-
-function refreshSidebar(): void {
-  // Rebuilt on every name keystroke and every burst of proxy errors; a
-  // keyboard user in the nav must not be dropped to the top of the page by it.
-  const focused = sideNode.contains(document.activeElement) ? document.activeElement : null;
-  const key = focused ? `${focused.tagName}|${focused.getAttribute('class') ?? ''}|${focused.textContent ?? ''}` : '';
-  const fresh = sidebar();
-  sideNode.replaceWith(fresh);
-  sideNode = fresh;
-  markCurrent();
+/** Rebuild one region in place, putting a keyboard user back where they were. */
+function swapKeepingFocus(old: HTMLElement, fresh: HTMLElement): void {
+  const focused = old.contains(document.activeElement) ? document.activeElement : null;
+  const key = focused ? controlKey(focused) : '';
+  old.replaceWith(fresh);
   if (focused) {
-    [...fresh.querySelectorAll<HTMLElement>('button, a')]
-      .find((n) => `${n.tagName}|${n.getAttribute('class') ?? ''}|${n.textContent ?? ''}` === key)
+    [...fresh.querySelectorAll<HTMLElement>('button, a, input, select')]
+      .find((n) => controlKey(n) === key)
       ?.focus({ preventScroll: true });
   }
 }
 
-/** Expose the selected nav item to assistive tech (mirrors popup .row's aria-pressed). */
-function markCurrent(): void {
-  sideNode.querySelector('.nav-item.selected')?.setAttribute('aria-current', 'page');
+/** The top bar alone — a count moved (proxy errors), nothing else did. */
+function refreshNav(): void {
+  if (!topNode?.isConnected) return;
+  const fresh = topNav();
+  swapKeepingFocus(topNode, fresh);
+  topNode = fresh;
+}
+
+/** The top bar and the Profiles list — a name or the active profile changed. */
+function refreshChrome(): void {
+  refreshNav();
+  const list = app.querySelector<HTMLElement>('.plist');
+  if (list) {
+    swapKeepingFocus(list, profileColumn());
+    applyProfileFilter();
+  }
 }
 
 function editorFor(profile: Profile): HTMLElement {
@@ -2765,50 +3111,49 @@ function editorFor(profile: Profile): HTMLElement {
   }
 }
 
+/** The Profiles page: the list beside whatever it has selected. */
+function profilesPage(): HTMLElement {
+  const profile = selected();
+  let editor: HTMLElement;
+  if (selectedId === DIRECT || selectedId === SYSTEM) editor = builtinPane(selectedId);
+  else if (profile) editor = editorFor(profile);
+  else
+    editor = el(
+      'div',
+      { class: 'ed-pane' },
+      el('header', { class: 'ed-head' }, el('div', { class: 'ed-title' }, el('h1', { class: 't-title' }, 'No profiles yet'))),
+        startList()
+    );
+  return el('div', { class: 'pane prof' }, profileColumn(), el('div', { class: 'ed' }, editor));
+}
+
 /**
- * The panel for whatever is selected.
- *
- * Statements rather than the nested conditional this used to be: one branch per
- * page reads top to bottom, and adding the ninth page to an eight-deep ternary
- * had already produced two mis-indented edits that the compiler caught and a
- * reader would not have.
+ * The page for whatever is selected. One branch per page, top to bottom.
  */
 function contentFor(): HTMLElement {
   if (selectedId === DASH_ID) {
-    // Nothing to overview yet — a wall of empty cards is a worse welcome than
-    // the hero that tells a new install what to do first.
-    return config.profiles.length ? dashboardPanel(dashboardHost) : emptyPane();
+    // Nothing to map yet — the first-run page says what to do first.
+    return config.profiles.length ? dashboardPanel(dashboardHost) : firstRunPane();
   }
   if (selectedId === DOCS_ID) return docsPanel(() => goTo(RELEASES_ID));
   if (selectedId === RELEASES_ID) return releasesPanel(() => goTo(DOCS_ID));
   if (selectedId === INSPECT_ID) return inspectorPanel();
-  if (selectedId === NETWORK_ID) return networkPanel(networkHost);
-  if (selectedId === ERRORS_ID) return errorsPanel();
+  if (selectedId === NETWORK_ID) return activityPage('requests');
+  if (selectedId === ERRORS_ID) return activityPage('errors');
   if (selectedId === SETTINGS_ID) return settingsPanel();
-  const profile = selected();
-  return profile ? editorFor(profile) : emptyPane();
+  return profilesPage();
 }
 
 function render(): void {
-  sideNode = sidebar();
+  topNode = topNav();
   const content = contentFor();
   app.replaceChildren(
-    el(
-      'div',
-      { class: 'layout' },
-      sideNode,
-      // The sheet is the white plane the work sits on; .content inside it is
-      // the measured column. Two elements because the sheet spans the whole
-      // column while the content stops at its max-width.
-      el('main', { class: 'sheet' }, el('div', { class: 'content' }, content))
-    )
+    el('div', { class: 'page' }, topNode, el('main', { class: 'main' }, el('div', { class: 'wrap content' }, content)), footer())
   );
-  updatePermBanners();
-  markCurrent();
+  applyProfileFilter();
+  paintAsks();
 
   // Remember where we were, for the "reopen the last page" landing option.
-  // Done here rather than at each call site so a new navigation path cannot
-  // forget to record itself.
   if (selectedId && selectedId !== uiPrefs.lastPage) {
     uiPrefs = { ...uiPrefs, lastPage: selectedId };
     void saveUiPrefs(uiPrefs);
@@ -2829,6 +3174,21 @@ const networkHost = {
   setRecording: (on: boolean) => {
     uiPrefs = { ...uiPrefs, monitorRecording: on };
     void saveUiPrefs(uiPrefs);
+  },
+  inspect: (url: string) => {
+    inspectUrl = url;
+    inspectStartId = '';
+    goTo(INSPECT_ID);
+  },
+  test: (profileId: string, button: HTMLButtonElement, out: HTMLElement) => {
+    const p = config.profiles.find((x) => x.id === profileId);
+    if (p?.kind === 'proxy') void startProxyTest(p, button, out);
+  },
+  setCount: (n: number) => {
+    if (n === requestCount) return;
+    requestCount = n;
+    const node = app.querySelector('.req-count');
+    if (node) node.textContent = n ? n.toLocaleString() : '';
   },
 };
 
@@ -2873,6 +3233,12 @@ const dashboardHost = {
   requestAuth: () => requestAuthPermission(),
   requestExitIp: () => ensureExitIpPermission(),
   refetchRuleList,
+  inspect: (url: string) => {
+    inspectUrl = url;
+    inspectStartId = '';
+    goTo(INSPECT_ID);
+  },
+  asks: () => permAsks(),
 };
 
 /**
@@ -2997,15 +3363,29 @@ function landingPage(prefs: UiPrefs): string | null {
 void Promise.all([loadConfig(), loadUiPrefs()]).then(([c, prefs]) => {
   config = c;
   uiPrefs = prefs;
+  applyTheme(uiPrefs.theme);
+  // Another tab or the popup's own page may change it; this page follows.
+  onThemeChanged((theme) => {
+    uiPrefs = { ...uiPrefs, theme };
+    applyTheme(theme);
+  });
   selectedId = landingPage(prefs);
+  wireMenuDismissal();
   watchSyncError();
   watchProxyTests();
   render();
-  // After first paint — these can re-render, and refreshSidebar() needs the
-  // sidebar node that render() has just installed.
+  // After first paint — these can re-render, and refreshNav() needs the bar
+  // render() has just installed.
   watchProxyErrors();
   watchPageRequests();
   watchDashboardSignals();
+  // The popup sets and clears per-site overrides; they are junction 0 on the map.
+  const reloadOverrides = (): void => {
+    void loadTempRules(config.activeId, 'regular')
+      .catch(() => [])
+      .then((rules) => setOverrides(rules));
+  };
+  onTempRulesChanged(reloadOverrides);
   // Flag settings that arrived without their permission — imported or synced
   // configs, profiles created before auth support, or a grant revoked from
   // chrome://extensions.

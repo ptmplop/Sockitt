@@ -1,7 +1,7 @@
 /**
  * Regenerate the Chrome Web Store listing screenshots in img/store/.
  *
- * Same principle as gen-screenshots.mjs, and for the same reason: these were
+ * Same principle as the README shots, and for the same reason: these were
  * hand-composited once and immediately started drifting from the product. Each
  * scene is a 1280×800 canvas — the size the store requires — holding a headline
  * and the REAL built UI in an iframe, behind the same `chrome.*` shim the README
@@ -77,7 +77,10 @@ const CONFIG = {
       id: P.office,
       kind: 'switch',
       name: 'Office routing',
-      color: '#6d5dfc',
+      // Pink, not the palette's violet: the logo is violet, and a violet
+      // profile beside it would blur the one rule the listing is about —
+      // every hue on screen is a route.
+      color: '#f472b6',
       defaultTargetId: 'direct',
       rules: [
         { id: 'r1', enabled: true, type: 'hostWildcard', pattern: '*.github.com', targetId: P.work },
@@ -88,16 +91,18 @@ const CONFIG = {
       ],
     },
     {
+      // A list that does something on the map: the company's hosts, published
+      // by IT, through the office proxy — everything else straight out.
       id: P.ads,
       kind: 'rulelist',
-      name: 'Ad block',
+      name: 'Company hosts',
       color: '#ffb020',
-      format: 'autoproxy',
-      url: 'https://easylist.to/easylist/easylist.txt',
+      format: 'switchy',
+      url: 'https://it.example.com/proxy/company-hosts.txt',
       updateIntervalH: 24,
-      matchTargetId: 'direct',
+      matchTargetId: P.work,
       defaultTargetId: 'direct',
-      text: '! EasyList (subset)\n||doubleclick.net\n||googlesyndication.com\n||ads.example.com\n',
+      text: '# Company hosts, published by IT\nexample-corp.com\n*.example-corp.net\njira.example-corp.com\ngit.example-corp.com\n',
       lastUpdated: NOW - 3 * HOUR,
     },
   ],
@@ -119,21 +124,76 @@ const CONFIG = {
   },
 };
 
-/** The tab the popup believes is in front. */
-const TAB = { id: 7, url: 'https://github.com/ptmplop/Sockitt', active: true };
+/** The tab the popup believes is in front — a rule sends it through Work SOCKS5. */
+const TAB = { id: 7, url: 'https://github.com/ptmplop/Sockitt', title: 'ptmplop/Sockitt', active: true, windowId: 1, status: 'complete' };
+/** The second popup's tab: no rule matches, so it falls through to the default. */
+const TAB2 = { id: 8, url: 'https://news.example.com/story/12', title: 'Story', active: true, windowId: 1, status: 'complete' };
 
-/* ---------------- the six listing scenes ---------------- */
+/* ---------------- the seven listing scenes ---------------- */
 
-const POPUP_FRAME = { page: 'popup', frameW: 720, frameH: 520, left: 280, top: 205, radius: 12 };
+/**
+ * The popup is a 400×600 window, shown twice: in the light theme on a tab a
+ * rule sends through a proxy, and in the dark theme on a tab that falls through
+ * to the default. Each frame names its variant in the URL's hash (see the shim).
+ */
+const POPUP_FRAME = { page: 'popup', frameW: 400, frameH: 600, top: 176, radius: 10, frames: ['', '#dark&tab2'] };
 const OPTIONS_FRAME = {
   page: 'options',
   frameW: 1200,
-  frameH: 670,
+  frameH: 650,
   left: 40,
-  top: 130,
-  radius: 14,
+  top: 156,
+  radius: 10,
   bleed: true,
   settings: { exitIpCheck: true },
+};
+
+/**
+ * Rows for the Activity scene: rules firing, a keyword rule, the default, and
+ * one failure. The failure goes last so it lands on top — newest first — where
+ * its opened row fits inside the frame.
+ */
+const TRAFFIC = [
+  { url: 'https://news.example.com/story/12', type: 'main_frame', status: 200, bytes: 48230, ms: 174 },
+  { url: 'https://cdn.example.com/img/hero.webp', type: 'image', status: 200, ms: 88 },
+  { url: 'https://fonts.gstatic.com/s/inter/v13.woff2', type: 'font', status: 200, bytes: 21504, ms: 33 },
+  { url: 'https://app.slack.com/api/rtm.connect', type: 'xmlhttprequest', status: 200, bytes: 1820, ms: 61 },
+  { url: 'https://github.githubassets.com/assets/app.js', type: 'script', status: 200, bytes: 128944, ms: 96 },
+  { url: 'https://api.github.com/repos/ptmplop/Sockitt', type: 'xmlhttprequest', status: 200, bytes: 34211, ms: 142 },
+  { url: 'https://wiki.internal.corp/handbook', type: 'main_frame', error: 'net::ERR_PROXY_CONNECTION_FAILED', ms: 210 },
+];
+
+/** An Overview with something true to say: a session, tabs on every line, an exit, one finding. */
+const OVERVIEW = {
+  config: {
+    ...CONFIG,
+    // One deliberate smell, so Needs attention has something to show: localhost
+    // through a remote proxy is the mistake people actually make, and it
+    // carries a one-click fix.
+    profiles: CONFIG.profiles.map((p) => (p.id === P.home ? { ...p, bypass: [] } : p)),
+  },
+  settings: { exitIpCheck: true, syncEnabled: true },
+  session: {
+    'sockitt-history': [
+      { id: 'direct', at: NOW - 130 * MINUTE },
+      { id: P.office, at: NOW - 100 * MINUTE },
+      { id: P.work, at: NOW - 45 * MINUTE },
+      { id: P.office, at: NOW - 25 * MINUTE },
+    ],
+    'sockitt-applied': { activeId: P.office, at: NOW - 4 * MINUTE },
+    'sockitt-control': { level: 'controlled_by_this_extension', at: NOW - 4 * MINUTE },
+  },
+  // Home VPS's own address, so the exit reading agrees with the profile the
+  // rest of the listing shows.
+  exitIp: { ip: '198.51.100.24', country_name: 'Netherlands', country_code: 'NL' },
+  // A believable spread across the three routes the rule table produces:
+  // github/slack → Work SOCKS5, the "internal" keyword → Home VPS, the rest direct.
+  tabs: [
+    ...Array.from({ length: 4 }, (_, i) => ({ id: 100 + i, url: `https://github.com/ptmplop/Sockitt/pull/${i + 1}` })),
+    ...Array.from({ length: 3 }, (_, i) => ({ id: 110 + i, url: `https://app.slack.com/client/T0/C${i}` })),
+    ...Array.from({ length: 2 }, (_, i) => ({ id: 120 + i, url: `https://wiki.internal.corp/page/${i}` })),
+    ...Array.from({ length: 5 }, (_, i) => ({ id: 130 + i, url: `https://news.example.com/story/${i}` })),
+  ],
 };
 
 const SCENES = [
@@ -142,7 +202,16 @@ const SCENES = [
     file: 'screenshot-1-popup.png',
     title: 'Switch proxies in one click',
     subtitle:
-      'Route your whole browser through SOCKS5, SOCKS4, HTTP or HTTPS — and manage exactly where the current tab goes.',
+      'The popup draws the route this tab takes and the rule that sends it there — change either, or switch your whole browser, in one click.',
+  },
+  {
+    ...OPTIONS_FRAME,
+    ...OVERVIEW,
+    file: 'screenshot-6-overview.png',
+    clickNav: 'Overview',
+    title: 'Know where your traffic goes',
+    subtitle:
+      'Your rules drawn as a track map, in the order they are tried. Every line is a profile, in its own colour, and ends where that traffic exits.',
   },
   {
     ...OPTIONS_FRAME,
@@ -150,95 +219,39 @@ const SCENES = [
     clickNav: 'Office routing',
     title: 'Route every site automatically',
     subtitle:
-      'An ordered, first-match-wins rule table — host, regex, keyword, CIDR, weekday, time of day — compiled to a fast PAC script.',
+      'First match wins: host, regex, keyword, CIDR, weekday or time of day, compiled to a fast PAC script. Each rule is a numbered junction on the map.',
   },
   {
     ...OPTIONS_FRAME,
     file: 'screenshot-3-proxy.png',
     clickNav: 'Work SOCKS5',
     title: 'Any proxy, your way',
-    subtitle: 'SOCKS5 · SOCKS4 · HTTP · HTTPS, with optional HTTP(S) authentication and a per-profile bypass list.',
+    subtitle: 'SOCKS5, SOCKS4, HTTP or HTTPS, with HTTP(S) sign-in, a per-profile bypass list, and a one-click connection test.',
   },
   {
     ...OPTIONS_FRAME,
     file: 'screenshot-4-lists.png',
-    clickNav: 'Ad block',
+    clickNav: 'Company hosts',
     title: 'Subscribe to rule lists',
-    subtitle: 'AutoProxy / GFWList or plain domain lists, auto-updated on a schedule — even very large lists stay fast.',
+    subtitle: 'AutoProxy / GFWList or plain domain lists, updated on a schedule. Even very large lists stay fast: domains compile to one lookup.',
   },
   {
     ...OPTIONS_FRAME,
     file: 'screenshot-5-inspect.png',
-    clickNav: 'Route inspector',
+    clickNav: 'Inspector',
     inspect: 'https://api.github.com/repos',
-    title: 'See exactly where a URL routes',
-    subtitle:
-      'Trace any URL through your configuration with the real resolver — which rule fired, the chain it walked, where it landed.',
+    title: 'See exactly where an address goes',
+    subtitle: 'Type any URL and the map lights its path, with every step written out — which rule took it, and where it lands. Nothing is sent.',
   },
   {
     ...OPTIONS_FRAME,
     file: 'screenshot-7-monitor.png',
-    clickNav: 'Network monitor',
+    clickNav: 'Activity',
+    traffic: TRAFFIC,
+    // The failure is the row you open this page for: opened, it shows its track and why.
+    openRow: 'wiki.internal.corp',
     title: 'Watch the rules do their work',
-    // One line: the frame starts where a second line would, and hid it.
-    subtitle:
-      'Every request the browser makes while the page is open, and the profile your rules send it through — subresources included.',
-    // Chosen to show the panel earning its place: a rule firing on an API
-    // subdomain, a keyword rule catching an intranet host, the default sending
-    // the rest direct, and one failure — which is the row you open this for.
-    traffic: [
-      { url: 'https://api.github.com/repos/ptmplop/Sockitt', type: 'xmlhttprequest', status: 200, bytes: 34211, ms: 142 },
-      { url: 'https://github.githubassets.com/assets/app.js', type: 'script', status: 200, bytes: 128944, ms: 96 },
-      { url: 'https://wiki.internal.corp/handbook', type: 'main_frame', error: 'net::ERR_PROXY_CONNECTION_FAILED', ms: 210 },
-      { url: 'https://app.slack.com/api/rtm.connect', type: 'xmlhttprequest', status: 200, bytes: 1820, ms: 61 },
-      { url: 'https://news.example.com/story/12', type: 'main_frame', status: 200, bytes: 48230, ms: 174 },
-      { url: 'https://cdn.example.com/img/hero.webp', type: 'image', status: 200, ms: 88 },
-      { url: 'https://fonts.gstatic.com/s/inter/v13.woff2', type: 'font', status: 200, bytes: 21504, ms: 33 },
-    ],
-  },
-
-  {
-    ...OPTIONS_FRAME,
-    file: 'screenshot-6-overview.png',
-    clickNav: 'Overview',
-    // Everything below is arranged so the page has something true to SAY. An
-    // Overview rendered against an untouched fixture is a grid of empty states:
-    // no session to draw a timeline from, no tabs to break down, a sync tile
-    // reading "off", and a health card with nothing to report — which shows the
-    // layout and none of the point.
-    config: {
-      ...CONFIG,
-      // One deliberate smell, so the health card can demonstrate what it is
-      // for. Localhost through a remote proxy is the mistake people actually
-      // make, and it carries a one-click fix.
-      profiles: CONFIG.profiles.map((p) => (p.id === P.home ? { ...p, bypass: [] } : p)),
-    },
-    settings: { exitIpCheck: true, syncEnabled: true },
-    session: {
-      'sockitt-history': [
-        { id: 'direct', at: NOW - 130 * MINUTE },
-        { id: P.office, at: NOW - 100 * MINUTE },
-        { id: P.work, at: NOW - 45 * MINUTE },
-        { id: P.office, at: NOW - 25 * MINUTE },
-      ],
-      'sockitt-applied': { activeId: P.office, at: NOW - 4 * MINUTE },
-      'sockitt-control': { level: 'controlled_by_this_extension', at: NOW - 4 * MINUTE },
-    },
-    // Home VPS's own address, so the exit reading agrees with the profile the
-    // rest of the listing shows.
-    exitIp: { ip: '198.51.100.24', country_name: 'Netherlands', country_code: 'NL' },
-    // A believable spread across the three routes the rule table produces:
-    // github/slack → Work SOCKS5, the "internal" keyword → Home VPS, the rest direct.
-    tabs: [
-      ...Array.from({ length: 4 }, (_, i) => ({ id: 100 + i, url: `https://github.com/ptmplop/Sockitt/pull/${i + 1}` })),
-      ...Array.from({ length: 3 }, (_, i) => ({ id: 110 + i, url: `https://app.slack.com/client/T0/C${i}` })),
-      ...Array.from({ length: 2 }, (_, i) => ({ id: 120 + i, url: `https://wiki.internal.corp/page/${i}` })),
-      ...Array.from({ length: 5 }, (_, i) => ({ id: 130 + i, url: `https://news.example.com/story/${i}` })),
-    ],
-    title: 'Know where your traffic goes',
-    // Two lines is what fits above the frame; a third disappears behind it.
-    subtitle:
-      'The live route and its exit IP, a map of how your profiles feed into each other, and a health check with one-click fixes.',
+    subtitle: 'Every request while the page is open, the line it took and why. Open one to see its track, test its proxy, or trace it.',
   },
 ];
 
@@ -247,10 +260,15 @@ const SCENES = [
 function mockSource() {
   return `(() => {
   const S = globalThis.__SOCKITT_SCENE__;
+  // A frame names its variant in the hash: #dark sets this page's theme (as
+  // the Appearance setting would), #tab2 puts a second tab in front of it.
+  const variant = new Set(location.hash.slice(1).split('&').filter(Boolean));
+  const ui = variant.has('dark') ? { theme: 'dark' } : {};
   // Session storage is seeded per scene: the Overview reads its activation
   // timeline and its proxy-failure state from there, and an empty session
-  // renders those cards as their own empty states.
-  const areas = { local: { sockitt: S.config }, session: S.session || {}, sync: {}, managed: {} };
+  // renders those sections as their own empty states.
+  const areas = { local: { sockitt: S.config, 'sockitt-ui': ui }, session: S.session || {}, sync: {}, managed: {} };
+  const tab = variant.has('tab2') && S.tab2 ? S.tab2 : S.tab;
   const listeners = [];
   const clone = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
   const pick = (store, keys) => {
@@ -304,7 +322,15 @@ function mockSource() {
         },
       },
     },
-    tabs: { query: async () => S.tabs || (S.tab ? [S.tab] : []), reload: noop },
+    tabs: {
+      // The popup asks for the active tab; the Overview counts them all.
+      query: async (q) => (q && q.active ? (tab ? [tab] : []) : S.tabs || (tab ? [tab] : [])),
+      get: async () => tab,
+      reload: noop,
+      onUpdated: evt(),
+      onActivated: evt(),
+    },
+    windows: { getCurrent: async () => ({ id: 1, incognito: false }), onFocusChanged: evt() },
     permissions: { contains: async () => true, request: async () => true, onAdded: evt(), onRemoved: evt() },
     runtime: {
       lastError: undefined,
@@ -341,37 +367,56 @@ function mockSource() {
   };
 
   addEventListener('load', () => {
-    // Options boots on the Overview, so a scene naming another page clicks
-    // its sidebar entry the way a user would rather than reaching into private
-    // state. Matched on the .name span — the tile carries the initials as text.
-    setTimeout(() => {
-      if (S.clickNav) {
-        const hit = [...document.querySelectorAll('.nav-item')].find(
-          (n) => (n.querySelector('.name')?.textContent || n.textContent).trim() === S.clickNav
-        );
-        if (!hit) throw new Error('no sidebar entry named ' + S.clickNav);
-        hit.click();
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const label = (n) => (n.childNodes[0]?.textContent || '').trim();
+    // Options boots on the Overview, so a scene naming another page clicks its
+    // way there as a user would: a tab across the top, or a profile's row on
+    // the Profiles page.
+    const go = async (name) => {
+      const tabNode = [...document.querySelectorAll('.tab')].find((n) => label(n) === name);
+      if (tabNode) {
+        tabNode.click();
+        return;
       }
-      // Deliberately a second turn: the monitor attaches its listeners behind a
-      // permission check and a storage read, so traffic fired in the same tick
-      // as the nav click arrives before anything is listening.
-      if (S.traffic) setTimeout(() => {
+      [...document.querySelectorAll('.tab')].find((n) => label(n) === 'Profiles')?.click();
+      await wait(60);
+      const row = [...document.querySelectorAll('.plist-row')].find((n) => n.querySelector('.nm')?.textContent.trim() === name);
+      if (!row) throw new Error('no tab or profile named ' + name);
+      row.click();
+    };
+    // The monitor batches paints on requestAnimationFrame, which headless
+    // virtual time does not run; a filter keystroke repaints synchronously.
+    const nudge = () => document.querySelector('.nt-find .input')?.dispatchEvent(new Event('input', { bubbles: true }));
+    void (async () => {
+      await wait(200);
+      if (S.clickNav) await go(S.clickNav);
+      if (S.inspect) {
+        await wait(60);
+        const field = document.querySelector('.insp-url .input');
+        if (!field) throw new Error('inspector field not found');
+        field.value = S.inspect;
+        field.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      if (S.testResult) {
+        await wait(60);
+        [...document.querySelectorAll('.test-btn')][0]?.click();
+        await wait(60);
+        await globalThis.chrome.storage.session.set({ 'sockitt-test-result': S.testResult });
+      }
+      if (S.traffic) {
+        // A second turn: the monitor attaches its listeners behind a permission
+        // check and a storage read, so traffic fired with the click would
+        // arrive before anything is listening.
+        await wait(350);
         const wr = globalThis.chrome.webRequest;
         S.traffic.forEach((t, i) => {
           const id = String(i + 1);
-          wr.onBeforeRequest._fire({
-            requestId: id, url: t.url, method: 'GET', type: t.type, tabId: 1,
-            frameId: 0, parentFrameId: -1, timeStamp: Date.now(),
-          });
+          wr.onBeforeRequest._fire({ requestId: id, url: t.url, method: 'GET', type: t.type, tabId: 1, frameId: 0, parentFrameId: -1, timeStamp: Date.now() });
           // Finish in a later turn, at a time of the scene's choosing: completing
-          // in the tick the request started in makes every row read 0 ms, which
-          // is the one duration a reader knows cannot be true.
+          // in the tick the request started in makes every row read 0 ms.
           setTimeout(() => {
             if (t.error) {
-              wr.onErrorOccurred._fire({
-                requestId: id, url: t.url, method: 'GET', type: t.type, tabId: 1,
-                error: t.error, fromCache: false, timeStamp: Date.now(),
-              });
+              wr.onErrorOccurred._fire({ requestId: id, url: t.url, method: 'GET', type: t.type, tabId: 1, error: t.error, fromCache: false, timeStamp: Date.now() });
             } else if (t.status) {
               wr.onCompleted._fire({
                 requestId: id, url: t.url, method: 'GET', type: t.type, tabId: 1,
@@ -379,23 +424,19 @@ function mockSource() {
                 responseHeaders: t.bytes ? [{ name: 'Content-Length', value: String(t.bytes) }] : [],
               });
             }
-            document.querySelector('.net-bar .input')?.dispatchEvent(new Event('input', { bubbles: true }));
-            document.activeElement?.blur?.();
+            nudge();
           }, t.ms || 40);
         });
-        // The panel batches paints on requestAnimationFrame, which headless
-        // virtual time does not run; nudge one synchronous repaint instead.
-        document.querySelector('.net-bar .input')?.dispatchEvent(new Event('input', { bubbles: true }));
-        document.activeElement?.blur?.();
-      }, 350);
-      if (S.inspect) {
-        const field = document.querySelector('.inspect-form .input.mono');
-        if (!field) throw new Error('route inspector field not found');
-        field.value = S.inspect;
-        field.dispatchEvent(new Event('input', { bubbles: true }));
+        nudge();
+        if (S.openRow) {
+          await wait(Math.max(...S.traffic.map((t) => t.ms || 40)) + 120);
+          nudge();
+          [...document.querySelectorAll('.nt-url')].find((b) => b.textContent.includes(S.openRow))?.click();
+        }
       }
+      await wait(60);
       document.activeElement?.blur?.();
-    }, 200);
+    })();
   });
 })();`;
 }
@@ -405,9 +446,12 @@ function mockSource() {
 function framePage(scene) {
   // Only the top corners are rounded on a frame that bleeds off the bottom —
   // rounding all four would imply the window ends there.
-  const radius = scene.bleed
-    ? `${scene.radius}px ${scene.radius}px 0 0`
-    : `${scene.radius}px`;
+  const radius = scene.bleed ? `${scene.radius}px ${scene.radius}px 0 0` : `${scene.radius}px`;
+  const frames = scene.frames ?? [''];
+  // Side by side, centred; a single options frame keeps its own left edge.
+  const gap = 28;
+  const total = frames.length * scene.frameW + (frames.length - 1) * gap;
+  const left0 = scene.left ?? Math.round((1280 - total) / 2);
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -415,34 +459,25 @@ function framePage(scene) {
 <link rel="stylesheet" href="theme.css">
 <style>
   html, body { margin: 0; width: 1280px; height: 800px; overflow: hidden; }
-  /* The product's own canvas, so the listing frame and the window inside it
-     are one material — the same lavender the options page is set on. */
-  body { background: var(--canvas); }
-  .head { position: absolute; left: 48px; top: 28px; right: 48px; }
+  /* The listing sits on the map's own band tint: the product's one tinted
+     surface, so the window inside reads as the white sheet it is. */
+  body { background: var(--yard); }
+  body::after { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 1px; background: var(--rule); }
+  .head { position: absolute; left: 48px; top: 30px; right: 48px; }
   .wordmark { display: flex; align-items: center; gap: 9px; }
-  .wordmark img { width: 22px; height: 22px; border-radius: 28%; }
-  .wordmark span { font-size: 15px; font-weight: 700; letter-spacing: -0.015em; color: var(--text); }
-  h1 {
-    margin: 12px 0 0;
-    font-size: 32px;
-    font-weight: 600;
-    letter-spacing: -0.025em;
-    line-height: 1.1;
-    color: var(--text);
-  }
-  p { margin: 8px 0 0; font-size: 15.5px; line-height: 1.45; color: var(--text-dim); max-width: 1000px; }
+  .wordmark img { width: 24px; height: 24px; }
+  .wordmark span { font-size: 16px; font-weight: 650; font-stretch: 108%; letter-spacing: -0.01em; color: var(--ink); }
+  h1 { margin: 14px 0 0; font-size: 34px; font-weight: 600; font-stretch: 110%; letter-spacing: -0.02em; line-height: 1.08; color: var(--ink); }
+  p { margin: 9px 0 0; font-size: 16px; line-height: 1.45; color: var(--ink-2); max-width: 1040px; }
   .frame {
     position: absolute;
-    left: ${scene.left}px;
     top: ${scene.top}px;
     width: ${scene.frameW}px;
     height: ${scene.frameH}px;
     border-radius: ${radius};
     overflow: hidden;
-    box-shadow:
-      0 0 0 1px rgba(22, 23, 47, 0.08),
-      0 2px 4px rgba(22, 23, 47, 0.05),
-      0 24px 56px -20px rgba(22, 23, 47, 0.28);
+    background: var(--paper);
+    box-shadow: 0 0 0 1px var(--rule-2), 0 1px 2px rgb(18 19 24 / 0.05), 0 24px 56px -22px rgb(18 19 24 / 0.3);
   }
   .frame iframe { width: ${scene.frameW}px; height: ${scene.frameH}px; border: 0; display: block; }
 </style>
@@ -453,7 +488,12 @@ function framePage(scene) {
     <h1>${scene.title}</h1>
     <p>${scene.subtitle}</p>
   </div>
-  <div class="frame"><iframe src="shot-${scene.page}.html" scrolling="no"></iframe></div>
+  ${frames
+    .map(
+      (hash, i) =>
+        `<div class="frame" style="left: ${left0 + i * (scene.frameW + gap)}px"><iframe src="shot-${scene.page}.html${hash}" scrolling="no"></iframe></div>`
+    )
+    .join('\n  ')}
 </body>
 </html>`;
 }
@@ -565,6 +605,7 @@ async function main() {
               return { ...base, settings: { ...base.settings, ...(scene.settings ?? {}) } };
             })(),
             tab: TAB,
+            tab2: TAB2,
             tabs: scene.tabs ?? null,
             session: scene.session ?? {},
             exitIp: scene.exitIp ?? null,
@@ -572,6 +613,8 @@ async function main() {
             clickNav: scene.clickNav ?? null,
             inspect: scene.inspect ?? null,
             traffic: scene.traffic ?? null,
+            openRow: scene.openRow ?? null,
+            testResult: scene.testResult ?? null,
           },
           null,
           2

@@ -36,7 +36,10 @@ options ┘        (config)                  └─> action icon / badge / title
 | `src/shared/scope.ts` | Which profile an incognito window routes by, decided once for the worker and the popup alike; and where each scope's session overrides live (`${scope}:${profileId}`) |
 | `src/shared/tabs.ts` | What "this tab" means while a navigation is in flight: the pending URL over the committed one |
 | `src/shared/badge.ts` | The per-tab route badge as pure functions: what it should read, when it must be cleared, and when the clock next changes the answer |
-| `src/shared/health.ts` | The configuration audit behind the Overview's Config health card — pure, so it runs in a Node test; the UI turns each issue into a button |
+| `src/shared/health.ts` | The configuration audit behind the Overview's Needs attention list — pure, so it runs in a Node test; the UI turns each issue into a button |
+| `src/shared/yard.ts` | Lays a profile out as a track map — junctions in first-match order, 45° branches, stacked destination lines — and traces one request across it; pure, so it runs in a Node test |
+| `src/shared/colour.ts` | A profile colour's line (3:1) and text (4.5:1) variants for each theme, computed in OKLCH |
+| `src/shared/strip.ts` | One request's route drawn small — the popup's answer for the tab in front of you, and an opened Activity row |
 | `src/shared/exitip.ts` | The exit-IP lookup against `ipconfig.is`, which rides the current proxy settings on purpose; used by the popup's exit line and by the background's connection test |
 | `src/shared/update.ts` | A version Chrome has downloaded but not swapped in — the record, and the version comparison that lets it expire itself |
 | `src/background.ts` | The applier: proxy settings for both scopes, icon and per-window toolbar painting, the per-tab route badge, error badge, quick-switch, alarms, sync, and HTTP(S) proxy auth. Applies are serialised through one chain, so the last to start is the last to finish |
@@ -235,7 +238,7 @@ restart.
 |---|---|---|
 | `sockitt-error` | worker → UI | The live proxy failure ("requests are failing right now"), absent once it clears |
 | `sockitt-error-log` | worker → UI | Failure history for the session, newest first, repeats collapsed |
-| `sockitt-open-page` | popup → options | Which options page to open (`openOptionsPage` takes no target, and may focus a page that is already up) |
+| `sockitt-open-page` | popup → options | Where the options page should go — the errors view, or a new auto switch (`openOptionsPage` takes no target, and may focus a page that is already up) |
 | `sockitt-applied` | worker → UI | "Settings applied" tick, so an open popup re-checks its exit IP against the new route |
 | `sockitt-test` / `-result` | options ↔ worker | Connection test request and its outcome |
 | `sockitt-tab-exit` / `-result` | popup ↔ worker | Probe where the *current tab* exits when it routes differently from `ipconfig.is` |
@@ -288,11 +291,12 @@ than blindly blanking it, so it cannot race a concurrent apply into showing "all
 fine" when another extension has taken proxy control, or when a fresh failure
 landed while the repaint was in flight.
 
-The UI never shows this as a banner. The popup renders a warning triangle inside
-its fixed-height top bar — a banner there would push both panes down inside a
-720x520 window, shifting whatever the user was about to click — and the detail
-lives on the options page's **Proxy errors** panel, which has room for the
-carrier, the advice, and the log.
+The popup shows it as one line under its header: how many requests failed, and
+the proxy when the failure is pinned to one, as a link to the options page's
+**Activity › Proxy errors**, which has room for the carrier, the advice, and the
+log. A failure arriving while the popup is open swaps the line in place, and
+rebuilds the site controls under it only when none of them holds focus, so an
+open dropdown or a half-typed pattern survives it.
 
 After applying settings the worker also checks `levelOfControl`, and if another
 extension holds proxy control the badge and title say so instead of pretending

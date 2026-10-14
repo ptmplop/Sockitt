@@ -1,137 +1,197 @@
-# Design system
+# Design system — Switchyard
 
 Sockitt's two pages — the popup and the options tab — are drawn from one
 stylesheet of tokens and shared components, `src/theme.css`, with a page file
 each (`src/popup/popup.css`, `src/options/options.css`). This document is the
 spec those files implement. Read it before changing anything visual.
 
-The system was introduced in 1.26.0, replacing the dark-sidebar, gradient-card
-look the extension shipped with until then. The layout did not move: the
-options tab is still a sidebar beside a content column, the popup is still a
-switcher beside a "this tab" pane, and every control is where it was.
+Switchyard was introduced in 1.27.0. It replaced the lavender-canvas system of
+1.26 and, with it, the layout: the sidebar is gone, and the routes themselves
+became the interface.
 
-## The five things that changed
+## The idea: colour means route
 
-These are the differences visible in a 200px thumbnail, and the test for any
-future change: if a page reads as the old one in new colours, it is not done.
+A proxy switcher answers one question — where does this request go? — so the
+interface is drawn as a rail yard. Requests enter on the left on an ink trunk,
+meet junctions, and leave on coloured lines that end at their destination.
 
-1. **Frame.** The near-black sidebar and top bar are gone. The window is a
-   lavender *canvas*; the sidebar sits on it with no box of its own, and the
-   content is one white *sheet* with a hairline edge and 14px corners. In the
-   popup the switcher is on the canvas and the right-hand pane is the sheet.
-2. **Surfaces.** Panels are white with a hairline border and no drop shadow.
-   Elevation is reserved for things that genuinely float (a toast). Where the
-   Overview sets things side by side they share one surface divided by a
-   hairline: the five figures are one strip, and each 7 + 5 pair of cards is
-   one panel — never a grid of separate boxes a gutter apart.
-3. **Type.** DM Sans (variable, with optical sizing) for everything, JetBrains
-   Mono for addresses, hosts, patterns and timings. Titles are sentence case.
-   Nothing is set in tracked uppercase, and nothing is smaller than 12px.
-4. **Signature.** The Overview opens on the *route band*: the active profile at
-   display size, the route it produces drawn as a line in that profile's own
-   colour, and the exit address as a large mono readout — on the logo's
-   lavender, the one tinted surface on the page.
-5. **Colour and action.** No gradients and no glows. The palette is the logo's:
-   sock violet for selection, links and focus; the sock's deep shadow for the
-   one primary action a view has; the wordmark's navy for text.
+1. **Every hue on screen is a route.** A profile's colour is the line its
+   traffic runs on, on every surface: the Overview's map, the editors' maps,
+   the line key beside its name in every list and select, the activity log's
+   mix bar, the popup's strip. The chrome is graphite and white.
+2. **Status is an icon and a word**, never a hue alone: a cross and red ink
+   for failing, a triangle and amber for a warning, a tick and green for clear.
+3. **The brand violet belongs to the logo alone.** Focus rings, links, the
+   selected tab and the primary button are ink.
+4. **One tinted surface per page**: the full-bleed band the Overview's map sits
+   on (`--yard`). Everything else is white paper divided by hairlines.
+5. **One ink action per view.** Everything else is a quiet button with an edge,
+   or a text button.
 
 ## Tokens
 
-| Token | Value | Use |
+Light values; the dark theme redefines the same names (see *Themes*).
+
+| Token | Light | Use |
 |---|---|---|
-| `--canvas` | `#f3f2f8` | the window behind the sheet; the sidebar; the popup switcher |
-| `--sheet` | `#ffffff` | the content sheet, panels, fields |
-| `--wash` | `#f7f6fb` | quiet fills: table heads, code, row hover |
-| `--lavender` | `#f2eefd` | the route band and the popup's route answer — nothing else |
-| `--text` | `#16172f` | body and titles (the wordmark navy, softened) |
-| `--text-dim` | `#5a5c76` | secondary copy; 6.5:1 on white, 5.8:1 on the canvas |
-| `--line` | ink at 9% | hairlines: panel borders, dividers |
-| `--line-strong` | ink at 15% | dividers that must hold against a fill |
-| `--field-border` | ink at 22% | form control edges — a visible hairline (1.6:1), not a 3:1 boundary: fields are identified by their labels |
-| `--violet` | `#7543e8` | the logo's sock: selection, links, focus, the live route |
-| `--violet-ink` | `#5b2fd6` | violet as text on a violet tint |
-| `--action` | `#2d1b70` | the logo's sock shadow: the primary button, the toggle "on" |
-| `--danger-ink`, `--amber-ink`, `--ok-ink` | | status as text; each 4.5:1 on white and on its tint |
-| `--danger`, `--amber`, `--ok` | | status as an icon, a bar or a tint — never as text |
+| `--paper` | `#ffffff` | the page, fields, menus |
+| `--ground` | `#f4f5f7` | recessed fills: the selected list row, an opened log row, tick groups |
+| `--ground-2` | `#eceef1` | inline code |
+| `--yard` | `#f6f7f9` | the band behind a full map — nothing else |
+| `--ink` | `#121318` | text, the primary button, toggles on, focus |
+| `--ink-2` | `#454a56` | secondary copy (9.4:1 on paper) |
+| `--ink-3` | `#626877` | meta and labels (5.6:1 on paper, 5.1:1 on ground) |
+| `--trunk` | `#1c1e23` | the trunk: requests not yet decided |
+| `--rule`, `--rule-2` | | hairlines; `-2` where one must hold against a fill |
+| `--field` | | a button's edge |
+| `--field-edge` | `#80868f` | a field's edge, 3.6:1 — fields are found by their edge |
+| `--bad`, `--warn`, `--good` | | status as an icon |
+| `--bad-ink`, `--warn-ink`, `--good-ink` | | status as text, 4.5:1 on paper and on its tint |
+| `--bad-tint`/`-edge`, `--warn-tint`/`-edge` | | callout fills |
+| `--brand` | `#7543e8` | the logo's sock. The mark only |
 
-The pre-1.26 names (`--bg`, `--bg-elev`, `--accent`, `--accent-2`,
-`--accent-ink`, `--border`, `--border-strong`, `--surface`, `--surface-hover`)
-are kept as aliases: `scripts/gen-store-shots.mjs` reads some of them.
+Radii: 10px callouts, menus and the popup window; 8px the selected row and
+panels; 6px buttons and fields; 4px junction squares and inline code.
 
-Radii: 14px the sheet, 12px panels, 8px controls and rows, 6px small buttons
-and code, 28% profile tiles (square boxes only).
+## Route colours
+
+`src/shared/colour.ts`. The palette's fills are chosen to be recognisable, not
+legible — a mint or an amber line on white is under 2:1 — so every colour is
+given two variants per theme, computed in OKLCH by moving lightness only
+(trimming chroma where that leaves sRGB), so a deepened amber is still amber:
+
+- **line** — strokes, keys and stop bars: at least 3:1 against paper and
+  ground (WCAG 1.4.11);
+- **text** — a profile named in its own colour: at least 4.5:1.
+
+Computed, not tabulated: an imported or synced profile can carry any hex.
+`paintRoute(node, fill)` puts both themes' variants on an element as custom
+properties and adds `.rt`; the stylesheet picks the pair for the theme in force
+into `--line` and `--rtext`, so a theme change needs no repaint. The fill
+itself is used only for the profile tile (the toolbar icon in miniature) and
+the colour swatches. Direct and System share one slate (`BUILTIN_FILL`);
+System's line is dashed.
 
 ## Type
 
-`--font` is DM Sans, `--mono` JetBrains Mono. Both are vendored subsets of the
-upstream releases in `static/fonts/` — its README says how they were cut, and
-why not the npm copies — copied to `dist/fonts/` by `build.mjs` and preloaded,
-with `font-display: block` so the popup never flashes the fallback face. The
-mono is cut without its code ligatures, so `::` in an address or an error code
-reads as typed.
+Two bundled faces, vendored subsets in `static/fonts/` (its README says how
+they were cut, and why not npm), preloaded, `font-display: block`:
 
-| Role | Size / weight |
+- **Archivo** (variable, width 62–125%) carries the interface. Its width axis
+  is part of the scale: display and titles are set wide, labels narrow, body a
+  touch over normal.
+- **IBM Plex Mono** (400/500/600) for anything a person might paste: hosts,
+  addresses, patterns, ports, error codes, timings.
+
+| Role | Size / weight / width |
 |---|---|
-| Overview route band name | 30px / 600 — the one display size below the page title |
-| Page title (`.dash-title`, `.doc-title`) | 24px / 600 — every page opens on one; an editor's names the profile |
-| Overview figures (`.dash-stat-fig`) | 22px / 600 |
-| Panel title (`.panel h3`) | 15px / 600, sentence case |
-| Body, controls | 14px options, 13.5px popup / 400–500 |
-| Labels, nav group names | 13px / 500–600, `--text-dim` |
-| Meta, notes, table cells | 12.5–13px |
-| Floor | 12px — no 9.5–11px caps anywhere |
+| `.t-display` — the Overview's profile name | 46px / 600 / 112% |
+| `.t-title` — every page and editor opens on one | 30px / 600 / 110% |
+| `.t-h3` — section titles | 16px / 650 / 104% |
+| Body | 14px / 400 / 102% (13.5px in the popup) |
+| `.t-label` — field labels, list group names | 12.5px / 600 / 92% |
+| `.meta` | 13px, `--ink-3` |
+| Floor | 12px |
 
-Figures that are compared or re-render in place use `tabular-nums` — only on
-elements holding figures alone, because DM Sans's `tnum` also widens the
-space, and on a sentence it opens up every word gap.
+Figures compared down a column or re-rendered in place use `.tnum`, on
+figure-only elements: Archivo's `tnum` widens the space too.
+
+## The track map
+
+`src/shared/yard.ts` lays a profile out; `src/options/yardview.ts` paints it;
+`src/shared/strip.ts` draws one request's route small. The grammar, shared by
+every surface that draws a route:
+
+- **Trunk**: ink, 4px, from a start bar on the left. Requests on it have not
+  been decided yet — which is why it is not a colour.
+- **Junctions** are rules, in first-match order, numbered: a 22px square with
+  the rule's number. A rule that is off is dashed. Past six, the rest fold into
+  one wide junction ("6–9"). Overrides set from the popup are a pinned
+  junction ahead of rule 1. A proxy's bypass list is a diamond, its branch onto
+  Direct. A rule list decides in one step: a single junction with a list glyph.
+- **Branches** leave a junction at 45° (two 18px-radius turns) and merge into
+  their destination's line. The earliest junction's destination sits lowest,
+  so branches nest instead of crossing; where a branch must cross another line
+  (interleaved rules), a paper-coloured casing is drawn under it first.
+- **Lines** are 6px in the destination's line colour; the default destination
+  continues the trunk. Each ends at a 4px stop bar beside its name.
+- **Aliases** resolve: a rule pointing at an alias draws the alias's line,
+  named for what it points at; an alias's own map is the map of its target.
+- **A trace** lights one request's path (8px) and fades everything else to a
+  pre-mixed tint (`color-mix` against `--under`), not opacity, so faded lines
+  that overlap do not stack darker. `--under` is the surface the map sits on.
+
+The full map (Overview, Inspector) carries each junction's kind and pattern
+above it; the compact map (editors) carries numbers only, because the rules
+table beside it holds the text. The strip (popup, an opened activity row) is
+the map reduced to the one path taken: the junction that decided, and the
+destination's line ending at its name; a failing proxy breaks the line.
+
+## Layout
+
+- **Top bar**: the mark, six tabs (Overview, Profiles, Activity, Inspector,
+  Settings, Docs) and, on the right, the route picker — a native select with
+  the active route's line key beside it. Activity carries a red count while
+  requests are failing; Settings an amber count while a setting needs a
+  permission.
+- **Pages** open on a title and the line under it, in a 1240px column.
+- **Editors and Settings** are made of sections: a title and one line on the
+  left (200–250px), the controls on the right, sections divided by hairlines.
+  Every editor opens on its compact map; *Name and colour* is always last.
+- **The Profiles page** is a list beside the editor; the list groups by kind
+  and every row leads with its line key.
+- **Asks**: settings that are on but inert until the user acts are one list —
+  *Needs your OK* on Settings, part of *Needs attention* on the Overview —
+  never a banner repeated on every page.
 
 ## Components
 
-- **Panel** (`.card.panel`): white, `--line` border, 12px radius, 20/22px
-  padding; `h3` is a plain sentence-case title.
-- **Button** (`.btn`): 32px; white face, `--field-border` edge. `.primary` is
-  `--action` with white text — one per view. `.ghost` is text only. Focus is
-  the shared `--ring`.
-- **Field** (`.input`): 34px, white, `--field-border`; focus turns the edge
-  violet and adds a soft violet halo. Selects draw their own chevron.
-- **Toggle**: 36×20, `--action` when on.
-- **Profile tile** (`.avatar`): the profile's colour, flat, initials in 650.
-  It is the toolbar icon in miniature, so it is the one place colour carries
-  identity. Built-in Direct / System use slate.
-- **Callout** (`.warn-banner`, `.banner`): a tinted panel led by an icon, the
-  message in regular weight; never a wall of bold amber.
-- **Status** is an icon plus coloured text: a triangle and red ink for
-  failing, a tick and green ink for clear. Never a dot, never a pill.
-- **Selection**: in the sidebar and the popup switcher the selected row is a
-  piece of the sheet — white, hairline-edged — lifted out of the canvas.
-- **The route line** (Overview band) is drawn in the active profile's colour
-  deepened toward ink (`--route-ink`), so even the palest profile's line shows
-  solid from dashed; it is dashed on the link that leaves a profile deciding
-  per request.
-- **Repaints** keep the keyboard where it was and never replay an entrance: a
-  card rebuilt under focus puts it back on the control that took its place,
-  and the map and ring draw in only on first paint.
+- **Button** (`.btn`): 32px, paper face, `--field` edge. `.primary` is ink.
+  `.quiet` has no edge. `.danger` is red ink, never a red fill.
+- **Field** (`.input`): 34px, `--field-edge`; focus is a 1px ink ring inside
+  the edge. Selects draw their own chevron. A select whose options are routes
+  (`.via`) shows the chosen route's line key inside it.
+- **Quiet field**: in the rules table, fields read as text until the row is
+  pointed at or focused.
+- **Toggle**: 34×20, ink when on. **Checkbox**: 16px, ink when on, inside a
+  label at least 24px tall.
+- **Segmented control** (`.seg`): the proxy's protocol.
+- **Callout** (`.callout`): a tinted panel led by an icon; the text stays ink.
+- **Line key** (`.key`): a 16×4 length of the route's line. **Tile**
+  (`.avatar`): the profile's fill with its initials — only where the profile's
+  name is the subject (an editor's head).
+- **Focus**: a 2px ink outline held 2px off the control, everywhere.
+
+## Themes
+
+Light by default; dark follows the system unless the device has chosen one
+(Settings › Appearance → `UiPrefs.theme`, never synced). The dark tokens are
+written twice in `theme.css` — under `prefers-color-scheme: dark` guarded by
+`:root:not([data-theme="light"])`, and under `:root[data-theme="dark"]` — and
+the two blocks must stay identical. `src/theme-boot.js`, a classic script in
+both pages' head, applies a chosen theme from a `localStorage` mirror before
+the first paint, so an override never flashes the system's theme first.
 
 ## Never
 
-- Pills or chips: rounded-full badges, bordered tag chips, a status word in a
-  capsule. Qualifiers are plain text ("Active", "· rule", "Incognito").
-- Dots: no coloured dot as a status prefix, a "live" marker or decoration.
-  A legend key in a chart is a square swatch, not a dot.
-- Gradients on surfaces or buttons, glows, coloured shadows.
-- Uppercase tracked eyebrows, gradient ticks, text under 12px.
-- A coloured edge down one side of a card to mean "important" or "current".
-  Emphasis is the border's tint or the words; severity is an icon.
-- Animation at rest. Motion is for state changes (a toggle, a disclosure).
-- A large logo inside a page. The mark lives in the sidebar and the popup
-  header.
+- Pills or chips — a status word in a capsule, bordered tag chips.
+- Dots as status, a "live" marker, or decoration.
+- A hue that does not mean a route, except status icons and the logo.
+- Gradients, glows, coloured shadows; elevation except for things that float
+  (a menu, a toast).
+- Uppercase tracked eyebrows; text under 12px.
+- Animation at rest. Motion is for state changes, and stops under
+  `prefers-reduced-motion`.
+- Uniform grids of cards.
 
 ## Verifying a change
 
 Every defect in this system's history was found in a screenshot or a
 measurement, never by reading CSS. Render the real `dist/` behind a `chrome.*`
-shim (the same technique as `scripts/gen-store-shots.mjs`) and look at every
-page, including the states a happy path never shows: a failing proxy, an empty
-install, the permission banners, a long profile list, an incognito window, a
-navigation still loading, an 820px window and a short one. Sweep text contrast
-against the composited background, per-element overflow, and the console.
+shim (the technique `scripts/gen-store-shots.mjs` uses) and look at every page
+in both themes, including the states a happy path never shows: a failing
+proxy, another extension holding the proxy, an empty install, a missing
+permission, a long profile list, an opened activity row, an incognito window,
+a navigation still loading, an 860px window and a 640px one. Sweep text
+contrast against the composited background, per-element overflow, target
+sizes, the console, and a real Tab walk for visible, unclipped focus.

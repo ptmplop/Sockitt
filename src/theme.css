@@ -1,145 +1,203 @@
-/* Sockitt design tokens + shared components. Light theme, forced.
-   docs/design.md is the spec this file implements — read it first. */
+/* Sockitt design tokens + shared components ("Switchyard", 1.27).
+   docs/design.md is the spec this file implements — read it first.
+
+   Colour means route. The chrome is graphite and white; every hue on screen is
+   a profile's own line colour. Status is always an icon and a word. The brand
+   violet belongs to the logo alone — focus and links are ink. */
 
 /* ---- type ----
-   Bundled, not system: the same letterforms on every OS, and DM Sans is the
-   closest match to the wordmark's round geometry. block, not swap — the files
-   are local and arrive in milliseconds, and a popup that opens dozens of times
-   a day must not flash its fallback face on every open. Both pages preload the
-   two files, so the block period is never actually reached. Subsets of the
-   upstream releases — static/fonts/README.md says how and why. */
+   Bundled, not system: the same letterforms on every OS. Archivo carries the
+   interface and its width axis is part of the scale (titles wide, labels
+   narrow); IBM Plex Mono is for anything a person might paste. block, not
+   swap: the files are local and both pages preload the two that paint first,
+   so the popup never flashes a fallback face. static/fonts/README.md says how
+   the subsets were cut and why not npm. */
 @font-face {
-  font-family: "DM Sans";
+  font-family: "Archivo";
   font-style: normal;
-  font-weight: 100 1000;
+  font-weight: 100 900;
+  font-stretch: 62% 125%;
   font-display: block;
-  src: url("fonts/dm-sans.woff2") format("woff2");
+  src: url("fonts/archivo.woff2") format("woff2");
 }
 @font-face {
-  font-family: "JetBrains Mono";
+  font-family: "IBM Plex Mono";
   font-style: normal;
-  font-weight: 100 800;
+  font-weight: 400;
   font-display: block;
-  src: url("fonts/jetbrains-mono.woff2") format("woff2");
+  src: url("fonts/plex-mono-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: block;
+  src: url("fonts/plex-mono-500.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 600 700;
+  font-display: block;
+  src: url("fonts/plex-mono-600.woff2") format("woff2");
 }
 
+/* ---- tokens: light ---- */
 :root {
-  /* ---- planes ----
-     Three, and only three: the canvas the window is made of, the sheet the
-     work sits on, and the quiet wash used for fills inside the sheet. */
-  --canvas: #f3f2f8;
-  --sheet: #ffffff;
-  --wash: #f7f6fb;
-  /* The logo's own lavender. Reserved for the answer to "where is my traffic
-     going" — the Overview route band and the popup's Route line — so it means
-     something wherever it appears. */
-  --lavender: #f2eefd;
+  /* planes */
+  --paper: #ffffff;    /* the page, panels, fields */
+  --ground: #f4f5f7;   /* recessed fills: table heads, the selected row, hover */
+  --ground-2: #eceef1;
+  --yard: #f6f7f9;     /* the band the track map sits on — nothing else */
 
-  /* ---- ink ---- */
-  --text: #16172f;      /* the wordmark's navy, softened: 17.5:1 on white */
-  --text-dim: #5a5c76;  /* 6.5:1 on white, 5.8:1 on the canvas, 5.7:1 on lavender */
-  --line: rgba(22, 23, 47, 0.09);
-  --line-strong: rgba(22, 23, 47, 0.15);
-  /* A visible hairline, not a 3:1 boundary (that takes ink at ~48%, a mid-grey
-     frame on every field): fields are identified by their labels. */
-  --field-border: rgba(22, 23, 47, 0.22);
-  --hover: rgba(22, 23, 47, 0.045);
-  --press: rgba(22, 23, 47, 0.08);
+  /* ink */
+  --ink: #121318;      /* text, the primary button, toggles, focus */
+  --ink-2: #454a56;    /* secondary copy: 9.4:1 on paper */
+  --ink-3: #626877;    /* meta and labels: 5.6:1 on paper, 5.1:1 on ground */
+  --on-ink: #ffffff;   /* text on an ink fill */
+  --trunk: #1c1e23;    /* requests that have not met a rule yet */
 
-  /* ---- brand: the logo's three colours ---- */
-  --violet: #7543e8;     /* the sock — selection, links, focus, the live route. 5.6:1 on white */
-  --violet-ink: #5b2fd6; /* violet as TEXT on a violet tint — 6.5:1 on lavender */
-  --violet-soft: rgba(117, 67, 232, 0.09);
-  --action: #2d1b70;     /* the sock's shadow — the one primary action, the toggle's "on" */
-  --action-hover: #3b248c;
+  --rule: #e3e5e9;     /* hairlines */
+  --rule-2: #d0d3d9;   /* hairlines that must hold against a fill */
+  --field: #c6cad1;    /* a button's edge */
+  --field-edge: #80868f; /* a field's edge: 3.6:1 — fields are found by their edge */
+  --hover: #f4f5f7;
+  --press: #eceef1;
 
-  /* ---- status ----
-     Vivid tones are for icons, bars and tints; the inks are for text. Each ink
-     clears 4.5:1 on white and on its own 10–12% tint. */
-  --danger: #e5484d;
-  --danger-ink: #c8102e;
-  --amber: #f5a524;
-  --amber-ink: #8a5300;
-  --amber-icon: #b86e00; /* the vivid amber is 2:1 on white — too faint even for an icon */
-  --ok: #1fa971;
-  --ok-ink: #0b7a52;
+  --brand: #7543e8;    /* the logo's sock. The mark only. */
 
-  /* ---- legacy names ----
-     Kept so nothing that still reads them breaks — scripts/gen-store-shots.mjs
-     among them. New code uses the names above. */
-  --bg: var(--canvas);
-  --bg-elev: var(--sheet);
-  --surface: var(--wash);
-  --surface-hover: var(--hover);
-  --border: var(--line);
-  --border-strong: var(--line-strong);
-  --accent: var(--violet);
-  --accent-2: var(--violet);
-  --accent-ink: var(--violet-ink);
-  --accent-soft: var(--violet-soft);
+  /* status: the vivid tone for icons, the ink for text, a tint and its edge */
+  --bad: #d92d20;   --bad-ink: #b42318;   --bad-tint: #fef3f2;  --bad-edge: #f6c4bf;
+  --warn: #b07000;  --warn-ink: #8a5300;  --warn-tint: #fff8e6; --warn-edge: #f3d9a4;
+  --good: #16a34a;  --good-ink: #067647;  --good-tint: #ecfdf3;
 
-  /* ---- shape ---- */
-  --radius-sheet: 14px;
-  --radius: 12px;        /* panels, the popup window */
-  --radius-sm: 8px;      /* buttons, fields, rows */
-  --radius-xs: 6px;      /* small buttons, inline code */
-  --radius-pill: 999px;  /* toggles and scrollbar thumbs only — never a label */
-  /* Percentage, not px: holds the tile proportion constant as the same tile
-     scales 18px → 56px. Only ever on a square box — on a non-square one a %
-     radius resolves per axis and gives elliptical corners. */
-  --radius-tile: 28%;
+  /* shape */
+  --radius-lg: 10px;  /* callouts, menus, the popup window */
+  --radius: 8px;      /* panels, the selected row */
+  --radius-sm: 6px;   /* buttons, fields */
+  --radius-xs: 4px;   /* junction squares, inline code */
 
-  /* Elevation is for things that float over the page. Panels have none. */
-  --shadow-sm: 0 1px 2px rgba(22, 23, 47, 0.06);
-  --shadow: 0 1px 2px rgba(22, 23, 47, 0.05), 0 4px 12px -4px rgba(22, 23, 47, 0.10);
-  --shadow-lg: 0 2px 6px rgba(22, 23, 47, 0.06), 0 18px 40px -16px rgba(22, 23, 47, 0.28);
+  --shadow-pop: 0 1px 2px rgb(18 19 24 / 0.06), 0 12px 32px -6px rgb(18 19 24 / 0.18);
 
-  /* Focus: a 2px violet ring held off the control by a 2px gap of sheet. As a
-     box-shadow rather than an outline because several containers clip and the
-     scroll-margin rule below already budgets for this exact reach (4px). */
-  --ring: 0 0 0 2px var(--sheet), 0 0 0 4px var(--violet);
-  --ring-field: 0 0 0 3px rgba(117, 67, 232, 0.22);
+  --font: "Archivo", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
-  --measure: 66ch;
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23626877' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  --scrollbar-thumb: rgb(18 19 24 / 0.18);
+  --scrollbar-thumb-hover: rgb(18 19 24 / 0.32);
 
-  --font: "DM Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-
-  --scrollbar-thumb: rgba(22, 23, 47, 0.18);
-  --scrollbar-thumb-hover: rgba(22, 23, 47, 0.30);
-
-  /* ---- icons, as masks ----
-     Painted with background: currentColor, so an icon takes the colour of the
-     text it sits in — the status words carry theirs without a second rule. */
+  /* icons, as masks: painted with currentColor, so an icon takes the colour of
+     the text it sits in and follows the theme without a second rule */
   --i-alert: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z'/%3E%3Cpath d='M12 9v4M12 17h.01'/%3E%3C/svg%3E");
   --i-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
-  --i-check-circle: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9.5'/%3E%3Cpath d='m8 12.4 2.7 2.7L16.2 9.5'/%3E%3C/svg%3E");
+  --i-x: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round'%3E%3Cpath d='M18 6 6 18M6 6l12 12'/%3E%3C/svg%3E");
   --i-info: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9.5'/%3E%3Cpath d='M12 11v5.5M12 7.5h.01'/%3E%3C/svg%3E");
   --i-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h14M13 6l6 6-6 6'/%3E%3C/svg%3E");
   --i-clock: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9.5'/%3E%3Cpath d='M12 7v5l3 2'/%3E%3C/svg%3E");
   --i-incognito: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 11h18M5 11l1.6-5.2A2 2 0 0 1 8.5 4.4h7a2 2 0 0 1 1.9 1.4L19 11'/%3E%3Ccircle cx='7.5' cy='16.5' r='3'/%3E%3Ccircle cx='16.5' cy='16.5' r='3'/%3E%3Cpath d='M10.5 16.5c1-.7 2-.7 3 0'/%3E%3C/svg%3E");
-  --i-stop: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='6' y='6' width='12' height='12' rx='2.5' fill='%23000'/%3E%3C/svg%3E");
+  --i-search: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-4-4'/%3E%3C/svg%3E");
   --i-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  --i-external: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 17 17 7M8 7h9v9'/%3E%3C/svg%3E");
+  --i-plus: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M12 5v14M5 12h14'/%3E%3C/svg%3E");
+  --i-sliders: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4'/%3E%3C/svg%3E");
+  --i-grip: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M7 9h10M7 15h10'/%3E%3C/svg%3E");
+  --i-refresh: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 12a9 9 0 1 1-3-6.7L21 8'/%3E%3Cpath d='M21 3v5h-5'/%3E%3C/svg%3E");
+  --i-pin: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 4h8M9.5 4v6l-3 4.5h11L14.5 10V4M12 14.5V21'/%3E%3C/svg%3E");
+  --i-lock: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='4' y='11' width='16' height='10' rx='2'/%3E%3Cpath d='M8 11V7a4 4 0 0 1 8 0v4'/%3E%3C/svg%3E");
+  --i-pause: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round'%3E%3Cpath d='M9 5v14M15 5v14'/%3E%3C/svg%3E");
+  --i-record: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='6' y='6' width='12' height='12' rx='2.5' fill='%23000'/%3E%3C/svg%3E");
+  --i-play: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M8 5.5v13l11-6.5z' fill='%23000'/%3E%3C/svg%3E");
 
   color-scheme: light;
-  accent-color: var(--violet);
 }
+
+/* ---- tokens: dark ----
+   Follows the system unless this device has chosen a theme (Settings ›
+   Appearance), which sets data-theme on the root. Written twice — once under
+   the media query, once for the explicit choice — because a selector cannot
+   span both. Keep the two blocks identical. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0f1013; --ground: #16181c; --ground-2: #1d2025; --yard: #131418;
+    --ink: #eceef1; --ink-2: #b4b9c4; --ink-3: #8f95a1; --on-ink: #0f1013; --trunk: #d9dce1;
+    --rule: #24272d; --rule-2: #31353c; --field: #3c4149; --field-edge: #6a707b;
+    --hover: #1a1c21; --press: #202328;
+    --bad: #f97066; --bad-ink: #fda29b; --bad-tint: #2a1614; --bad-edge: #5a2620;
+    --warn: #f5b546; --warn-ink: #fcd27a; --warn-tint: #2a2112; --warn-edge: #574317;
+    --good: #47cd89; --good-ink: #75e0a7; --good-tint: #11241a;
+    --shadow-pop: 0 1px 2px rgb(0 0 0 / 0.4), 0 16px 40px -8px rgb(0 0 0 / 0.6);
+    --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238f95a1' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    --scrollbar-thumb: rgb(255 255 255 / 0.16);
+    --scrollbar-thumb-hover: rgb(255 255 255 / 0.28);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0f1013; --ground: #16181c; --ground-2: #1d2025; --yard: #131418;
+  --ink: #eceef1; --ink-2: #b4b9c4; --ink-3: #8f95a1; --on-ink: #0f1013; --trunk: #d9dce1;
+  --rule: #24272d; --rule-2: #31353c; --field: #3c4149; --field-edge: #6a707b;
+  --hover: #1a1c21; --press: #202328;
+  --bad: #f97066; --bad-ink: #fda29b; --bad-tint: #2a1614; --bad-edge: #5a2620;
+  --warn: #f5b546; --warn-ink: #fcd27a; --warn-tint: #2a2112; --warn-edge: #574317;
+  --good: #47cd89; --good-ink: #75e0a7; --good-tint: #11241a;
+  --shadow-pop: 0 1px 2px rgb(0 0 0 / 0.4), 0 16px 40px -8px rgb(0 0 0 / 0.6);
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238f95a1' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  --scrollbar-thumb: rgb(255 255 255 / 0.16);
+  --scrollbar-thumb-hover: rgb(255 255 255 / 0.28);
+  color-scheme: dark;
+}
+
+/* ---- route colours ----
+   colour.ts paints both themes' variants onto an element (.rt); these rules
+   pick the pair for the theme in force, so switching theme needs no repaint. */
+.rt { --line: var(--line-l); --rtext: var(--text-l); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .rt { --line: var(--line-d); --rtext: var(--text-d); }
+}
+:root[data-theme="dark"] .rt { --line: var(--line-d); --rtext: var(--text-d); }
 
 * { box-sizing: border-box; }
 
 body {
   margin: 0;
-  background: var(--canvas);
-  color: var(--text);
+  background: var(--paper);
+  color: var(--ink);
   font: 400 14px/1.5 var(--font);
-  font-optical-sizing: auto;
+  font-stretch: 102%;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
 
-button, input, select, textarea { font: inherit; color: inherit; }
+button, input, select, textarea { font: inherit; font-stretch: inherit; color: inherit; }
 
-/* A mask icon: an empty element painted in its text colour. */
+/* ---- type ---- */
+.mono, code, kbd, samp { font-family: var(--mono); font-stretch: 100%; letter-spacing: 0; }
+.t-display { font-size: 46px; line-height: 1.04; font-weight: 600; font-stretch: 112%; letter-spacing: -0.024em; margin: 0; }
+.t-title { font-size: 30px; line-height: 1.12; font-weight: 600; font-stretch: 110%; letter-spacing: -0.018em; margin: 0; }
+.t-h3 { font-size: 16px; line-height: 1.3; font-weight: 650; font-stretch: 104%; letter-spacing: -0.004em; margin: 0; }
+.t-label { font-size: 12.5px; line-height: 1.3; font-weight: 600; font-stretch: 92%; letter-spacing: 0.01em; color: var(--ink-3); }
+.meta { font-size: 13px; color: var(--ink-3); }
+.muted { color: var(--ink-3); }
+.ink2 { color: var(--ink-2); }
+/* Figures compared down a column or re-rendered in place hold their width.
+   Archivo's tnum widens the space too, so only on figure-only elements. */
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* A text link: ink, underlined in a lighter ink. */
+.link,
+.linklike {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: var(--ink-3);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.link:hover,
+.linklike:hover { text-decoration-color: var(--ink); }
+.linklike { background: none; border: 0; padding: 0; font: inherit; }
+
+/* ---- icons ---- */
 .ic {
   display: inline-block;
   flex: none;
@@ -149,88 +207,39 @@ button, input, select, textarea { font: inherit; color: inherit; }
   -webkit-mask: var(--i) center / contain no-repeat;
   mask: var(--i) center / contain no-repeat;
 }
+.ic.sm { width: 14px; height: 14px; }
+.ic.lg { width: 18px; height: 18px; }
 
-/* ---- shared type tiers ----
-   The objects both pages draw as a heading-above-content. They used to be
-   tracked uppercase in two tiers at 9.5–11px; they are sentence case now, and
-   these two rules are the canonical values — the page files only set colour,
-   spacing and layout on these selectors. */
-
-/* Panel titles — the heading every card on both pages opens with. */
-.panel h3 {
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: -0.005em;
-  text-transform: none;
-}
-
-/* Tier 1 — group labels, table heads and the popup's section names. */
-.nav .section-label,
-.rule-head,
-.doc-table th,
-.section-label,
-.ts-label {
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0;
-  text-transform: none;
-}
-
-/* Tier 2 — inline qualifiers beside a value. Plain words, never capsules. */
-.side .brand-sub,
-.sm-label,
-.route-tag,
-.err-tag,
-.ts-state {
-  font-size: 12.5px;
-  font-weight: 500;
-  letter-spacing: 0;
-  text-transform: none;
-}
-
-/* Figures that are compared down a column or re-render in place must not
-   dance. Only on elements that hold figures alone: DM Sans's tnum also gives
-   the space a figure's width, so on a sentence it opens up every word gap.
-   (Mono needs nothing — every glyph in it is one width already.) */
-.dash-stat-fig,
-.dash-ring-val,
-.dash-donut-mid b,
-.dash-legend-v,
-.err-count,
-.alert-count,
-.nav-item .badge.alert,
-.rl-reject-no { font-variant-numeric: tabular-nums; }
-.dash-stat-fig small { font-variant-numeric: normal; }
-
-/* ---- brand mark: the Sockitt sock on its own light tile ---- */
-.mark {
-  width: 20px;
-  height: 20px;
-  object-fit: cover;
-  border-radius: var(--radius-tile);
+/* ---- status: an icon and a word, never a dot or a pill ---- */
+.st { display: inline-flex; align-items: center; gap: 6px; font-weight: 550; }
+.st::before {
+  content: "";
   flex: none;
-  box-shadow: inset 0 0 0 1px var(--line);
+  width: 14px;
+  height: 14px;
+  background: var(--st-icon);
+  -webkit-mask: var(--st-i) center / contain no-repeat;
+  mask: var(--st-i) center / contain no-repeat;
 }
+.st.bad { color: var(--bad-ink); --st-icon: var(--bad); --st-i: var(--i-x); }
+.st.warn { color: var(--warn-ink); --st-icon: var(--warn); --st-i: var(--i-alert); }
+.st.good { color: var(--good-ink); --st-icon: var(--good); --st-i: var(--i-check); }
+.st.info { color: var(--ink-2); --st-icon: var(--ink-3); --st-i: var(--i-info); }
+.st.plain::before { display: none; }
 
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 15px;
-  font-weight: 700;
-}
+/* ---- brand mark ---- */
+.mark { width: 24px; height: 24px; flex: none; display: block; }
+.brand { display: inline-flex; align-items: center; gap: 9px; font-size: 17px; font-weight: 650; font-stretch: 108%; letter-spacing: -0.01em; }
 
 /* ---- buttons ----
-   States re-point these tokens instead of declaring box-shadow, so
-   :focus-visible stays the single owner of that property — declaring it on a
-   variant silently erases the focus ring on exactly the buttons that need it. */
+   One ink action per view; everything else is a quiet face with an edge.
+   States re-point tokens rather than declaring properties, so :focus-visible
+   stays the only thing that draws the ring. */
 .btn {
-  --btn-face: var(--sheet);
-  --btn-face-hover: var(--wash);
-  --btn-edge: var(--field-border);
-  --btn-edge-hover: rgba(22, 23, 47, 0.30);
-  --btn-ink: var(--text);
-  --btn-lift: var(--shadow-sm);
+  --btn-face: var(--paper);
+  --btn-face-hover: var(--hover);
+  --btn-edge: var(--field);
+  --btn-ink: var(--ink);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -241,168 +250,242 @@ button, input, select, textarea { font: inherit; color: inherit; }
   border: 1px solid var(--btn-edge);
   background: var(--btn-face);
   color: var(--btn-ink);
-  box-shadow: var(--btn-lift);
   cursor: pointer;
   font-size: 13.5px;
   font-weight: 550;
+  font-stretch: 100%;
   line-height: 1.2;
-  transition: background-color 0.12s, border-color 0.12s, color 0.12s, transform 0.06s;
   white-space: nowrap;
+  transition: background-color 0.12s, border-color 0.12s, color 0.12s;
 }
-.btn:hover { background: var(--btn-face-hover); border-color: var(--btn-edge-hover); }
-.btn:active { transform: translateY(0.5px); }
-.btn:focus-visible { outline: none; box-shadow: var(--ring); }
-/* The one filled action a view has. */
+.btn:hover { background: var(--btn-face-hover); }
 .btn.primary {
-  --btn-face: var(--action);
-  --btn-face-hover: var(--action-hover);
-  --btn-edge: var(--action);
-  --btn-edge-hover: var(--action-hover);
-  --btn-ink: #ffffff;
+  --btn-face: var(--ink);
+  --btn-face-hover: var(--ink-2);
+  --btn-edge: var(--ink);
+  --btn-ink: var(--on-ink);
 }
-.btn.danger { --btn-ink: var(--danger-ink); }
-.btn.danger:hover:not(:disabled) {
-  --btn-face-hover: color-mix(in srgb, var(--danger) 8%, #fff);
-  --btn-edge-hover: color-mix(in srgb, var(--danger) 55%, transparent);
-}
-.btn.ghost {
+.btn.primary:hover { border-color: var(--ink-2); }
+.btn.danger { --btn-ink: var(--bad-ink); }
+.btn.danger:hover:not(:disabled) { --btn-face-hover: var(--bad-tint); }
+.btn.ghost,
+.btn.quiet {
   --btn-face: transparent;
-  --btn-face-hover: var(--hover);
   --btn-edge: transparent;
-  --btn-edge-hover: transparent;
-  --btn-ink: var(--text-dim);
-  --btn-lift: none;
+  --btn-ink: var(--ink-2);
+  padding-inline: 9px;
 }
-.btn.ghost:hover { color: var(--text); }
-.btn.ghost.danger { --btn-ink: var(--danger-ink); }
+.btn.ghost:hover,
+.btn.quiet:hover { color: var(--ink); }
+.btn.ghost.danger,
+.btn.quiet.danger { --btn-ink: var(--bad-ink); }
+.btn.sm { min-height: 28px; padding: 3px 10px; font-size: 13px; }
 .btn.icon { padding: 0; width: 32px; min-height: 32px; height: 32px; }
-.btn.icon svg { display: block; }
-
-/* One disabled treatment for every control. Neutralising the hover tokens is
-   what stops a dead button gaining a fill and a border under the pointer. */
+.btn.icon.sm { width: 28px; min-height: 28px; height: 28px; }
+.btn .ic { margin: 0 -1px; }
 .btn:disabled,
-.btn[disabled] {
-  opacity: 0.45;
-  cursor: default;
-  transform: none;
-  --btn-face-hover: var(--btn-face);
-  --btn-edge-hover: var(--btn-edge);
-}
-.input:disabled,
-.toggle:disabled { opacity: 0.5; cursor: default; }
+.btn[disabled] { opacity: 0.45; cursor: default; --btn-face-hover: var(--btn-face); }
+
+/* ---- focus: an ink ring, held off the control ---- */
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.btn:focus-visible { outline-offset: 2px; }
 
 /* ---- fields ---- */
-.input, select.input {
+.input,
+select.input {
   width: 100%;
   min-height: 34px;
   padding: 6px 11px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--field-border);
-  background: var(--sheet);
+  border: 1px solid var(--field-edge);
+  background: var(--paper);
+  color: var(--ink);
   font-size: 14px;
   outline: none;
   transition: border-color 0.12s, box-shadow 0.12s;
 }
-.input:hover:not(:disabled) { border-color: rgba(22, 23, 47, 0.34); }
-.input:focus {
-  border-color: var(--violet);
-  box-shadow: var(--ring-field);
+.input:focus,
+.input:focus-visible { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); outline: none; }
+.input::placeholder { color: var(--ink-3); opacity: 1; }
+.input.invalid { border-color: var(--bad); }
+.input.invalid:focus { box-shadow: 0 0 0 1px var(--bad); }
+.input.mono { font-family: var(--mono); font-stretch: 100%; font-size: 13px; }
+textarea.input { line-height: 1.6; resize: vertical; }
+select.input {
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 32px;
+  background: var(--paper) var(--chevron) right 10px center / 14px no-repeat;
 }
-.input::placeholder { color: #6b6d85; opacity: 1; } /* 5.1:1 — some fields have no other label */
-/* The popup's profile filter is type="search", and Chromium's raw clear glyph is
-   the one bit of UA chrome left once the field wears the .input skin. */
 .input[type="search"]::-webkit-search-cancel-button {
   appearance: none;
   width: 12px;
   height: 12px;
   margin-left: 4px;
   cursor: pointer;
-  background: var(--text-dim);
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3.5 3.5l5 5M8.5 3.5l-5 5' stroke='%23000' stroke-width='1.6' stroke-linecap='round' fill='none'/%3E%3C/svg%3E") center / 12px no-repeat;
+  background: var(--ink-3);
+  -webkit-mask: var(--i-x) center / 12px no-repeat;
+  mask: var(--i-x) center / 12px no-repeat;
 }
-.input.invalid { border-color: var(--danger); }
-.input.invalid:focus { box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 22%, transparent); }
-.input.mono { font-family: var(--mono); font-size: 13px; }
-textarea.input { line-height: 1.6; }
-/* A drawn chevron instead of the platform's: the native arrow differs per OS
-   and sat a few pixels off-centre in the 34px field. */
-select.input {
-  cursor: pointer;
+.input:disabled,
+.toggle:disabled,
+.check:disabled { opacity: 0.5; cursor: default; }
+/* A field with a search glyph inside it. */
+.search { position: relative; display: flex; align-items: center; min-width: 0; }
+.search::before {
+  content: "";
+  position: absolute;
+  left: 11px;
+  width: 15px;
+  height: 15px;
+  background: var(--ink-3);
+  -webkit-mask: var(--i-search) center / contain no-repeat;
+  mask: var(--i-search) center / contain no-repeat;
+  pointer-events: none;
+}
+.search > .input { padding-left: 34px; }
+
+/* ---- toggle ---- */
+.toggle {
+  position: relative;
+  width: 34px;
+  height: 20px;
+  flex: none;
+  margin: 0;
   appearance: none;
-  padding-right: 32px;
-  background: var(--sheet) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235a5c76' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") right 10px center / 14px no-repeat;
+  -webkit-appearance: none;
+  border-radius: 10px;
+  background: var(--rule-2);
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+.toggle::before { content: ""; position: absolute; inset: -3px -2px; } /* 24px hit area */
+.toggle::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.25);
+  transition: transform 0.15s;
+}
+.toggle:checked { background: var(--ink); }
+.toggle:checked::after { transform: translateX(14px); background: var(--paper); }
+.toggle:hover:not(:disabled):not(:checked) { background: var(--field); }
+
+/* ---- checkbox ---- */
+.check {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  flex: none;
+  border-radius: 4px;
+  border: 1.5px solid var(--field-edge);
+  background: var(--paper);
+  display: inline-grid;
+  place-items: center;
+  cursor: pointer;
+}
+.check:checked { background: var(--ink); border-color: var(--ink); }
+.check:checked::after {
+  content: "";
+  width: 8px;
+  height: 4px;
+  border: solid var(--on-ink);
+  border-width: 0 0 2px 2px;
+  transform: translate(0, -1px) rotate(-45deg);
 }
 
-/* ---- panels ---- */
-.card {
-  background: var(--sheet);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-}
-
-/* ---- profile tile ----
-   The toolbar icon in miniature: the profile's own colour, flat, initials in
-   the UI face. No sheen and no glow — the colour is the identity, and a
-   highlight only muddied the pale ones. The inset rim is what keeps a lime or
-   amber tile from dissolving into white. */
+/* ---- identity: the line key, and the tile ----
+   A profile is identified by a short, square-ended length of its own line.
+   The tile — the toolbar icon in miniature — appears only where the profile's
+   name is the subject: an editor's head, the Overview's hero. */
+.key { display: inline-block; flex: none; width: 16px; height: 4px; border-radius: 1px; background: var(--line, var(--ink-3)); vertical-align: middle; }
+.key.system { background: linear-gradient(90deg, var(--line) 0 6px, transparent 6px 10px, var(--line) 10px 16px); }
 .avatar {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: none;
-  border-radius: var(--radius-tile);
+  border-radius: 24%;
   font-weight: 650;
+  font-stretch: 104%;
   letter-spacing: 0.01em;
   user-select: none;
-  position: relative;
   line-height: 1;
-  box-shadow: inset 0 0 0 1px rgba(22, 23, 47, 0.08);
 }
-.avatar.builtin {
-  background: #5c6079;
-  color: #ffffff;
-}
+.avatar.builtin { background: #64748b; color: #ffffff; }
+.rname { color: var(--rtext, var(--ink)); }
 
-.muted { color: var(--text-dim); }
-.mono { font-family: var(--mono); }
+/* A flag image, outlined above its stripes so a white band keeps its edge. */
+.flag { display: inline-block; flex: none; width: 20px; height: 15px; border-radius: 2px; outline: 1px solid rgb(18 19 24 / 0.18); outline-offset: -1px; vertical-align: -2px; }
+:root[data-theme="dark"] .flag { outline-color: rgb(255 255 255 / 0.22); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .flag { outline-color: rgb(255 255 255 / 0.22); } }
 
-/* ---- toggle switch ---- */
-.toggle {
-  position: relative;
-  width: 36px;
-  height: 20px;
-  flex: none;
+/* ---- the track map's grammar ----
+   Shared by the Overview, the editors, the inspector, the activity log and the
+   popup's strip. Strokes are styled here, never by attribute. A line takes its
+   profile's colour from --line (colour.ts); the trunk — requests that have not
+   met a rule — is ink, because colour means a destination. */
+.trk { fill: none; stroke: var(--line, var(--ink-3)); stroke-width: 6; stroke-linecap: butt; stroke-linejoin: round; }
+.trk.trunk { stroke: var(--trunk); stroke-width: 4; }
+.trk.lit { stroke-width: 8; }
+.trk.trunk.lit { stroke-width: 6; }
+.trk.system { stroke-dasharray: 10 5; }
+.trk.case { stroke: var(--under, var(--paper)); stroke-width: 14; }
+/* Off the traced path: a pre-mixed tint, not opacity, so two faded lines that
+   overlap do not stack darker. */
+.trk.faded { stroke: color-mix(in srgb, var(--line, var(--ink-3)) 26%, var(--under, var(--paper))); }
+.trk.trunk.faded { stroke: color-mix(in srgb, var(--trunk) 22%, var(--under, var(--paper))); }
+.y-start { fill: var(--ink); }
+.y-stop { fill: var(--line, var(--ink-3)); }
+.y-break { fill: none; stroke: var(--bad); stroke-width: 2.5; stroke-linecap: round; }
+.jn { fill: var(--paper); stroke: var(--ink); stroke-width: 1.75; }
+.jn.lit { fill: var(--ink); }
+.jn.off { stroke: var(--ink-3); stroke-dasharray: 3 3; }
+.jn.faded { stroke: var(--rule-2); }
+.jn.ovr { stroke: var(--line); stroke-width: 2; }
+.jn.byp { stroke: var(--line); stroke-width: 2; }
+.jn-num { font-family: var(--mono); font-size: 12px; font-weight: 600; fill: var(--ink); text-anchor: middle; dominant-baseline: central; }
+.jn-num.lit { fill: var(--on-ink); }
+.jn-num.dim { fill: var(--ink-3); }
+.jn-pin { fill: none; stroke: var(--ink); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.jn-pin.lit, .jn-pin.on-lit { stroke: var(--on-ink); }
+.y-pat { font-family: var(--mono); font-size: 12.5px; font-weight: 500; fill: var(--ink); text-anchor: middle; }
+.y-kind { font-family: var(--font); font-stretch: 92%; font-size: 12px; font-weight: 500; fill: var(--ink-3); text-anchor: middle; }
+.y-pat.dim, .y-kind.dim { fill: var(--ink-3); font-weight: 400; }
+.y-org { font-family: var(--font); font-size: 13.5px; font-weight: 600; fill: var(--ink); }
+.y-org.mono { font-family: var(--mono); font-size: 12px; }
+.y-sub { font-family: var(--font); font-size: 12.5px; fill: var(--ink-3); }
+.y-term { font-family: var(--font); font-size: 14px; font-weight: 600; fill: var(--ink); }
+
+/* ---- the strip: one request's route, small ---- */
+.strip { position: relative; width: 368px; max-width: 100%; height: 50px; }
+.strip svg { display: block; width: 368px; height: 50px; overflow: visible; }
+.strip.flat, .strip.flat svg { height: 24px; }
+.strip-dest {
+  position: absolute;
+  left: 226px;
+  top: 28px;
+  height: 22px;
+  max-width: 142px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
   margin: 0;
-  appearance: none;
-  border-radius: var(--radius-pill);
-  background: rgba(22, 23, 47, 0.18);
-  cursor: pointer;
-  transition: background-color 0.16s;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
 }
-/* The control is 36×20 for looks; the hit area is padded out to the 24px WCAG
-   2.2 minimum without moving anything around it. */
-.toggle::before {
-  content: "";
-  position: absolute;
-  inset: -3px -1px;
-}
-.toggle::after {
-  content: "";
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #ffffff;
-  box-shadow: 0 1px 2px rgba(22, 23, 47, 0.25);
-  transition: transform 0.16s;
-}
-.toggle:hover:not(:disabled) { background: rgba(22, 23, 47, 0.26); }
-.toggle:checked { background: var(--action); }
-.toggle:checked:hover:not(:disabled) { background: var(--action-hover); }
-.toggle:checked::after { transform: translateX(16px); }
-.toggle:focus-visible { outline: none; box-shadow: var(--ring); }
+.strip.flat .strip-dest { top: 1px; }
+.strip-dest .stop { flex: none; width: 4px; height: 22px; border-radius: 1px; background: var(--line, var(--ink-3)); }
+.strip-dest .nm { overflow: hidden; text-overflow: ellipsis; }
 
 /* ---- toast ---- */
 .toast {
@@ -412,11 +495,11 @@ select.input {
   translate: -50% 0;
   padding: 9px 16px;
   border-radius: var(--radius-sm);
-  background: var(--text);
-  color: #ffffff;
-  box-shadow: var(--shadow-lg);
+  background: var(--ink);
+  color: var(--on-ink);
+  box-shadow: var(--shadow-pop);
   font-size: 13.5px;
-  font-weight: 500;
+  font-weight: 550;
   opacity: 0;
   transition: opacity 0.18s, translate 0.18s;
   pointer-events: none;
@@ -424,77 +507,42 @@ select.input {
 }
 .toast.show { opacity: 1; translate: -50% -4px; }
 
-/* ---- callouts ----
-   One component, two severities. A tinted panel led by an icon, the message in
-   regular weight: the old banners set three-line warnings in bold amber, which
-   is the hardest way there is to read a paragraph. --tone paints the tint, the
-   edge and the icon; the text stays ink. */
-.banner,
-.warn-banner {
-  --tone: var(--danger);
-  --tone-icon: var(--danger-ink);
-  display: flex;
-  gap: 10px;
-  align-items: flex-start;
-  padding: 11px 14px;
-  border-radius: var(--radius);
-  background: color-mix(in srgb, var(--tone) 7%, #fff);
-  border: 1px solid color-mix(in srgb, var(--tone) 30%, transparent);
-  color: var(--text);
+/* ---- callouts: a tinted panel led by an icon; the text stays ink ---- */
+.callout {
+  --tone-tint: var(--warn-tint);
+  --tone-edge: var(--warn-edge);
+  --tone-icon: var(--warn);
+  --tone-i: var(--i-alert);
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: 4px 12px;
+  align-items: start;
+  padding: 12px 14px;
+  border-radius: var(--radius-lg);
+  background: var(--tone-tint);
+  border: 1px solid var(--tone-edge);
   font-size: 13.5px;
-  line-height: 1.55;
+  line-height: 1.5;
+  color: var(--ink-2);
 }
-.banner::before,
-.warn-banner::before {
+.callout::before {
   content: "";
-  flex: none;
   width: 17px;
   height: 17px;
   margin-top: 2px;
   background: var(--tone-icon);
-  -webkit-mask: var(--i-alert) center / contain no-repeat;
-  mask: var(--i-alert) center / contain no-repeat;
+  -webkit-mask: var(--tone-i) center / contain no-repeat;
+  mask: var(--tone-i) center / contain no-repeat;
 }
-.banner { color: var(--danger-ink); font-weight: 550; }
-/* warning variant: something needs attention but nothing is broken */
-.warn-banner {
-  --tone: var(--amber);
-  --tone-icon: var(--amber-icon);
-  margin-bottom: 12px;
-}
-.warn-banner > span { flex: 1; min-width: 0; max-width: 92ch; }
-/* Several at once are one panel with ruled rows, not a stack of boxes. */
-.warn-banner:has(+ .warn-banner) {
-  margin-bottom: 0;
-  border-bottom-left-radius: 0;
-  border-bottom-right-radius: 0;
-  border-bottom-color: color-mix(in srgb, var(--amber) 18%, transparent);
-}
-.warn-banner + .warn-banner { border-top: 0; border-top-left-radius: 0; border-top-right-radius: 0; }
-/* The options page holds them in one block (updatePermBanners): inside a
-   page's column the column's gap spaces the block; above a page with no title
-   the block keeps its own margin. */
-.perm-banners { display: flex; flex-direction: column; }
-.perm-banners > .warn-banner { margin-bottom: 0; }
-.content > .perm-banners { margin-bottom: 14px; }
-.warn-banner .btn { flex: none; margin-left: auto; align-self: center; }
+.callout.bad { --tone-tint: var(--bad-tint); --tone-edge: var(--bad-edge); --tone-icon: var(--bad); }
+.callout.info { --tone-tint: var(--ground); --tone-edge: var(--rule); --tone-icon: var(--ink-3); --tone-i: var(--i-info); }
+.callout > b, .callout h3, .callout strong { color: var(--ink); }
+.callout .acts { display: flex; gap: 8px; flex-wrap: wrap; align-self: center; }
+.callout .btn { background: var(--paper); }
+.callout .btn.primary { background: var(--ink); }
 
-/* The ring reaches 4px past the border box, but sequential focus scrolling
-   aligns the BORDER box with the scrollport edge — so a control at the fold of
-   a scroller gets its ring sliced. Layout-inert: this only shifts where
-   scrolling stops. */
-.btn,
-.row,
-.nav-item,
-.side-link,
-.chain-chip.link,
-.dash-mini,
-.net-chip,
-.grip,
-.swatch,
-.toggle,
-.input,
-.quick-item input { scroll-margin: 10px; }
+/* A ring held 2px off the border box would be sliced at a scroller's edge. */
+.btn, .input, .toggle, .check, .row, a, [tabindex] { scroll-margin: 10px; }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track,
@@ -503,20 +551,18 @@ select.input {
   background: var(--scrollbar-thumb);
   border: 2px solid transparent;
   background-clip: padding-box;
-  border-radius: var(--radius-pill);
+  border-radius: 6px;
 }
-::-webkit-scrollbar-thumb:hover,
-::-webkit-scrollbar-thumb:active { background: var(--scrollbar-thumb-hover); background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); background-clip: padding-box; }
 
-/* Honour the OS setting globally, not just for the named keyframes. */
+.hidden { display: none !important; }
+.vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
+  *, *::before, *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    transition-duration: 0s !important;
     scroll-behavior: auto !important;
   }
-  .btn:active { transform: none; }
 }

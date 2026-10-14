@@ -69,7 +69,7 @@ export const PENDING_RELOAD_KEY = 'sockitt-pending-reload';
  */
 export const OPEN_PAGE_KEY = 'sockitt-open-page';
 /** Pages the popup can ask the options page to open. */
-export type OptionsPageRequest = 'errors';
+export type OptionsPageRequest = 'errors' | 'new-switch';
 
 /**
  * Name of the popup's lifetime port. The popup connects it for as long as it is
@@ -266,10 +266,18 @@ export interface UiPrefs {
    * granted it the permission and opened the page wants to see traffic.
    */
   monitorRecording: boolean;
+  /**
+   * Light, dark, or whatever the system says. Per device on purpose: a laptop
+   * in a dark room and a desk machine in daylight want different answers, and
+   * a synced choice would flip both.
+   */
+  theme: ThemePref;
 }
 
+export type ThemePref = 'system' | 'light' | 'dark';
+
 export function defaultUiPrefs(): UiPrefs {
-  return { landing: 'overview', lastPage: '', monitorRecording: true };
+  return { landing: 'overview', lastPage: '', monitorRecording: true, theme: 'system' };
 }
 
 export async function loadUiPrefs(): Promise<UiPrefs> {
@@ -282,6 +290,7 @@ export async function loadUiPrefs(): Promise<UiPrefs> {
       // Absent means a config written before the monitor existed, which should
       // land on the default rather than reading as "stopped".
       monitorRecording: o?.monitorRecording !== false,
+      theme: o?.theme === 'light' || o?.theme === 'dark' ? o.theme : 'system',
     };
   } catch {
     return defaultUiPrefs();
@@ -290,6 +299,32 @@ export async function loadUiPrefs(): Promise<UiPrefs> {
 
 export async function saveUiPrefs(prefs: UiPrefs): Promise<void> {
   await chrome.storage.local.set({ [UI_KEY]: prefs }).catch(() => undefined);
+}
+
+/**
+ * Put a theme choice on the page. 'system' removes the attribute, so the
+ * stylesheet's prefers-color-scheme rules decide; the other two pin it. Called
+ * by both pages as soon as the preference loads, and again when it changes.
+ */
+export function applyTheme(theme: ThemePref): void {
+  const root = document.documentElement;
+  if (theme === 'system') delete root.dataset.theme;
+  else root.dataset.theme = theme;
+  // theme-boot.js reads this before the next page paints.
+  try {
+    localStorage.setItem('sockitt-theme', theme);
+  } catch {
+    /* no storage: the next page flashes the system theme first, nothing worse */
+  }
+}
+
+/** Follow a theme change made on another page (the options tab, another window). */
+export function onThemeChanged(fn: (theme: ThemePref) => void): void {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local' || !changes[UI_KEY]) return;
+    const next = (changes[UI_KEY].newValue as { theme?: unknown } | undefined)?.theme;
+    fn(next === 'light' || next === 'dark' ? next : 'system');
+  });
 }
 
 /* ---------- temp rules (session-scoped: gone on browser restart) ---------- */

@@ -1,34 +1,51 @@
-import { avatarEl, builtinTile, textColorFor } from '../shared/avatar';
+import { BUILTIN_FILL, paintRoute } from '../shared/colour';
 import { EXIT_IP_PERMS, EXIT_IP_URL, checkExitIp, flagSrc } from '../shared/exitip';
-import { compileRule, overrideFor, pacRequestUrl, resolveRoute, testBypass, testCondition } from '../shared/match';
+import {
+  TraceEdge,
+  compileRule,
+  overrideFor,
+  pacRequestUrl,
+  patternError,
+  resolveRoute,
+  testBypass,
+  testCondition,
+} from '../shared/match';
 import { parseRuleList } from '../shared/rulelist';
 import { Scope, incognitoActiveId } from '../shared/scope';
 import {
   APPLIED_KEY,
   OPEN_PAGE_KEY,
+  OptionsPageRequest,
   POPUP_PORT,
   RELOAD_KEY,
   ReloadRequest,
   TAB_EXIT_KEY,
   TAB_EXIT_RESULT_KEY,
   addTempRule,
+  applyTheme,
   loadConfig,
   loadTempRules,
+  loadUiPrefs,
+  onThemeChanged,
   removeTempRule,
   saveConfig,
 } from '../shared/state';
+import { StripModel, routeStrip } from '../shared/strip';
 import { TabTarget, tabTarget } from '../shared/tabs';
 import { ERROR_KEY, ProxyAlert, asProxyAlert, errorSummaryLine, loadProxyAlert } from '../shared/errors';
 import {
   Config,
   DIRECT,
+  PROFILE_KINDS,
   Profile,
   ProxyProfile,
   RULE_LIST_FORMAT_LABELS,
+  RuleListFormat,
   SCHEME_LABELS,
   SYSTEM,
   SwitchProfile,
   SwitchRule,
+  profileById,
   proxyProfiles,
   uid,
 } from '../shared/types';
@@ -45,14 +62,14 @@ type ActiveTab = TabTarget & { id?: number };
 
 let config: Config;
 let tab: ActiveTab | null = null;
-/** Live proxy failure, if any. Rendered as a topbar icon — never as a banner. */
+/** Live proxy failure, if any. One line under the header — see alertLine. */
 let proxyAlert: ProxyAlert | null = null;
 /**
  * Every override on this window's profile, one per site — all of them, since
  * all of them route. Only the one covering the tab is shown (tabOverride).
  */
 let tempRules: SwitchRule[] = [];
-/** Left-pane profile filter — only surfaced when there are many profiles. */
+/** Switcher filter — only surfaced when there are many profiles. */
 let filterText = '';
 /** Whether this popup was opened from an incognito window (see detectScope). */
 let incognitoWindow = false;
@@ -64,9 +81,9 @@ let incognitoAllowed = false;
 /**
  * The popup speaks for the window it was opened in. In an incognito window with
  * its own profile that is NOT the active one — so every readout below (the
- * detail head, the route, the exit line, the tick in the list) is resolved from
- * here rather than from config.activeId, which describes windows this user
- * isn't looking at.
+ * route strip, the exit line, the tick in the list) is resolved from here
+ * rather than from config.activeId, which describes windows this user isn't
+ * looking at.
  *
  * Null when there is no separate scope: no incognito access, no incognito
  * profile, or a plain regular window. Then the window rides the regular
@@ -87,7 +104,7 @@ function ownScope(): boolean {
 }
 
 /**
- * What the left list ticks. In an incognito window that is the incognito CHOICE
+ * What the list ticks. In an incognito window that is the incognito CHOICE
  * — '' meaning "same as regular windows", which is a row of its own — so the
  * list shows one tick, on the thing a click there would change.
  */
@@ -119,26 +136,7 @@ async function detectScope(): Promise<boolean> {
   }
 }
 
-/**
- * Settings glyph for the popup's two "open options" buttons — a Feather-style
- * horizontal-sliders icon (segmented tracks + ring handles so it reads on any
- * background). Matches the line-icon style used on the options page.
- */
-const SETTINGS_ICON =
-  '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
-  '<line x1="3" y1="6" x2="12.5" y2="6"/><line x1="19.5" y1="6" x2="21" y2="6"/><circle cx="16" cy="6" r="2.5"/>' +
-  '<line x1="3" y1="12" x2="5.5" y2="12"/><line x1="12.5" y1="12" x2="21" y2="12"/><circle cx="9" cy="12" r="2.5"/>' +
-  '<line x1="3" y1="18" x2="10.5" y2="18"/><line x1="17.5" y1="18" x2="21" y2="18"/><circle cx="14" cy="18" r="2.5"/>' +
-  '</svg>';
-
-/** Warning triangle for the proxy-failure indicator. */
-const ALERT_ICON =
-  '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
-  '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>' +
-  '<line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>' +
-  '</svg>';
-
-/* ---- exit-IP check (detail header) ---- */
+/* ---- exit-IP check (the "This tab" section) ---- */
 
 type ExitInfo = { ip: string; iso?: string; country?: string; ms: number };
 type ExitState =
@@ -283,14 +281,14 @@ async function runExitCheck(): Promise<void> {
  * interaction (checks resolve seconds after open) and destroy open dropdowns.
  */
 function updateExitLine(): void {
-  const meta = document.querySelector('.dh-meta');
-  if (!meta) return;
+  const slot = document.querySelector('.here-exit');
+  if (!slot) return;
   // Drop the prior readout. querySelectorAll (not querySelector) so a stack
   // that somehow accumulated gets fully cleared, never leaving a duplicate
   // flag/IP — and never leaving the row taller than the space reserved for it.
-  meta.querySelectorAll(':scope > .exit-line').forEach((n) => n.remove());
+  slot.querySelectorAll(':scope > .exit-line').forEach((n) => n.remove());
   const line = exitLine();
-  if (line) meta.append(line);
+  if (line) slot.append(line);
 }
 
 /** Debounced: the background announces each proxy application; re-check then. */
@@ -307,7 +305,7 @@ async function enableExitCheck(): Promise<void> {
 
 /** The sock earns a wiggle when the route changes. */
 function wiggleSock(): void {
-  const mark = document.querySelector<HTMLElement>('.topbar .mark');
+  const mark = document.querySelector<HTMLElement>('.pop-top .mark');
   if (!mark || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   mark.classList.remove('wiggle');
   void mark.offsetWidth; // restart the animation if one is mid-flight
@@ -341,8 +339,12 @@ function markPopupOpen(): void {
 
 async function init(): Promise<void> {
   markPopupOpen();
-  config = await loadConfig();
-  proxyAlert = await loadProxyAlert();
+  // The theme goes on before the first paint, so a dark popup never opens light.
+  const [loaded, alert, prefs] = await Promise.all([loadConfig(), loadProxyAlert(), loadUiPrefs()]);
+  applyTheme(prefs.theme);
+  onThemeChanged(applyTheme);
+  config = loaded;
+  proxyAlert = alert;
   const scopeKnown = await detectScope();
   try {
     const [active] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
@@ -359,17 +361,22 @@ async function init(): Promise<void> {
   // that scope's, on that scope's profile.
   tempRules = await loadTempRules(scopeActiveId(), scope());
   render();
+  // fitHost measures the host, so it measures again once the face the host is
+  // set in has arrived — fonts.ready alone can resolve before that load starts.
+  void document.fonts.load('600 16px "IBM Plex Mono"').then(() => fitHost(), () => undefined);
+  document.fonts.addEventListener('loadingdone', () => fitHost());
   void maybeCheckExit();
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'session') return;
     if (changes[APPLIED_KEY]) scheduleExitCheck();
     // A failure can start — or stop — while the popup sits open, so the
-    // indicator tracks the alert rather than the moment the popup was opened.
+    // alert line tracks the alert rather than the moment the popup was opened.
     if (changes[ERROR_KEY]) {
       proxyAlert = asProxyAlert(changes[ERROR_KEY].newValue);
-      updateAlertButton();
+      updateAlertLine();
     }
   });
+  document.addEventListener('keydown', onKeydown);
 }
 
 /**
@@ -379,13 +386,23 @@ async function init(): Promise<void> {
  * load-time snapshot (the module-global `config`) would blind-clobber those.
  * `mutate` must locate its target by id in `fresh`; return false to abort the
  * save (e.g. the profile was deleted from another surface meanwhile).
+ *
+ * Commits run one at a time. Two that overlapped would both read the same
+ * stored copy and the second save would drop the first one's change — which a
+ * pattern field committing on blur makes easy: its change event fires on the
+ * very click that picks a profile in the list.
  */
-async function commitConfig(mutate: (fresh: Config) => boolean | void): Promise<boolean> {
-  const fresh = await loadConfig();
-  if (mutate(fresh) === false) return false;
-  await saveConfig(fresh);
-  config = fresh;
-  return true;
+let commitChain: Promise<unknown> = Promise.resolve();
+function commitConfig(mutate: (fresh: Config) => boolean | void): Promise<boolean> {
+  const run = commitChain.then(async () => {
+    const fresh = await loadConfig();
+    if (mutate(fresh) === false) return false;
+    await saveConfig(fresh);
+    config = fresh;
+    return true;
+  });
+  commitChain = run.catch(() => undefined);
+  return run;
 }
 
 /**
@@ -508,74 +525,395 @@ function tempRulesFor(profileId: string): SwitchRule[] {
   return scopeActiveId() === profileId ? tempRules : [];
 }
 
-/* ---- right-pane detail header: the active profile, compact ---- */
+/* ---- rendering ----
+   One 400×600 column: header, the proxy alert (only while one is live), this
+   tab's route as a strip, the controls for this site, the switcher, a footer.
+   Only the switcher scrolls; everything above it holds its height. */
 
-function detailHead(profile: Profile | undefined): HTMLElement {
-  const activeId = scopeActiveId();
-  let tile: HTMLElement;
-  let name: string;
-  let status: string;
-  let tint = 'transparent';
-  let dot: 'on' | 'warn' | 'off' = 'off';
+/** A theme.css mask icon (see the --i-* tokens), painted in currentColor. */
+function icon(name: string, size?: 'sm' | 'lg'): HTMLElement {
+  const node = el('span', { class: `ic${size ? ` ${size}` : ''}` });
+  node.style.setProperty('--i', `var(--i-${name})`);
+  node.setAttribute('aria-hidden', 'true');
+  return node;
+}
 
-  if (activeId === DIRECT) {
-    tile = builtinTile('D', 40);
-    name = 'Direct';
-    status = 'No proxy — your real connection';
-  } else if (activeId === SYSTEM || !profile) {
-    tile = builtinTile('S', 40);
-    name = 'System';
-    status = 'Following OS proxy settings';
-  } else {
-    tile = avatarEl(profile, 40);
-    name = profile.name;
-    status = statusFor(profile);
-    tint = profile.color;
-    dot = profile.kind === 'switch' && tabOverride() ? 'warn' : 'on';
-  }
+/** The colour a route destination is drawn in: a profile's own, or the built-ins' neutral. */
+function routeColour(targetId: string): string {
+  if (targetId === DIRECT || targetId === SYSTEM) return BUILTIN_FILL;
+  return profileById(config, targetId)?.color ?? BUILTIN_FILL;
+}
 
-  const head = el(
-    'div',
-    { class: 'detail-head' },
-    tile,
-    el(
-      'div',
-      { class: 'dh-meta' },
-      el(
-        'div',
-        { class: 'dh-top' },
-        el('div', { class: 'dh-name', title: name }, name),
-        // Says which scope the name above belongs to — without it the head
-        // reads as the browser-wide profile, which in here it is not.
-        ownScope()
-          ? el(
-              'span',
-              {
-                class: 'dh-scope',
-                title: 'This incognito window routes through its own profile. Regular windows keep the active one.',
-              },
-              'incognito'
-            )
-          : null,
-        el('span', { class: `sdot ${dot}` })
-      ),
-      el('div', { class: 'dh-status' }, status),
-      exitLine()
-    )
-  );
-  head.style.setProperty('--tint', tint);
-  return head;
+function routeName(targetId: string): string {
+  if (targetId === DIRECT) return 'Direct';
+  if (targetId === SYSTEM) return 'System';
+  return profileById(config, targetId)?.name ?? 'Direct';
+}
+
+/** A profile's line key — the short length of its own track that names it everywhere. */
+function lineKey(targetId: string): HTMLElement {
+  const key = paintRoute(el('span', { class: `key${targetId === SYSTEM ? ' system' : ''}` }), routeColour(targetId));
+  key.setAttribute('aria-hidden', 'true');
+  return key;
+}
+
+/* ---- the proxy alert ---- */
+
+/**
+ * What a proxy error code means, as the end of a sentence about the server.
+ * Matched on a substring, like errors.ts's advice table, so "net::ERR_…" and a
+ * bare "ERR_…" both land; an unknown code falls back to the code itself.
+ */
+const ALERT_PREDICATES: Array<[string, string]> = [
+  ['ERR_PROXY_CONNECTION_FAILED', 'can’t be reached'],
+  ['ERR_TUNNEL_CONNECTION_FAILED', 'won’t open a tunnel'],
+  ['ERR_PROXY_AUTH_UNSUPPORTED', 'wants a login Chrome can’t send'],
+  ['ERR_PROXY_AUTH_REQUESTED', 'asks for a password'],
+  ['ERR_PROXY_CERTIFICATE_INVALID', 'has a certificate Chrome rejects'],
+  ['ERR_SOCKS_CONNECTION_HOST_UNREACHABLE', 'can’t reach the site'],
+  ['ERR_SOCKS_CONNECTION_FAILED', 'fails the SOCKS handshake'],
+  ['ERR_NAME_NOT_RESOLVED', 'can’t be found'],
+  ['ERR_CONNECTION_TIMED_OUT', 'times out'],
+  ['ERR_TIMED_OUT', 'times out'],
+  ['ERR_CONNECTION_REFUSED', 'refuses connections'],
+  ['ERR_MANDATORY_PROXY_CONFIGURATION_FAILED', 'can’t be used'],
+];
+
+/**
+ * The one server the failure is pinned on, when that is knowable: the route's
+ * only server, or the only one it could have picked. With several candidates
+ * Chrome's error names none of them, and guessing would be worse than saying so.
+ */
+function failingProxyId(a: ProxyAlert): string | undefined {
+  return a.via?.id ?? (a.candidates?.length === 1 ? a.candidates[0]!.id : undefined);
 }
 
 /**
- * A quiet one-line readout under the status: where THIS tab actually exits —
- * "Exit via 🇹🇭 · 203.0.113.42 · 237 ms".
+ * Who the alert is about, named no more precisely than the worker could. With
+ * several candidates the line says "A proxy" — the one line has no room for a
+ * list, and the tooltip and the error log name them all.
+ */
+function alertSubject(a: ProxyAlert, room: 'line' | 'full'): string {
+  const failing = failingProxyId(a);
+  if (failing) return profileById(config, failing)?.name ?? a.via?.name ?? a.candidates?.[0]?.name ?? a.profileName;
+  const c = a.candidates ?? [];
+  if (c.length > 1) {
+    if (room === 'line') return 'A proxy';
+    const names = c.map((x) => x.name);
+    return `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`;
+  }
+  if (a.profileId === SYSTEM) return 'The system proxy';
+  return a.profileName;
+}
+
+/** "Work SOCKS5 refuses connections" — the alert's headline in words. */
+function alertHeadline(a: ProxyAlert, room: 'line' | 'full' = 'line'): string {
+  if (a.source === 'apply') return 'Sockitt couldn’t apply the proxy settings';
+  const code = a.error.toUpperCase();
+  if (code.includes('PAC_SCRIPT_FAILED')) return 'The routing script failed';
+  if (code.includes('PAC_STATUS_NOT_OK')) return 'The routing script didn’t load';
+  const hit = ALERT_PREDICATES.find(([needle]) => code.includes(needle));
+  return hit ? `${alertSubject(a, room)} ${hit[1]}` : `${alertSubject(a, room)}: ${a.error}`;
+}
+
+/**
+ * The live failure, as one line under the header that opens the error log.
+ * It sits in the flow, so its arrival moves what is below it; that is why it
+ * only ever exists while requests are actually failing.
+ */
+function alertLine(): HTMLElement | null {
+  const a = proxyAlert;
+  if (!a) return null;
+  const count = `${a.streak} failed`;
+  const full = alertHeadline(a, 'full');
+  const btn = el(
+    'button',
+    {
+      class: 'alert one',
+      type: 'button',
+      title: `${full} (${errorSummaryLine(a)}) · ${count}. Opens the proxy error log.`,
+      onclick: () => void openErrorPage(),
+    },
+    icon('alert'),
+    el('span', { class: 'alert-text' }, el('b', {}, alertHeadline(a)), ` · ${count}`),
+    icon('chevron', 'sm')
+  );
+  btn.setAttribute('aria-label', `${full}, ${count}. Opens the proxy error log.`);
+  return btn;
+}
+
+/** Open the options page on its Proxy errors panel (see OPEN_PAGE_KEY). */
+function openErrorPage(): Promise<void> {
+  return openOptionsAt('errors');
+}
+
+/** Open the options page and ask it to go somewhere particular when it gets there. */
+async function openOptionsAt(page: OptionsPageRequest): Promise<void> {
+  await chrome.storage.session.set({ [OPEN_PAGE_KEY]: { page, at: Date.now() } }).catch(() => undefined);
+  chrome.runtime.openOptionsPage();
+}
+
+/**
+ * Follow the alert while the popup is open. The line itself is swapped in
+ * place; the strip above the controls is rebuilt too, since a broken line is
+ * part of what it draws. The controls are rebuilt only when nothing in them
+ * holds focus — a failure arrives at its own pace, and must not close a
+ * dropdown the user has open or swallow the pattern they are typing.
+ */
+function updateAlertLine(): void {
+  const slot = app.querySelector('.alert-slot');
+  if (!slot) return;
+  slot.replaceChildren(...[alertLine()].filter((n): n is HTMLElement => n !== null));
+  const here = app.querySelector('.here');
+  if (here) here.replaceWith(hereSection());
+  fitHost();
+  const site = app.querySelector('.site');
+  if (site && !site.contains(document.activeElement)) {
+    const next = siteSection();
+    if (next) site.replaceWith(next);
+  }
+}
+
+/**
+ * How the live alert bears on THIS tab's route. An apply failure or a broken
+ * routing script is not a server a different route could get around, so those
+ * never do. A server the failure is pinned on is that server whichever profile
+ * now routes through it; a set of candidates only means something on the
+ * profile it was worked out for.
+ *
+ * - touches: the tab's route runs through a server the failure may be on.
+ * - broken:  that server is the one it IS on — the strip draws the break.
+ * - presetId: where an override should send the tab instead. Never the failing
+ *   server; when that one is not known, never the tab's own route, which is the
+ *   suspect as far as this tab is concerned.
+ */
+function failureFor(targetId: string): { touches: boolean; broken: boolean; presetId?: string } {
+  const a = proxyAlert;
+  const none = { touches: false, broken: false };
+  if (!a || a.source !== 'proxy' || /PAC_/i.test(a.error)) return none;
+  if (targetId === DIRECT || profileById(config, targetId)?.kind !== 'proxy') return none;
+  const failing = failingProxyId(a);
+  const touches = failing
+    ? failing === targetId
+    : a.profileId === scopeActiveId() && (a.candidates ?? []).some((c) => c.id === targetId);
+  if (!touches) return none;
+  const avoid = failing ?? targetId;
+  const presetId = proxyProfiles(config).find((p) => p.id !== avoid && p.id !== targetId)?.id;
+  return { touches, broken: failing === targetId, presetId };
+}
+
+/* ---- header ---- */
+
+function header(): HTMLElement {
+  // Names the window the popup is speaking for. Only in an incognito window,
+  // where a switcher that looks identical to the regular one changes a
+  // different setting. The markup says "incognito"; CSS capitalises it.
+  const scopeLabel =
+    incognitoWindow && incognitoAllowed
+      ? el(
+          'span',
+          {
+            class: 'dh-scope',
+            title: ownScope()
+              ? 'Incognito window — routed by its own profile. Picking a profile here changes only incognito windows.'
+              : 'Incognito window — following the regular windows’ profile. Picking a profile here changes only incognito windows.',
+          },
+          'incognito'
+        )
+      : null;
+  const options = el(
+    'button',
+    {
+      class: 'btn quiet icon cog',
+      type: 'button',
+      title: 'Options',
+      onclick: () => chrome.runtime.openOptionsPage(),
+      dataset: { focus: 'options' },
+    },
+    icon('sliders', 'lg')
+  );
+  options.setAttribute('aria-label', 'Options');
+  return el(
+    'header',
+    { class: 'pop-top' },
+    el('span', { class: 'brand' }, el('img', { class: 'mark', src: 'img/logo-mark.png', alt: '' }), 'Sockitt'),
+    scopeLabel,
+    el('span', { class: 'grow' }),
+    options
+  );
+}
+
+/* ---- this tab: the host, its route as a strip, why, and where it exits ---- */
+
+interface RouteView {
+  strip: StripModel;
+  why: Array<Node | string>;
+  /** The route's kind in a word: what the rig reads back off `.route-tag`. */
+  tag: string;
+}
+
+const mono = (text: string): HTMLElement => el('span', { class: 'mono' }, text);
+
+/** "All traffic, except <local> and *.intranet" — a proxy's bypass list, briefly. */
+function allTrafficWhy(bypass: string[]): Array<Node | string> {
+  if (!bypass.length) return ['All traffic'];
+  const shown = bypass.slice(0, bypass.length > 3 ? 2 : bypass.length);
+  const rest = bypass.length - shown.length;
+  const out: Array<Node | string> = ['All traffic, except '];
+  shown.forEach((entry, i) => {
+    if (i > 0) out.push(i === shown.length - 1 && !rest ? ' and ' : ', ');
+    out.push(mono(entry));
+  });
+  if (rest) out.push(` and ${rest} more`);
+  return out;
+}
+
+/**
+ * How the active profile routes this tab, for the strip and the sentence under
+ * it. Resolved by the same resolveRoute the PAC is tested against, with its
+ * trace saying which junction decided: the last hop that was not an alias.
+ */
+function routeView(t: ActiveTab): RouteView {
+  const activeId = scopeActiveId();
+  if (activeId === DIRECT) {
+    return {
+      strip: { how: { kind: 'all' }, dest: { name: 'Direct', colour: BUILTIN_FILL }, label: 'This tab connects directly, through no proxy' },
+      why: ['No proxy — this tab connects directly'],
+      tag: 'no proxy',
+    };
+  }
+  const profile = profileById(config, activeId);
+  if (activeId === SYSTEM || !profile) {
+    return {
+      strip: {
+        how: { kind: 'all' },
+        dest: { name: 'System', colour: BUILTIN_FILL, system: true },
+        label: 'Your operating system’s proxy settings route this tab',
+      },
+      why: ['Your operating system’s proxy settings decide'],
+      tag: 'OS settings',
+    };
+  }
+
+  const trace: TraceEdge[] = [];
+  const route = resolveRoute(config, profile, pacRequestUrl(t.url), t.host, tempRules, new Date(), trace);
+  const decided = [...trace].reverse().find((e) => e.kind !== 'alias');
+  const destId = route.bypassed ? DIRECT : route.targetId;
+  const failure = route.bypassed ? { broken: false } : failureFor(route.targetId);
+  const dest = { name: routeName(destId), colour: routeColour(destId) };
+  const failingNote = failure.broken ? `, which is failing` : '';
+
+  if (route.bypassed) {
+    const via = profileById(config, route.targetId);
+    const viaName = via?.name ?? 'The proxy';
+    return {
+      strip: {
+        how: { kind: 'bypass', viaColour: routeColour(route.targetId) },
+        dest,
+        label: `${viaName}’s bypass list sends this site direct`,
+      },
+      why: [`On ${viaName}’s bypass list, so it goes direct`],
+      tag: 'bypass',
+    };
+  }
+
+  if (!decided) {
+    // Nothing chose: a plain proxy, or an alias straight onto one.
+    const isAlias = profile.kind === 'virtual';
+    const target = profileById(config, route.targetId);
+    return {
+      strip: {
+        how: { kind: 'all' },
+        dest,
+        broken: failure.broken,
+        label: route.targetId === DIRECT ? 'This tab connects directly' : `All traffic goes through ${dest.name}${failingNote}`,
+      },
+      why: isAlias
+        ? [`Through ${profile.name}, an alias for ${dest.name}`]
+        : target?.kind === 'proxy'
+          ? allTrafficWhy(target.bypass)
+          : ['All traffic'],
+      tag: isAlias ? 'alias' : 'all traffic',
+    };
+  }
+
+  const owner = profileById(config, decided.from);
+  const ownerName = owner?.name ?? profile.name;
+  switch (decided.kind) {
+    case 'temp-rule':
+      return {
+        strip: {
+          how: { kind: 'override' },
+          dest,
+          broken: failure.broken,
+          label: `An override sends this site to ${dest.name} before any rule is tried${failingNote}`,
+        },
+        why: ['Overridden for this site until the browser restarts'],
+        tag: 'override',
+      };
+    case 'rule': {
+      const rules = owner?.kind === 'switch' ? owner.rules : [];
+      let index = rules.findIndex((r) => r.id === route.ruleId);
+      if (index < 0) index = rules.findIndex((r) => r.enabled && r.pattern === decided.pattern && r.type === decided.ruleType);
+      const n = index + 1;
+      const label = n > 0 ? String(n) : '·';
+      return {
+        strip: {
+          how: { kind: 'rule', label },
+          dest,
+          broken: failure.broken,
+          label: `Rule ${label} in ${ownerName} sends this tab to ${dest.name}${failingNote}`,
+        },
+        why: [`Rule ${label}, `, mono(decided.pattern ?? ''), `, in ${ownerName}`],
+        tag: 'rule',
+      };
+    }
+    case 'default':
+      return {
+        strip: {
+          how: { kind: 'default' },
+          dest,
+          broken: failure.broken,
+          label: `No rule matched, so ${ownerName}’s default sends this tab to ${dest.name}${failingNote}`,
+        },
+        why: [owner && owner.id !== profile.id ? `No rule in ${ownerName} matched — its default route` : 'No rule matched — the default route'],
+        tag: 'default',
+      };
+    case 'list-match':
+      return {
+        strip: {
+          how: { kind: 'all' },
+          dest,
+          broken: failure.broken,
+          label: `Listed in ${ownerName}, so this tab goes to ${dest.name}${failingNote}`,
+        },
+        why: [`Listed in ${ownerName}`],
+        tag: 'rule list',
+      };
+    case 'list-default':
+    default:
+      return {
+        strip: {
+          how: { kind: 'default' },
+          dest,
+          broken: failure.broken,
+          label: `Not listed in ${ownerName}, so its default sends this tab to ${dest.name}${failingNote}`,
+        },
+        why: [`Not listed in ${ownerName} — the default route`],
+        tag: 'rule list',
+      };
+  }
+}
+
+/**
+ * A quiet one-line readout under the route: where THIS tab actually exits —
+ * "Exits from 🇳🇱 198.51.100.24 · 41 ms".
  *
  * Every phase renders exactly one line, and the line exists from the first
  * paint (empty while idle) whenever the setting is on. The check resolves a
  * second or two after the popup opens, so a line that appeared — or grew from
- * one row to two — at that moment would shove the whole card down under the
- * user's cursor mid-click. The fixed height in CSS is what holds the space.
+ * one row to two — at that moment would shove everything below it down under
+ * the user's cursor mid-click. The fixed height in CSS is what holds the space.
  */
 function exitLine(): HTMLElement | null {
   if (!config.settings.exitIpCheck) return null;
@@ -590,11 +928,10 @@ function exitLine(): HTMLElement | null {
         // doesn't read flags, or reads the page with a screen reader.
         title: `This tab exits via ${info.ip}${info.country ? ` · ${info.country}` : ''}`,
       },
-      el('span', { class: 'exit-lead' }, 'Exit via'),
-      src ? el('img', { class: 'exit-flag', src, alt: info.country ?? '', width: 20, height: 15 }) : null,
-      // The leading separator belongs to the flag — without one, the line would
-      // open on a stray "· ".
-      el('span', { class: 'exit-ip' }, `${src ? '· ' : ''}${info.ip} · ${info.ms} ms`)
+      el('span', { class: 'exit-lead' }, 'Exits from'),
+      src ? el('img', { class: 'flag', src, alt: info.country ?? '', width: 18, height: 13 }) : null,
+      el('span', { class: 'mono exit-ip' }, info.ip),
+      el('span', { class: 'exit-ms' }, `· ${info.ms} ms`)
     );
   };
   switch (exit.phase) {
@@ -603,15 +940,19 @@ function exitLine(): HTMLElement | null {
       return el('span', { class: 'exit-line' });
     case 'no-perm':
       return el(
-        'button',
-        { class: 'exit-line exit-enable', onclick: () => void enableExitCheck() },
-        'Show where this tab exits…'
+        'span',
+        { class: 'exit-line' },
+        el(
+          'button',
+          { class: 'linklike exit-enable', type: 'button', onclick: () => void enableExitCheck(), dataset: { focus: 'exit-enable' } },
+          'Show where this tab exits…'
+        )
       );
     case 'off-scope':
       return el(
         'span',
         {
-          class: 'exit-line dim',
+          class: 'exit-line',
           title:
             'Sockitt can only measure the exit IP of regular windows. This window is on the incognito profile, which Chrome keeps separate — the reading would be the regular route’s, not this one’s.',
         },
@@ -619,55 +960,89 @@ function exitLine(): HTMLElement | null {
       );
     case 'checking':
       // Keep the last good reading visible (dimmed) instead of blanking.
-      return lastExit
-        ? okLine(lastExit, true)
-        : el('span', { class: 'exit-line' }, 'Checking where this tab exits…');
+      return lastExit ? okLine(lastExit, true) : el('span', { class: 'exit-line' }, 'Checking where this tab exits…');
     case 'ok':
       return okLine(exit, false);
     case 'error':
-      return el('span', { class: 'exit-line err', title: exit.message }, 'Exit check failed');
+      return el('span', { class: 'exit-line err', title: exit.message }, el('span', { class: 'st bad' }, 'Exit check failed'));
   }
 }
-
-/* ---- profile rows (left switcher) ---- */
-
-function profileRow(
-  id: string,
-  tile: HTMLElement,
-  name: string,
-  sub: string,
-  color?: string
-): HTMLElement {
-  const active = selectedId() === id;
-  const row = el(
-    'button',
-    { class: `row${active ? ' active' : ''}`, onclick: () => setActive(id) },
-    tile,
-    el(
-      'span',
-      { class: 'meta' },
-      el('span', { class: 'title' }, name),
-      el('span', { class: 'sub' }, sub)
-    ),
-    active ? el('span', { class: 'check', innerHTML: '&#10003;' }) : null
-  );
-  row.setAttribute('aria-pressed', String(active));
-  if (color) {
-    row.style.setProperty('--row-color', color);
-    row.style.setProperty('--row-ink', textColorFor(color));
-  }
-  return row;
-}
-
-/* ---- shared bits for the "this tab" region ---- */
 
 /**
- * The click handler for a per-site button, which render() replaces with its
- * opposite in the same place: ✕ and Set swap, and so do ✕ and Add rule. The
- * second click of a double-click lands on the replacement and undoes the first.
- * Removing an override and then setting a new one through whatever the fresh
- * select defaults to is a silent reroute, so a repeat click (detail > 1) is
- * dropped. Keyboard activation reports detail 0 and always goes through.
+ * The host this section is about, and the route its requests take. When the
+ * host comes from a navigation still in flight it says so — otherwise this
+ * would look like a readout of the page on screen, which is precisely what it
+ * is not.
+ */
+function hereSection(): HTMLElement {
+  const section = el('section', { class: 'here' });
+  section.setAttribute('aria-label', 'This tab');
+  const t = tab;
+  const label = t?.pending
+    ? el(
+        'span',
+        {
+          class: 't-label here-state',
+          title:
+            'This page has not loaded yet — the site is the one the tab is trying to open, so you can route it without waiting for it to give up.',
+        },
+        icon('clock', 'sm'),
+        'Loading'
+      )
+    : el('span', { class: 't-label' }, 'This tab');
+  section.append(
+    el(
+      'div',
+      { class: 'here-host' },
+      t ? el('span', { class: 'h', title: t.host }, t.host) : el('span', { class: 'h none' }, '—'),
+      label
+    )
+  );
+  if (!t) {
+    section.append(el('p', { class: 'here-why' }, 'No web page here. Sockitt routes http(s) sites only.'));
+  } else {
+    const view = routeView(t);
+    const why = el('p', { class: 'here-why' }, ...view.why);
+    // Clamped to two lines (CSS); the tooltip keeps the rest.
+    if ((why.textContent ?? '').length > 80) why.title = why.textContent ?? '';
+    section.append(
+      routeStrip(view.strip),
+      why,
+      // The route's kind as one word, for the rig; the sentence above says it
+      // to everyone else, so this one stays out of the page and the a11y tree.
+      el('span', { class: 'route-tag', hidden: true }, view.tag)
+    );
+  }
+  if (config.settings.exitIpCheck) section.append(el('div', { class: 'here-exit' }, exitLine()));
+  return section;
+}
+
+/**
+ * A long host steps down a size or two before it is cut — the long ones are
+ * exactly the internal names someone opens the popup to route. Past that it
+ * loses its head, never its tail (CSS). Measured, so it runs after layout,
+ * and again once the bundled face has loaded.
+ */
+function fitHost(): void {
+  const h = app.querySelector<HTMLElement>('.here-host .h');
+  if (!h) return;
+  h.classList.remove('long', 'longer');
+  for (const size of ['long', 'longer']) {
+    if (h.scrollWidth <= h.clientWidth) return;
+    h.classList.remove('long');
+    h.classList.add(size);
+  }
+}
+
+/* ---- for this site: the controls ---- */
+
+/**
+ * The click handler for a per-site button, which render() replaces with
+ * something else in the same place: End and the rule's ✕ trade places, and so
+ * do ✕ and Add rule. The second click of a double-click lands on the
+ * replacement and undoes the first, or deletes a rule nobody meant to touch, so
+ * a repeat click (detail > 1) is dropped. Keyboard activation reports detail 0
+ * and always goes through.
  */
 function singleClick(fn: () => Promise<void>): (e: MouseEvent) => void {
   return (e) => {
@@ -681,304 +1056,218 @@ function matchedRuleFor(profile: SwitchProfile, url: string, host: string): Swit
   return profile.rules.find((r) => r.enabled && testCondition(compileRule(r), url, host));
 }
 
-/** A target picker: Direct + proxies, plus the current value if it's some other profile. */
-function siteTargetSelect(current: string, onChange: (v: string) => void): HTMLSelectElement {
-  const select = el('select', { class: 'input sm' }) as HTMLSelectElement;
-  select.append(el('option', { value: DIRECT }, 'Direct'));
-  const proxies = proxyProfiles(config);
-  for (const p of proxies) select.append(el('option', { value: p.id }, p.name));
-  if (current !== DIRECT && !proxies.some((p) => p.id === current)) {
-    const cp = config.profiles.find((p) => p.id === current);
-    if (cp) select.append(el('option', { value: current }, cp.name));
+/**
+ * A route picker with the chosen route's line key inside it: proxies, then
+ * Direct, plus the current value if it is some other profile. `placeholder`
+ * opens it on an empty first choice, and `exclude` leaves out the route the
+ * site is already on — overriding a site onto its own route changes nothing.
+ */
+function routeSelect(opts: {
+  value: string;
+  label: string;
+  focusKey: string;
+  placeholder?: string;
+  exclude?: string;
+  onChange?: (v: string) => void;
+}): { wrap: HTMLElement; select: HTMLSelectElement } {
+  const select = el('select', { class: 'input', dataset: { focus: opts.focusKey } }) as HTMLSelectElement;
+  select.setAttribute('aria-label', opts.label);
+  if (opts.placeholder) select.append(el('option', { value: '' }, opts.placeholder));
+  const ids = [...proxyProfiles(config).map((p) => p.id), DIRECT];
+  if (opts.value && !ids.includes(opts.value) && profileById(config, opts.value)) ids.push(opts.value);
+  for (const id of ids) {
+    if (id === opts.exclude && id !== opts.value) continue;
+    select.append(el('option', { value: id }, routeName(id)));
   }
-  select.value = [...select.options].some((o) => o.value === current) ? current : DIRECT;
-  select.onchange = () => onChange(select.value);
-  return select;
+  select.value = [...select.options].some((o) => o.value === opts.value) ? opts.value : (select.options[0]?.value ?? '');
+  const wrap = el('span', { class: 'via' }, select);
+  const paintKey = (): void => {
+    wrap.querySelector(':scope > .key')?.remove();
+    wrap.classList.toggle('keyed', select.value !== '');
+    if (select.value) wrap.prepend(lineKey(select.value));
+  };
+  paintKey();
+  select.onchange = () => {
+    paintKey();
+    opts.onChange?.(select.value);
+  };
+  return { wrap, select };
 }
 
-function targetChip(targetId: string, size: number): { tile: HTMLElement; name: string } {
-  if (targetId === DIRECT) return { tile: builtinTile('D', size), name: 'Direct' };
-  const p = config.profiles.find((x) => x.id === targetId);
-  return p ? { tile: avatarEl(p, size), name: p.name } : { tile: builtinTile('D', size), name: 'Direct' };
+/** Open a select's list — the answer to pressing Set before choosing a route. */
+function openPicker(select: HTMLSelectElement): void {
+  select.focus();
+  try {
+    select.showPicker();
+  } catch {
+    // No picker API, or no user activation left: focus alone says where to go.
+  }
 }
 
 /**
- * The host the rest of the right pane is about. When that host comes from a
- * navigation still in flight, a pill says so — otherwise the card would look
- * like a readout of the page on screen, which is precisely what it is not.
+ * "Set & reload" must reload, whatever "reload on switch" says: the page in
+ * front of the user is the one that just failed. A request that names the tab
+ * and its URL is honoured unconditionally by the worker (the same path a page
+ * still loading takes); requestTabReload, which runs after this, only ever
+ * replaces it with an equivalent reload.
  */
-function thisTabHead(target: ActiveTab | null): HTMLElement {
-  return el(
-    'div',
-    { class: 'this-site-head' },
-    el(
-      'span',
-      { class: 'ts-label' },
-      'This tab',
-      target?.pending
-        ? el(
-            'span',
-            {
-              class: 'ts-state',
-              title:
-                'This page has not loaded yet — the site below is the one the tab is trying to open, so you can route it without waiting for it to give up.',
-            },
-            'loading'
-          )
-        : null
-    ),
-    target
-      ? el('span', { class: 'ts-host', title: target.host }, target.host)
-      : el('span', { class: 'ts-host muted' }, '—')
-  );
+async function requestTabRetry(): Promise<void> {
+  if (!tab) return;
+  const request: ReloadRequest = { at: Date.now(), tabId: tab.id, url: tab.url };
+  await chrome.storage.session.set({ [RELOAD_KEY]: request });
 }
 
-/** One readout field: either a route chip (tile + name + tag) or a plain sentence. */
-function routeField(
-  via: { tile: HTMLElement; name: string; tag: string } | null,
-  sentence: string | null
-): HTMLElement {
-  return via
-    ? el(
-        'div',
-        { class: 'sm-field route' },
-        el('span', { class: 'sm-label' }, 'Route'),
-        el(
-          'span',
-          { class: 'route-val' },
-          via.tile,
-          el('span', { class: 'route-name', title: via.name }, via.name),
-          el('span', { class: 'route-tag' }, via.tag)
-        )
-      )
-    : el(
-        'div',
-        { class: 'sm-field' },
-        el('div', { class: 'sm-lead' }, el('span', { class: 'sm-label' }, 'Route')),
-        el('div', { class: 'route-sentence' }, sentence ?? '')
-      );
+function siteLine(cls: string, label: HTMLElement, ...rest: Array<Node | null>): HTMLElement {
+  return el('div', { class: `site-line sm-field${cls ? ` ${cls}` : ''}` }, label, ...rest);
 }
 
-/** A one-field readout card. */
-function routeReadout(
-  via: { tile: HTMLElement; name: string; tag: string } | null,
-  sentence: string | null
-): HTMLElement {
-  return el('div', { class: 'card site-mgr' }, routeField(via, sentence));
-}
+const lab = (text: string, forId?: string): HTMLElement =>
+  forId ? el('label', { class: 't-label', htmlFor: forId }, text) : el('span', { class: 't-label' }, text);
 
 /**
- * Plain-proxy per-site control: send THIS host straight to the network via
- * profile.bypass. Detection uses the real bypass resolver (testBypass) so it
- * never contradicts the Route readout — three states: a removable entry this
- * control added, an already-Direct note when a broader bypass rule covers the
- * host, or the add button.
+ * The per-site controls of an Auto switch profile: the rule this site matches
+ * (or one to add), and the override — always temporary, one per site, and
+ * first in line ahead of every rule while it lasts.
  */
-function proxyBypassControl(profile: ProxyProfile, host: string, matchUrl: string): HTMLElement {
-  const entry = `*.${host}`;
-  const bypass = profile.bypass ?? [];
-  const lead = el('div', { class: 'sm-lead' }, el('span', { class: 'sm-label' }, 'This site'));
-  const literalIdx = bypass.findIndex((e) => e === entry || e === host);
-
-  // Sent direct by an entry this control added — show the real stored entry and let it be removed.
-  if (literalIdx >= 0) {
-    const stored = bypass[literalIdx]!;
-    return el(
-      'div',
-      { class: 'sm-field override set' },
-      lead,
-      el(
-        'div',
-        { class: 'sm-ctl' },
-        el(
-          'span',
-          { class: 'ov-chip' },
-          el('span', { class: 'mono', title: stored }, stored),
-          el('span', { class: 'ov-arrow', innerHTML: '&#8594; Direct' })
-        ),
-        el('button', {
-          class: 'btn ghost icon ov-remove',
-          title: 'Stop sending this site direct',
-          innerHTML: '&#10005;',
-          onclick: singleClick(async () => {
-            // Same as the rule/override controls: this changes how the site
-            // routes, so the page should re-fetch over the new route (and a page
-            // that never loaded is re-requested outright).
-            await requestTabReload();
-            const ok = await commitConfig((fresh) => {
-              const p = fresh.profiles.find((x) => x.id === profile.id);
-              if (!p || p.kind !== 'proxy') return false;
-              p.bypass = p.bypass.filter((e) => e !== stored);
-            });
-            if (!ok) return;
-            toast('Bypass removed');
-            render();
-            scheduleExitCheck();
-          }),
-        })
-      )
-    );
-  }
-
-  // Already Direct via a broader bypass entry (<local>, a parent wildcard, a CIDR block…) — read only.
-  if (testBypass(bypass, matchUrl, host)) {
-    return el(
-      'div',
-      { class: 'sm-field' },
-      lead,
-      el('div', { class: 'route-sentence' }, 'Already sent direct by this proxy’s bypass list — edit it in Options.')
-    );
-  }
-
-  // Not bypassed — offer to add it.
-  return el(
-    'div',
-    { class: 'sm-field' },
-    lead,
-    el(
-      'div',
-      { class: 'sm-ctl' },
-      el(
-        'button',
-        {
-          class: 'btn sm',
-          title: `Send ${host} straight to the network, past this proxy`,
-          onclick: singleClick(async () => {
-            await requestTabReload();
-            const ok = await commitConfig((fresh) => {
-              const p = fresh.profiles.find((x) => x.id === profile.id);
-              if (!p || p.kind !== 'proxy') return false;
-              p.bypass = [...p.bypass, entry];
-            });
-            if (!ok) return;
-            toast(`Bypassing ${host}`);
-            render();
-            scheduleExitCheck();
-          }),
-        },
-        'Send this site direct'
-      )
-    )
-  );
-}
-
-/**
- * The editable per-site card, shown only when an Auto switch profile is active:
- * a hairline-divided field group — route readout, the matching rule, override.
- */
-function siteRuleCard(active: SwitchProfile): HTMLElement {
-  const matchUrl = pacRequestUrl(tab!.url);
+function switchSiteLines(active: SwitchProfile, t: ActiveTab): HTMLElement[] {
+  const matchUrl = pacRequestUrl(t.url);
   // The page hasn't loaded, so every change here ends in "…and try it again";
   // the buttons say so rather than leaving the user to guess and hit reload.
-  const pending = tab!.pending;
-  // Only an override covering THIS site belongs here, and only it marks the
-  // rule overridden; the ones set on other sites stay on those sites.
+  const pending = t.pending;
+  // Only an override covering THIS site belongs here, and only it pauses the
+  // rule; the ones set on other sites stay on those sites.
   const override = tabOverride();
-  const overridesThisSite = override !== undefined;
+  const route = resolveRoute(config, active, matchUrl, t.host, tempRules);
+  const currentKey = routeKey(route);
 
-  /** The quick "*.currenthost → target" rule both blocks below create. */
+  /** The quick "*.currenthost → target" rule both rows below create. */
   const siteRule = (targetId: string): SwitchRule => ({
     id: uid(),
     enabled: true,
     type: 'hostWildcard',
-    pattern: `*.${tab!.host}`,
+    pattern: `*.${t.host}`,
     targetId,
   });
 
-  /* --- route field --- */
-  const route = resolveRoute(config, active, matchUrl, tab!.host, tempRules);
-  const via = route.bypassed
-    ? { tile: builtinTile('D', 20), name: 'Direct (bypass)' }
-    : targetChip(route.targetId, 20);
-  let tag: string;
-  if (route.bypassed) tag = 'bypass';
-  else if (override && route.ruleId === override.id) tag = 'override';
-  else if (route.ruleId) tag = 'rule';
-  else tag = 'default';
-  const routeField = el(
-    'div',
-    { class: 'sm-field route' },
-    el('span', { class: 'sm-label' }, 'Route'),
-    el(
-      'span',
-      { class: 'route-val' },
-      via.tile,
-      el('span', { class: 'route-name', title: via.name }, via.name),
-      // An override is the one temporary answer here, so the conclusion carries
-      // the same amber the OVERRIDE band below it does.
-      el('span', { class: `route-tag${tag === 'override' ? ' temp' : ''}` }, tag)
-    )
-  );
-
-  /* --- rule field: edit the matching rule or add one; greyed while overridden --- */
-  const matched = matchedRuleFor(active, matchUrl, tab!.host);
-  let ruleField: HTMLElement;
-  if (matched) {
-    const sel = siteTargetSelect(matched.targetId, async (v) => {
+  /* --- the rule row: edit the matching rule or add one; paused while overridden --- */
+  const matched = matchedRuleFor(active, matchUrl, t.host);
+  const n = matched ? active.rules.indexOf(matched) + 1 : 0;
+  let ruleLine: HTMLElement;
+  if (override) {
+    // Nothing here routes while the override stands, so nothing here is a control.
+    const text = matched
+      ? [mono(matched.pattern), ` to ${routeName(matched.targetId)}, paused`]
+      : [`Default route to ${routeName(active.defaultTargetId)}, paused`];
+    ruleLine = siteLine('greyed', lab(matched ? `Rule ${n}` : 'No rule'), el('p', { class: 'site-held' }, ...text));
+  } else if (matched) {
+    const pattern = el('input', {
+      class: 'input mono qf',
+      type: 'text',
+      id: 'site-pat',
+      value: matched.pattern,
+      spellcheck: false,
+      title: matched.pattern,
+      dataset: { focus: 'rule-pattern' },
+    });
+    pattern.setAttribute('autocomplete', 'off');
+    // Committed on change — Enter, or leaving the field — like a cell in the
+    // options page's rule table. An invalid pattern stays in the field, marked,
+    // and is not saved.
+    pattern.onchange = async () => {
+      const next = pattern.value.trim();
+      if (!next || next === matched.pattern) {
+        pattern.value = matched.pattern;
+        pattern.classList.remove('invalid');
+        return;
+      }
+      const problem = patternError({ type: matched.type, pattern: next });
+      pattern.classList.toggle('invalid', problem !== null);
+      if (problem) {
+        pattern.title = problem;
+        toast(problem, 2600);
+        return;
+      }
       await requestTabReload();
       const ok = await commitConfig((fresh) => {
         const p = fresh.profiles.find((x) => x.id === active.id);
         if (!p || p.kind !== 'switch') return false;
         const r = p.rules.find((x) => x.id === matched.id);
         if (!r) return false;
-        r.targetId = v;
+        r.pattern = next;
       });
       if (ok) {
+        toast('Rule updated');
         render();
         scheduleExitCheck();
       }
-    });
-    sel.disabled = overridesThisSite;
-    // Deleting is permanent — the rule may cover more than this one site, so the
-    // tooltip names the pattern that goes, not just "this site". Matches how a
-    // rule is deleted in Options: a plain ✕, no confirmation.
-    const del = el('button', {
-      class: 'btn ghost icon ov-remove',
-      title: `Delete this rule (${matched.pattern})`,
-      innerHTML: '&#10005;',
-      disabled: overridesThisSite,
-      onclick: singleClick(async () => {
+    };
+    const target = routeSelect({
+      value: matched.targetId,
+      label: `Rule ${n} routes via`,
+      focusKey: 'rule-target',
+      onChange: async (v) => {
         await requestTabReload();
         const ok = await commitConfig((fresh) => {
           const p = fresh.profiles.find((x) => x.id === active.id);
           if (!p || p.kind !== 'switch') return false;
-          const before = p.rules.length;
-          p.rules = p.rules.filter((r) => r.id !== matched.id);
-          return p.rules.length !== before; // already deleted elsewhere — no save
+          const r = p.rules.find((x) => x.id === matched.id);
+          if (!r) return false;
+          r.targetId = v;
         });
         if (ok) {
-          toast('Rule deleted');
           render();
           scheduleExitCheck();
         }
-      }),
+      },
     });
-    del.setAttribute('aria-label', `Delete the rule ${matched.pattern}`);
-    ruleField = el(
-      'div',
-      { class: `sm-field${overridesThisSite ? ' greyed' : ''}` },
-      el('div', { class: 'sm-lead' }, el('span', { class: 'sm-label' }, 'Rule for this site')),
-      el(
-        'div',
-        { class: 'sm-ctl' },
-        el('span', { class: 'sm-pattern', title: matched.pattern }, matched.pattern),
-        sel,
-        del
-      )
+    // Deleting is permanent — the rule may cover more than this one site, so the
+    // name says which pattern goes, not just "this site". Matches how a rule is
+    // deleted in Options: a plain ✕, no confirmation.
+    const del = el(
+      'button',
+      {
+        class: 'btn quiet icon ov-remove',
+        type: 'button',
+        title: `Delete rule ${n} (${matched.pattern})`,
+        dataset: { focus: 'rule-delete' },
+        onclick: singleClick(async () => {
+          await requestTabReload();
+          const ok = await commitConfig((fresh) => {
+            const p = fresh.profiles.find((x) => x.id === active.id);
+            if (!p || p.kind !== 'switch') return false;
+            const before = p.rules.length;
+            p.rules = p.rules.filter((r) => r.id !== matched.id);
+            return p.rules.length !== before; // already deleted elsewhere — no save
+          });
+          if (ok) {
+            toast('Rule deleted');
+            render();
+            scheduleExitCheck();
+          }
+        }),
+      },
+      icon('x')
     );
+    del.setAttribute('aria-label', `Delete rule ${n}, ${matched.pattern}`);
+    pattern.setAttribute('aria-label', `Rule ${n} pattern`);
+    ruleLine = siteLine('', lab(`Rule ${n}`, 'site-pat'), el('div', { class: 'site-ctl' }, pattern, target.wrap), del);
   } else {
-    const sel = siteTargetSelect(proxyProfiles(config)[0]?.id ?? DIRECT, () => undefined);
-    sel.disabled = overridesThisSite;
+    const target = routeSelect({
+      value: proxyProfiles(config)[0]?.id ?? DIRECT,
+      label: `New rule for *.${t.host} routes via`,
+      focusKey: 'rule-target',
+    });
     const add = el(
       'button',
       {
         class: 'btn sm',
-        disabled: overridesThisSite,
+        type: 'button',
         title: pending
-          ? `Add a rule routing *.${tab!.host} and request the page again over it`
-          : `Add a rule routing *.${tab!.host}`,
+          ? `Add a rule routing *.${t.host} and request the page again over it`
+          : `Add a rule routing *.${t.host}`,
+        dataset: { focus: 'rule-add' },
         onclick: singleClick(async () => {
-          const rule = siteRule(sel.value);
+          const rule = siteRule(target.select.value);
           await requestTabReload();
           const ok = await commitConfig((fresh) => {
             const p = fresh.profiles.find((x) => x.id === active.id);
@@ -995,290 +1284,277 @@ function siteRuleCard(active: SwitchProfile): HTMLElement {
       },
       pending ? 'Add & retry' : 'Add rule'
     );
-    ruleField = el(
-      'div',
-      { class: `sm-field${overridesThisSite ? ' greyed' : ''}` },
-      el(
-        'div',
-        { class: 'sm-lead' },
-        el('span', { class: 'sm-label' }, 'No rule for this site'),
-        el('span', { class: 'sm-note' }, 'routes via default')
-      ),
-      el('div', { class: 'sm-ctl' }, sel, add)
+    // What the new rule would match, as a caption under the picker: inline, the
+    // row has no room left for a real host once the picker and button are in.
+    ruleLine = siteLine(
+      'no-rule',
+      lab('No rule'),
+      el('div', { class: 'site-ctl' }, target.wrap),
+      add,
+      el('p', { class: 'site-cap', title: `A new rule would match *.${t.host}` }, 'for ', mono(`*.${t.host}`))
     );
   }
 
-  /* --- override field: always temporary, one per site, deletable --- */
-  const overrideLead = el(
-    'div',
-    { class: 'sm-lead' },
-    el('span', { class: 'sm-label temp' }, 'Override'),
-    el('span', { class: 'sm-note' }, 'temporary · until restart')
-  );
-  let overrideField: HTMLElement;
+  /* --- the override row --- */
+  let overrideLine: HTMLElement;
   if (override) {
-    const chip = targetChip(override.targetId, 18);
-    overrideField = el(
-      'div',
-      { class: 'sm-field override set' },
-      overrideLead,
+    const end = el(
+      'button',
+      {
+        class: 'btn sm ov-remove ov-end',
+        type: 'button',
+        title: 'End this override; the rules route this site again',
+        dataset: { focus: 'ov-end' },
+        onclick: singleClick(async () => {
+          await removeOverride(active.id, override.id);
+          toast('Override removed');
+          render();
+        }),
+      },
+      'End'
+    );
+    end.setAttribute('aria-label', `End the override for ${override.pattern}`);
+    overrideLine = siteLine(
+      'override set',
+      lab('Override'),
       el(
-        'div',
-        { class: 'sm-ctl' },
-        el(
-          'span',
-          { class: 'ov-chip' },
-          chip.tile,
-          el('span', { class: 'mono', title: override.pattern }, override.pattern),
-          el('span', { class: 'ov-arrow', innerHTML: '&#8594;' }),
-          el('span', { class: 'ov-target' }, chip.name)
-        ),
-        el('button', {
-          class: 'btn ghost icon ov-remove',
-          title: 'Remove override',
-          innerHTML: '&#10005;',
-          onclick: singleClick(async () => {
-            await removeOverride(active.id, override.id);
-            toast('Override removed');
-            render();
-          }),
-        })
-      )
+        'p',
+        { class: 'ov-chip' },
+        el('span', { class: 'mono', title: override.pattern }, override.pattern),
+        icon('arrow', 'sm'),
+        lineKey(override.targetId),
+        el('b', { title: routeName(override.targetId) }, routeName(override.targetId))
+      ),
+      end
     );
   } else {
-    const sel = siteTargetSelect(proxyProfiles(config)[0]?.id ?? DIRECT, () => undefined);
-    overrideField = el(
-      'div',
-      { class: 'sm-field override' },
-      overrideLead,
-      el(
-        'div',
-        { class: 'sm-ctl' },
-        sel,
-        el(
-          'button',
-          {
-            class: 'btn sm',
-            title: pending
-              ? `Temporarily route *.${tab!.host} until the browser restarts, and request the page again over it`
-              : `Temporarily route *.${tab!.host} until the browser restarts`,
-            onclick: singleClick(async () => {
-              await setOverride(active.id, siteRule(sel.value));
-              toast(pending ? 'Override set — retrying' : 'Override set');
-              render();
-            }),
-          },
-          pending ? 'Set & retry' : 'Set'
-        )
-      )
+    // While the proxy carrying this tab is failing, the override is the fix:
+    // a working route chosen for the user, and the one ink button in view.
+    const failure = failureFor(route.bypassed ? DIRECT : route.targetId);
+    const fix = failure.touches && failure.presetId !== undefined;
+    const picker = routeSelect({
+      value: fix ? failure.presetId! : '',
+      label: 'Override this site until the browser restarts, via',
+      focusKey: 'ov-select',
+      placeholder: fix ? undefined : 'Until restart: choose a route',
+      exclude: currentKey,
+    });
+    picker.select.id = 'site-ovr';
+    const set = el(
+      'button',
+      {
+        class: `btn sm ov-set${fix ? ' primary' : ''}`,
+        type: 'button',
+        title: pending
+          ? `Route *.${t.host} this way until the browser restarts, and request the page again over it`
+          : fix
+            ? `Route *.${t.host} this way until the browser restarts, and reload the page over it`
+            : `Route *.${t.host} this way until the browser restarts`,
+        dataset: { focus: 'ov-set' },
+        onclick: singleClick(async () => {
+          const targetId = picker.select.value;
+          // Nothing chosen yet: a Set that routed the site through whichever
+          // proxy happened to be listed first would be a silent reroute.
+          if (!targetId) {
+            openPicker(picker.select);
+            return;
+          }
+          if (fix && !pending) await requestTabRetry();
+          await setOverride(active.id, siteRule(targetId));
+          toast(pending ? 'Override set — retrying' : fix ? 'Override set — reloading' : 'Override set');
+          render();
+        }),
+      },
+      pending ? 'Set & retry' : fix ? 'Set & reload' : 'Set'
+    );
+    overrideLine = siteLine('override', lab('Override', 'site-ovr'), el('div', { class: 'site-ctl' }, picker.wrap), set);
+  }
+
+  // The route in force comes first: the override while there is one.
+  return override ? [overrideLine, ruleLine] : [ruleLine, overrideLine];
+}
+
+/**
+ * Plain-proxy per-site control: send THIS host straight to the network via
+ * profile.bypass. Detection uses the real bypass resolver (testBypass) so it
+ * never contradicts the route above — three states: a removable entry this
+ * control added, an already-Direct note when a broader bypass rule covers the
+ * host, or the add button.
+ */
+function proxyBypassLine(profile: ProxyProfile, host: string, matchUrl: string): HTMLElement {
+  const entry = `*.${host}`;
+  const bypass = profile.bypass ?? [];
+  const literalIdx = bypass.findIndex((e) => e === entry || e === host);
+
+  // Sent direct by an entry this control added — show the real stored entry and let it be removed.
+  if (literalIdx >= 0) {
+    const stored = bypass[literalIdx]!;
+    const remove = el(
+      'button',
+      {
+        class: 'btn quiet icon ov-remove',
+        type: 'button',
+        title: 'Stop sending this site direct',
+        dataset: { focus: 'bypass-remove' },
+        onclick: singleClick(async () => {
+          // Same as the rule/override controls: this changes how the site
+          // routes, so the page should re-fetch over the new route (and a page
+          // that never loaded is re-requested outright).
+          await requestTabReload();
+          const ok = await commitConfig((fresh) => {
+            const p = fresh.profiles.find((x) => x.id === profile.id);
+            if (!p || p.kind !== 'proxy') return false;
+            p.bypass = p.bypass.filter((e) => e !== stored);
+          });
+          if (!ok) return;
+          toast('Bypass removed');
+          render();
+          scheduleExitCheck();
+        }),
+      },
+      icon('x')
+    );
+    remove.setAttribute('aria-label', `Stop sending ${stored} direct`);
+    return siteLine(
+      'bypass set',
+      lab('This site'),
+      el('p', { class: 'ov-chip' }, el('span', { class: 'mono', title: stored }, stored), icon('arrow', 'sm'), lineKey(DIRECT), el('b', {}, 'Direct')),
+      remove
     );
   }
 
-  return el('div', { class: 'card site-mgr' }, routeField, ruleField, overrideField);
-}
-
-/**
- * The right pane's "this tab" region. A live readout of where the active
- * profile sends the current tab — for every profile kind — with editable
- * controls only where the kind actually supports them.
- */
-function thisTab(profile: Profile | undefined): (Node | null)[] {
-  const activeId = scopeActiveId();
-  const noProfiles = config.profiles.length === 0;
-
-  if (!tab) {
-    return [
-      thisTabHead(null),
-      el(
-        'p',
-        { class: 'sm-hint' },
-        'No web page here — Sockitt routes http(s) sites only. Switch profiles any time on the left.'
-      ),
-    ];
+  // Already Direct via a broader bypass entry (<local>, a parent wildcard, a CIDR block…) — read only.
+  if (testBypass(bypass, matchUrl, host)) {
+    return siteLine('', lab('This site'), el('p', { class: 'site-held' }, 'Already sent direct by this proxy’s bypass list. Edit it in Options.'));
   }
 
-  const host = tab.host;
-  const matchUrl = pacRequestUrl(tab.url);
-
-  if (activeId === DIRECT) {
-    return [
-      thisTabHead(tab),
-      routeReadout({ tile: builtinTile('D', 20), name: 'Direct', tag: 'no proxy' }, null),
-      el(
-        'p',
-        { class: 'sm-hint' },
-        noProfiles
-          ? 'No proxies yet — create one on the left, then route this site through it.'
-          : 'Connects directly — no proxy. To route this site, pick an Auto switch profile on the left.'
-      ),
-    ];
-  }
-
-  if (activeId === SYSTEM || !profile) {
-    return [
-      thisTabHead(tab),
-      // A route line like Direct's, on the same lavender: the answer here is
-      // "the OS decides", and it deserves the answer's surface.
-      routeReadout({ tile: builtinTile('S', 20), name: 'System', tag: 'OS settings' }, null),
-      el('p', { class: 'sm-hint' }, 'Sockitt can’t inspect the OS PAC’s per-site rules, so it won’t show a route here.'),
-    ];
-  }
-
-  if (profile.kind === 'switch') {
-    return [
-      thisTabHead(tab),
-      siteRuleCard(profile),
-      el(
-        'p',
-        { class: 'sm-hint' },
-        tab.pending
-          ? 'This page hasn’t loaded yet. Give the site a rule or an override and Sockitt requests it again over that route.'
-          : 'A rule persists; an override takes priority for this site and clears when the browser restarts.'
-      ),
-    ];
-  }
-
-  // Plain proxy / alias / rule list — read-only route, resolved for real.
-  const route = resolveRoute(config, profile, matchUrl, host);
-  const via = route.bypassed
-    ? { tile: builtinTile('D', 20), name: 'Direct (bypass)' }
-    : targetChip(route.targetId, 20);
-  let tag: string;
-  if (route.bypassed) tag = 'bypass';
-  else if (profile.kind === 'proxy') tag = 'all traffic';
-  else if (profile.kind === 'virtual') tag = 'alias';
-  else tag = 'rule list';
-
-  const chip = { tile: via.tile, name: via.name, tag };
-
-  if (profile.kind === 'proxy') {
-    // Route readout + the per-site bypass control share one field-group card.
-    const card = el('div', { class: 'card site-mgr' }, routeField(chip, null), proxyBypassControl(profile, host, matchUrl));
-    return [thisTabHead(tab), card, el('p', { class: 'sm-hint' }, 'Per-site target routing needs an Auto switch profile.')];
-  }
-  if (profile.kind === 'virtual') {
-    return [thisTabHead(tab), routeReadout(chip, null), el('p', { class: 'sm-hint' }, 'This alias points at another profile — edit its rules from that profile in Options.')];
-  }
-  return [thisTabHead(tab), routeReadout(chip, null), el('p', { class: 'sm-hint' }, 'Routing follows this list’s entries. Edit the list in Options.')];
-}
-
-/* ---- render: two-pane window (switcher left, this-tab right) ---- */
-
-/**
- * The proxy-failure indicator: an icon in the topbar, never a banner. A banner
- * here would push the two panes down inside a fixed 520px window — shifting
- * whatever the user was about to click, and squeezing the right-hand card. The
- * detail lives on the options page, which has room for it.
- */
-function alertButton(): HTMLElement | null {
-  if (!proxyAlert) return null;
-  const n = proxyAlert.streak;
-  const label =
-    n > 1
-      ? `${n} proxy errors — ${errorSummaryLine(proxyAlert)}`
-      : `Proxy error — ${errorSummaryLine(proxyAlert)}`;
-  const btn = el(
-    'button',
-    {
-      class: 'btn ghost icon alert-btn',
-      title: `${label}. Click for details.`,
-      onclick: () => void openErrorPage(),
-    },
-    el('span', { class: 'alert-ico', innerHTML: ALERT_ICON }),
-    // The count appears only once it adds information; a lone "!" case stays a
-    // plain icon, matching the toolbar badge.
-    n > 1 ? el('span', { class: 'alert-count' }, n > 9 ? '9+' : String(n)) : null
-  );
-  btn.setAttribute('aria-label', `${label}. Opens the proxy error log.`);
-  return btn;
-}
-
-/** Open the options page on its Proxy errors panel (see OPEN_PAGE_KEY). */
-async function openErrorPage(): Promise<void> {
-  await chrome.storage.session
-    .set({ [OPEN_PAGE_KEY]: { page: 'errors', at: Date.now() } })
-    .catch(() => undefined);
-  chrome.runtime.openOptionsPage();
-}
-
-/**
- * Swap the indicator in place. A full render() would land while the user is in
- * a dropdown — failures arrive at their own pace, not the user's.
- */
-function updateAlertButton(): void {
-  const actions = document.querySelector('.topbar-actions');
-  if (!actions) return;
-  actions.querySelector(':scope > .alert-btn')?.remove();
-  const btn = alertButton();
-  if (btn) actions.prepend(btn);
-}
-
-/**
- * Names the window the popup is speaking for. Only ever shown in an incognito
- * window, where what the popup says applies to that scope alone — a switcher
- * that looks identical in both windows but changes a different setting in each
- * needs to say which one it is in.
- */
-function scopeChip(): HTMLElement | null {
-  if (!incognitoWindow || !incognitoAllowed) return null;
-  return el(
-    'span',
-    {
-      class: 'scope-chip',
-      title: ownScope()
-        ? 'Incognito window — routed by its own profile. Picking a profile here changes only incognito windows.'
-        : 'Incognito window — currently following the regular profile. Picking a profile here changes only incognito windows.',
-    },
-    'Incognito'
+  // Not bypassed — offer to add it.
+  return siteLine(
+    '',
+    lab('This site'),
+    el('div', { class: 'site-ctl' }, el('span', { class: 'site-pat mono', title: `Would add ${entry} to the bypass list` }, entry)),
+    el(
+      'button',
+      {
+        class: 'btn sm',
+        type: 'button',
+        title: `Send ${host} straight to the network, past this proxy`,
+        dataset: { focus: 'bypass-add' },
+        onclick: singleClick(async () => {
+          await requestTabReload();
+          const ok = await commitConfig((fresh) => {
+            const p = fresh.profiles.find((x) => x.id === profile.id);
+            if (!p || p.kind !== 'proxy') return false;
+            p.bypass = [...p.bypass, entry];
+          });
+          if (!ok) return;
+          toast(`Bypassing ${host}`);
+          render();
+          scheduleExitCheck();
+        }),
+      },
+      'Send this site direct'
+    )
   );
 }
 
-function topBar(): HTMLElement {
+/** "Per-site routing needs an auto switch profile." with the way to make one. */
+function needsSwitchLine(): HTMLElement {
   return el(
     'div',
-    { class: 'topbar' },
+    { class: 'site-one' },
+    el('p', { class: 'site-note' }, 'Per-site routing needs an auto switch profile.'),
     el(
-      'span',
-      { class: 'brand' },
-      el('img', { class: 'mark', src: 'img/logo-mark.png', alt: '' }),
-      'Sockitt',
-      scopeChip()
-    ),
-    el(
-      'div',
-      { class: 'topbar-actions' },
-      alertButton(),
-      el('button', {
-        class: 'btn ghost icon cog',
-        title: 'Options',
-        innerHTML: SETTINGS_ICON,
-        onclick: () => chrome.runtime.openOptionsPage(),
-      })
+      'button',
+      { class: 'btn sm', type: 'button', dataset: { focus: 'new-switch' }, onclick: () => void openOptionsAt('new-switch') },
+      'New auto switch'
     )
   );
 }
 
 /**
- * Hide/show left-pane rows against the filter box, in place (never a re-render,
- * so the input keeps focus while typing). Whole groups collapse when empty; the
- * always-available Direct/System modes are never filtered out.
+ * The controls for this site, for whichever kind of profile the window routes
+ * by — editable only where the kind supports per-site routing at all.
  */
-function applyFilter(): void {
-  const scroll = app.querySelector('.left-scroll');
-  if (!scroll) return;
-  const q = filterText.trim().toLowerCase();
-  let anyVisible = false;
-  scroll.querySelectorAll<HTMLElement>('.pgroup').forEach((group) => {
-    let groupVisible = false;
-    group.querySelectorAll<HTMLElement>('.row[data-search]').forEach((row) => {
-      const show = !q || (row.dataset.search ?? '').includes(q);
-      row.classList.toggle('hidden', !show);
-      if (show) groupVisible = true;
-    });
-    group.classList.toggle('hidden', !groupVisible);
-    if (groupVisible) anyVisible = true;
-  });
-  scroll.querySelector('.no-matches')?.classList.toggle('hidden', anyVisible || !q);
+function siteSection(): HTMLElement | null {
+  const t = tab;
+  if (!t || config.profiles.length === 0) return null;
+  const section = (...children: HTMLElement[]): HTMLElement => {
+    const node = el('section', { class: 'site' }, ...children);
+    node.setAttribute('aria-label', 'Routing for this site');
+    return node;
+  };
+  const activeId = scopeActiveId();
+  const profile = profileById(config, activeId);
+  if (activeId === DIRECT || activeId === SYSTEM || !profile) return section(needsSwitchLine());
+  switch (profile.kind) {
+    case 'switch':
+      return section(...switchSiteLines(profile, t));
+    case 'proxy':
+      return section(proxyBypassLine(profile, t.host, pacRequestUrl(t.url)), needsSwitchLine());
+    case 'virtual':
+      return section(
+        el('p', { class: 'site-note' }, 'This alias points at another profile — edit its rules from that profile in Options.')
+      );
+    case 'rulelist':
+      return section(el('p', { class: 'site-note' }, 'Routing follows this list’s entries. Edit the list in Options.'));
+  }
+}
+
+/* ---- the switcher ---- */
+
+/** The rule-list format, short enough for a row: "AutoProxy", "Domain list". */
+const LIST_FORMAT_SHORT: Record<RuleListFormat, string> = {
+  autoproxy: 'AutoProxy',
+  switchy: RULE_LIST_FORMAT_LABELS.switchy,
+};
+
+/** The right-hand side of a row: an endpoint for a proxy, the kind for the rest. */
+function rowSub(p: Profile): { text: string; mono: boolean } {
+  switch (p.kind) {
+    case 'proxy':
+      return { text: `${p.host}:${p.port}`, mono: true };
+    case 'switch':
+      return { text: `Auto switch · ${p.rules.length} rule${p.rules.length === 1 ? '' : 's'}`, mono: false };
+    case 'rulelist':
+      return { text: `Rule list · ${LIST_FORMAT_SHORT[p.format]}`, mono: false };
+    case 'virtual':
+      return { text: `Alias · ${routeName(p.targetId)}`, mono: false };
+  }
+}
+
+/**
+ * One switcher row: number, line key, name, detail, and the tick on the one in
+ * use. A radio in a radiogroup — one row is a tab stop, the arrows move between
+ * them, and nothing switches until a row is pressed (moving focus must never
+ * reroute traffic). The number is a shortcut hint, filled in by applyFilter
+ * from the rows actually showing.
+ */
+function swRow(opts: { id: string; keyId: string; name: string; sub: string; subMono: boolean; title?: string; search?: string }): HTMLElement {
+  const active = selectedId() === opts.id;
+  const row = el(
+    'button',
+    {
+      class: `row sw-row${active ? ' active' : ''}`,
+      type: 'button',
+      dataset: { id: opts.id, focus: `row:${opts.id}` },
+      onclick: () => {
+        if (selectedId() === opts.id) return;
+        void setActive(opts.id);
+      },
+    },
+    el('span', { class: 'n' }),
+    lineKey(opts.keyId),
+    el('span', { class: 'nm' }, opts.name),
+    el('span', { class: `sub${opts.subMono ? ' mono' : ''}` }, opts.sub),
+    el('span', { class: 'on' }, active ? icon('check', 'sm') : null, active ? el('span', { class: 'vh' }, 'Active') : null)
+  );
+  if (opts.title) row.title = opts.title;
+  row.setAttribute('role', 'radio');
+  row.setAttribute('aria-checked', String(active));
+  row.querySelector('.n')!.setAttribute('aria-hidden', 'true');
+  if (opts.search !== undefined) row.dataset.search = opts.search;
+  return row;
 }
 
 /**
@@ -1286,126 +1562,255 @@ function applyFilter(): void {
  * list needs a row for it, because with the incognito profile cleared there is
  * nothing else in the list for the tick to sit on — and because it is how the
  * user undoes a choice made here, without going to the options page for it.
- * Its subtitle names the profile it currently defers to, so choosing it is not
+ * Its detail names the profile it currently defers to, so choosing it is not
  * a choice made blind.
  */
 function followRegularRow(): HTMLElement {
-  const p = config.profiles.find((x) => x.id === config.activeId);
-  const name = p ? p.name : config.activeId === DIRECT ? 'Direct' : 'System';
-  const tile = p ? avatarEl(p, 27) : builtinTile(config.activeId === DIRECT ? 'D' : 'S', 27);
-  return profileRow('', tile, 'Same as regular windows', `follows ${name}`, p?.color);
+  return swRow({
+    id: '',
+    keyId: config.activeId,
+    name: 'Same as regular windows',
+    sub: `Follows ${routeName(config.activeId)}`,
+    subMono: false,
+    title: `Incognito windows route the way regular windows do — now through ${routeName(config.activeId)}`,
+  });
 }
 
-function leftPane(groups: Array<[string, Profile[]]>): HTMLElement {
+function switcher(): HTMLElement[] {
   const total = config.profiles.length;
+  const list = el('div', { class: 'sw' });
+  list.setAttribute('role', 'radiogroup');
+  list.setAttribute('aria-label', incognitoWindow && incognitoAllowed ? 'Profile for incognito windows' : 'Profile');
+  list.addEventListener('keydown', onListKeydown);
 
-  const builtins = el(
-    'div',
-    { class: 'builtin-grid' },
-    profileRow(DIRECT, builtinTile('D', 27), 'Direct', 'no proxy'),
-    profileRow(SYSTEM, builtinTile('S', 27), 'System', 'OS settings')
+  if (incognitoWindow && incognitoAllowed) {
+    list.append(el('div', { class: 't-label sw-label' }, 'This incognito window'), followRegularRow(), el('div', { class: 'sw-sep' }));
+  }
+  list.append(
+    swRow({ id: DIRECT, keyId: DIRECT, name: 'Direct', sub: 'No proxy', subMono: false, search: 'direct no proxy' }),
+    swRow({ id: SYSTEM, keyId: SYSTEM, name: 'System', sub: 'OS settings', subMono: false, search: 'system os settings' })
   );
-
-  const scope =
-    incognitoWindow && incognitoAllowed
-      ? // Not a .pgroup: those are the filterable profile groups, and applyFilter
-        // hides any of them holding no matching row — this one holds none by
-        // design. Its own class carries the same display:contents.
-        el(
-          'div',
-          { class: 'scope-group' },
-          el('div', { class: 'section-label' }, 'This incognito window'),
-          followRegularRow()
-        )
-      : null;
-
-  const scroll = el('div', { class: 'left-scroll' }, scope, builtins);
   if (total === 0) {
-    scroll.append(
+    list.append(
       el(
         'div',
-        { class: 'empty-block' },
-        el('div', { class: 'eb-title' }, 'No profiles yet'),
-        el('div', { class: 'eb-text' }, 'Add a proxy to start routing sites through it.'),
+        { class: 'sw-empty' },
+        el('p', { class: 'sw-empty-title' }, 'No profiles yet'),
+        el('p', { class: 'sw-empty-text' }, 'Add a proxy to start routing sites through it.'),
         el(
           'button',
-          { class: 'btn primary', onclick: () => chrome.runtime.openOptionsPage() },
+          { class: 'btn primary', type: 'button', dataset: { focus: 'create-first' }, onclick: () => chrome.runtime.openOptionsPage() },
           'Create your first proxy'
         )
       )
     );
   } else {
-    for (const [label, profiles] of groups) {
-      if (!profiles.length) continue;
-      const group = el('div', { class: 'pgroup' }, el('div', { class: 'section-label' }, label));
-      for (const p of profiles) {
-        const row = profileRow(p.id, avatarEl(p, 27), p.name, subFor(p), p.color);
-        row.dataset.search = `${p.name} ${subFor(p)}`.toLowerCase();
-        group.append(row);
+    // Profiles in the order every surface lists them, by kind, with no group
+    // labels: the detail on each row says what it is, and the room the labels
+    // would take is what lets a typical list fit without scrolling.
+    for (const kind of PROFILE_KINDS) {
+      for (const p of config.profiles.filter((x) => x.kind === kind)) {
+        const sub = rowSub(p);
+        list.append(
+          swRow({
+            id: p.id,
+            keyId: p.id,
+            name: p.name,
+            sub: sub.text,
+            subMono: sub.mono,
+            title: statusFor(p),
+            search: `${p.name} ${sub.text} ${subFor(p)}`.toLowerCase(),
+          })
+        );
       }
-      scroll.append(group);
     }
-    scroll.append(el('div', { class: 'no-matches hidden' }, 'No profiles match.'));
+    list.append(el('p', { class: 'sw-none hidden' }, 'No profiles match.'));
   }
-
-  const foot = el(
-    'div',
-    { class: 'left-foot' },
-    el(
-      'button',
-      { class: 'btn ghost foot-manage', onclick: () => chrome.runtime.openOptionsPage() },
-      el('span', { class: 'foot-ico', innerHTML: SETTINGS_ICON }),
-      'Manage profiles & rules'
-    )
-  );
 
   // Type-to-filter surfaces only once the list gets long enough to warrant it;
   // no autofocus (Esc must stay free to close the popup).
-  const filter =
-    total >= 12
-      ? el('input', {
-          class: 'input left-filter',
-          type: 'search',
-          placeholder: 'Filter profiles…',
-          ariaLabel: 'Filter profiles',
-          value: filterText,
-          spellcheck: false,
-          oninput: (e: Event) => {
-            filterText = (e.currentTarget as HTMLInputElement).value;
-            applyFilter();
-          },
-        })
-      : null;
-
-  return el('div', { class: 'pane-left' }, filter, scroll, foot);
+  if (total < 12) return [list];
+  const rows = total + 2; // Direct and System filter like any profile
+  const input = el('input', {
+    class: 'input',
+    type: 'search',
+    placeholder: `Filter ${rows} profiles`,
+    value: filterText,
+    spellcheck: false,
+    dataset: { focus: 'filter' },
+    oninput: () => {
+      filterText = input.value;
+      applyFilter();
+    },
+    onkeydown: (e: KeyboardEvent) => {
+      if (e.key !== 'Enter' || e.isComposing) return;
+      e.preventDefault();
+      visibleRows()[0]?.click();
+    },
+  });
+  input.setAttribute('aria-label', 'Filter profiles');
+  input.setAttribute('autocomplete', 'off');
+  const find = el('div', { class: 'sw-find' }, el('div', { class: 'search' }, input), el('span', { class: 'sw-count meta' }));
+  return [find, list];
 }
 
-function rightPane(activeProfile: Profile | undefined): HTMLElement {
+/** The rows a digit or Enter would reach: the ones showing, in order. */
+function visibleRows(): HTMLElement[] {
+  return [...app.querySelectorAll<HTMLElement>('.sw .row')].filter((r) => !r.classList.contains('hidden'));
+}
+
+/**
+ * Hide/show rows against the filter, in place (never a re-render, so the input
+ * keeps focus while typing), then renumber what shows and say what the keys do.
+ */
+function applyFilter(): void {
+  const list = app.querySelector('.sw');
+  if (!list) return;
+  const q = filterText.trim().toLowerCase();
+  let filterable = 0;
+  let shown = 0;
+  list.querySelectorAll<HTMLElement>('.row').forEach((row) => {
+    const search = row.dataset.search;
+    if (search === undefined) return; // the incognito choice is never filtered out
+    filterable++;
+    const show = !q || search.includes(q);
+    row.classList.toggle('hidden', !show);
+    if (show) shown++;
+  });
+  list.querySelector('.sw-none')?.classList.toggle('hidden', !q || shown > 0);
+  const count = app.querySelector<HTMLElement>('.sw-count');
+  if (count) count.textContent = q ? `${shown} of ${filterable}` : '';
+
+  const rows = visibleRows();
+  rows.forEach((row, i) => {
+    const digit = i < 9 ? String(i + 1) : '';
+    row.querySelector('.n')!.textContent = digit;
+    if (digit) row.setAttribute('aria-keyshortcuts', digit);
+    else row.removeAttribute('aria-keyshortcuts');
+  });
+  // Roving tab stop: the ticked row when it shows, else the first that does.
+  const stop = rows.find((r) => r.classList.contains('active')) ?? rows[0];
+  list.querySelectorAll<HTMLElement>('.row').forEach((row) => (row.tabIndex = row === stop ? 0 : -1));
+
+  const hint = app.querySelector('.keys-hint');
+  if (hint) {
+    const n = Math.min(rows.length, 9);
+    hint.textContent = q
+      ? rows.length
+        ? 'Enter switches to the first match'
+        : ''
+      : n > 1
+        ? `Press 1–${n} to switch`
+        : n === 1
+          ? 'Press 1 to switch'
+          : '';
+  }
+}
+
+/** Arrow keys move between rows — focus only; a row switches when pressed. */
+function onListKeydown(e: KeyboardEvent): void {
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const rows = visibleRows();
+  const at = rows.indexOf(document.activeElement as HTMLElement);
+  if (at < 0) return;
+  let next = -1;
+  if (e.key === 'ArrowDown') next = Math.min(rows.length - 1, at + 1);
+  else if (e.key === 'ArrowUp') next = Math.max(0, at - 1);
+  else if (e.key === 'Home') next = 0;
+  else if (e.key === 'End') next = rows.length - 1;
+  if (next < 0) return;
+  e.preventDefault();
+  rows.forEach((r, i) => (r.tabIndex = i === next ? 0 : -1));
+  rows[next]!.focus();
+}
+
+/**
+ * 1–9 pick the Nth row showing, from anywhere but a text field or a select
+ * (where a digit is typing) and never with a modifier held — the shortcuts of
+ * the browser and the OS stay theirs. e.code covers layouts that put the
+ * digits on the shifted level (AZERTY), where the unshifted key is "&". Escape
+ * is never handled: it closes the popup.
+ */
+function onKeydown(e: KeyboardEvent): void {
+  if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
+  const target = e.target as HTMLElement | null;
+  if (target?.closest('input, select, textarea, [contenteditable="true"]')) return;
+  const digit = /^[1-9]$/.test(e.key) ? e.key : e.shiftKey ? null : (/^Digit([1-9])$/.exec(e.code)?.[1] ?? null);
+  if (!digit) return;
+  const row = visibleRows()[Number(digit) - 1];
+  if (!row) return;
+  e.preventDefault();
+  row.focus({ preventScroll: true });
+  row.click();
+}
+
+/* ---- footer ---- */
+
+function footer(): HTMLElement {
   return el(
-    'div',
-    { class: 'pane-right' },
-    detailHead(activeProfile),
-    el('div', { class: 'detail-scroll' }, ...thisTab(activeProfile))
+    'footer',
+    { class: 'pop-foot' },
+    el(
+      'button',
+      { class: 'foot-open', type: 'button', dataset: { focus: 'open-sockitt' }, onclick: () => chrome.runtime.openOptionsPage() },
+      'Open Sockitt',
+      icon('external', 'sm')
+    ),
+    el('span', { class: 'keys-hint meta' })
   );
 }
 
+/* ---- render ---- */
+
+/**
+ * After a re-render, keyboard focus goes back to the control it was on — or
+ * to that control's twin, when the action replaced it (End becomes a route
+ * picker, a deleted rule's ✕ becomes Add rule). A mouse user never sees a
+ * ring from this: script focus only shows one after keyboard use.
+ */
+const FOCUS_TWINS: Record<string, string> = {
+  'ov-end': 'ov-select',
+  'ov-set': 'ov-end',
+  'rule-delete': 'rule-target',
+  'rule-add': 'rule-pattern',
+  'rule-pattern': 'rule-target',
+  'bypass-add': 'bypass-remove',
+  'bypass-remove': 'bypass-add',
+};
+
 function render(): void {
-  const activeProfile = config.profiles.find((p) => p.id === scopeActiveId());
-
-  const groups: Array<[string, Profile[]]> = [
-    ['Proxies', config.profiles.filter((p) => p.kind === 'proxy')],
-    ['Auto switch', config.profiles.filter((p) => p.kind === 'switch')],
-    ['Rule lists', config.profiles.filter((p) => p.kind === 'rulelist')],
-    ['Aliases', config.profiles.filter((p) => p.kind === 'virtual')],
-  ];
-
-  app.replaceChildren(topBar(), el('div', { class: 'body' }, leftPane(groups), rightPane(activeProfile)));
-
-  // Re-apply any active filter, then keep the active profile visible.
+  const focused = document.activeElement instanceof HTMLElement ? document.activeElement.dataset.focus : undefined;
+  app.replaceChildren(
+    header(),
+    // Always present, so an alert that arrives while the popup is open is
+    // announced: a live region has to exist before its content changes.
+    el('div', { class: 'alert-slot', ariaLive: 'polite' }, alertLine()),
+    hereSection(),
+    ...[siteSection()].filter((n): n is HTMLElement => n !== null),
+    ...switcher(),
+    footer()
+  );
   applyFilter();
-  // Centred, not 'nearest': nearest left the active row flush against a fold,
-  // with the rows either side of it sliced by the list's edges.
-  app.querySelector('.left-scroll .row.active')?.scrollIntoView({ block: 'center' });
+  fitHost();
+
+  if (focused) {
+    const find = (key: string): HTMLElement | undefined =>
+      [...app.querySelectorAll<HTMLElement>('[data-focus]')].find((n) => n.dataset.focus === key);
+    const twin = FOCUS_TWINS[focused];
+    (find(focused) ?? (twin ? find(twin) : undefined))?.focus({ preventScroll: true });
+  }
+
+  // Keep the ticked row in view: left alone when it already shows in full (a
+  // list that barely overflows then keeps its top, and the cut falls at the
+  // bottom where it says "more"), centred when it is out of sight — not
+  // 'nearest', which leaves it flush against a fold.
+  const list = app.querySelector<HTMLElement>('.sw');
+  const ticked = list?.querySelector<HTMLElement>('.row.active:not(.hidden)');
+  if (list && ticked && list.scrollHeight > list.clientHeight) {
+    const top = ticked.offsetTop;
+    const inView = top >= list.scrollTop && top + ticked.offsetHeight <= list.scrollTop + list.clientHeight;
+    if (!inView) list.scrollTop = top - list.clientHeight / 2 + ticked.offsetHeight / 2;
+  }
 }
 
 void init();

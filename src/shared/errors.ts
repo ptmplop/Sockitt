@@ -294,7 +294,7 @@ const ERROR_ADVICE: Array<[string, string]> = [
   ],
   [
     'ERR_PAC_SCRIPT_FAILED',
-    'The generated routing script threw while deciding a route. This points at a rule pattern rather than at the server — the detail below usually names it, and the Route inspector will reproduce it.',
+    'The generated routing script threw while deciding a route. This points at a rule pattern rather than at the server — the detail below usually names it, and the Inspector will reproduce it.',
   ],
   [
     'ERR_PAC_STATUS_NOT_OK',
@@ -331,7 +331,12 @@ export function errorAdvice(entry: ProxyErrorEntry): string | null {
   if (entry.source === 'apply') {
     return 'Sockitt could not hand these settings to the browser, so the previous route is still in force. This usually means a profile is malformed — an empty proxy host, or a rule the compiler rejected.';
   }
-  const code = entry.error.toUpperCase();
+  return codeAdvice(entry.error);
+}
+
+/** The meaning of one Chrome error code, when a proxy carried the request. */
+export function codeAdvice(error: string): string | null {
+  const code = error.toUpperCase();
   return ERROR_ADVICE.find(([needle]) => code.includes(needle))?.[1] ?? null;
 }
 

@@ -1,7 +1,11 @@
 import { DIRECT, SYSTEM, Config, SwitchRule, profileById } from '../shared/types';
-import { pacRequestUrl, resolveRoute } from '../shared/match';
-import { el, toast } from '../shared/ui';
+import { TraceEdge, pacRequestUrl, resolveRoute } from '../shared/match';
+import { el, icon, toast } from '../shared/ui';
 import { loadTempRules } from '../shared/state';
+import { BUILTIN_FILL, paintRoute } from '../shared/colour';
+import { StripModel, routeStrip } from '../shared/strip';
+import { colourOf, edgeRuleIndex } from '../shared/yard';
+import { codeAdvice } from '../shared/errors';
 
 /**
  * The network monitor — every request the browser makes, and where Sockitt sent
@@ -50,12 +54,20 @@ const MONITOR_PERMS: chrome.permissions.Permissions = {
 
 export interface NetworkHost {
   config: () => Config;
-  /** Opens a profile's editor — the profile column links to what it names. */
+  /** Opens a profile's editor — the route column links to what it names. */
   open: (id: string) => void;
+  /** Opens the Inspector on a URL, traced. */
+  inspect: (url: string) => void;
+  /** Runs a proxy's connection test, reporting into `out`; `button` is given back when it ends. */
+  test: (profileId: string, button: HTMLButtonElement, out: HTMLElement) => void;
   /** Whether recording is wanted. Outlives the panel, which is rebuilt on nav. */
   recording: () => boolean;
   setRecording: (on: boolean) => void;
+  /** The Requests sub-tab carries the count. */
+  setCount: (n: number) => void;
 }
+
+type How = StripModel['how'];
 
 interface Row {
   id: string;
@@ -64,10 +76,14 @@ interface Row {
   url: string;
   host: string;
   type: string;
-  /** Profile id the request resolved to, or DIRECT. '' when not resolvable. */
+  /** Where the request ended up: a proxy profile id, DIRECT or SYSTEM. '' when not resolvable. */
   targetId: string;
-  /** How it was decided, for the title attribute. */
-  why: string;
+  /** How the active profile decided it — the strip's first hop. */
+  how: How;
+  /** The route column's quiet second word: "rule 2", "default", "override", "bypass". */
+  howText: string;
+  /** The hops the resolver took, for the opened row's sentence. */
+  edges: TraceEdge[];
   status: 'pending' | 'ok' | 'error';
   statusCode?: number;
   error?: string;
@@ -91,32 +107,82 @@ function headerValue(headers: chrome.webRequest.HttpHeader[] | undefined, name: 
   return hit?.value ?? '';
 }
 
+/**
+ * A failed request's result in two words. The code itself is in the opened
+ * row and its tooltip; a column of ERR_TUNNEL_CONNECTION_FAILED is unreadable.
+ */
+const SHORT_ERRORS: Array<[string, string]> = [
+  ['ERR_PROXY_CONNECTION_FAILED', 'Proxy refused'],
+  ['ERR_TUNNEL_CONNECTION_FAILED', 'Tunnel refused'],
+  ['ERR_SOCKS_CONNECTION_FAILED', 'SOCKS failed'],
+  ['ERR_PROXY_AUTH', 'Proxy sign-in'],
+  ['ERR_PROXY_CERTIFICATE_INVALID', 'Proxy certificate'],
+  ['ERR_ABORTED', 'Cancelled'],
+  ['ERR_BLOCKED_BY_CLIENT', 'Blocked'],
+  ['ERR_BLOCKED_BY', 'Blocked'],
+  ['ERR_NAME_NOT_RESOLVED', 'No such host'],
+  ['ERR_CONNECTION_REFUSED', 'Refused'],
+  ['ERR_CONNECTION_RESET', 'Reset'],
+  ['ERR_CONNECTION_CLOSED', 'Closed'],
+  ['ERR_CONNECTION_TIMED_OUT', 'Timed out'],
+  ['ERR_TIMED_OUT', 'Timed out'],
+  ['ERR_CERT_', 'Certificate'],
+  ['ERR_SSL_', 'TLS failed'],
+  ['ERR_INTERNET_DISCONNECTED', 'Offline'],
+  ['ERR_CACHE_MISS', 'Cache miss'],
+];
+
+function shortError(error: string | undefined): string {
+  const code = (error ?? 'failed').replace(/^net::/, '');
+  const hit = SHORT_ERRORS.find(([needle]) => code.includes(needle));
+  if (hit) return hit[1];
+  const words = code.replace(/^ERR_/, '').toLowerCase().replace(/_/g, ' ');
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** Errors that say something about the proxy, as opposed to the site behind it. */
+function proxyFault(error: string | undefined): boolean {
+  return !!error && /PROXY|TUNNEL|SOCKS/.test(error);
+}
+
 export function networkPanel(host: NetworkHost): HTMLElement {
   const rows: Row[] = [];
   const byRequestId = new Map<string, Row>();
   let recording = false;
+  let recordingSince = 0;
   let granted = false;
   let filter = '';
   let failedOnly = false;
+  /** The request whose row is open, showing its track. One at a time. */
+  let openId: string | null = null;
   /** Temp rules are the session overrides the popup writes; read once, not per request. */
   let tempRules: SwitchRule[] = [];
 
-  const body = el('div', { class: 'net-body' });
-  const countLabel = el('span', { class: 'net-count' });
-  const panel = el('div', { class: 'pane net' });
+  const body = el('div', { class: 'nt-body' });
+  const panel = el('div', { class: 'net' });
+  const mix = el('div', { class: 'mix' });
+  const since = el('span', { class: 'meta nt-since' });
   /**
-   * The scrolling element, built once and never replaced.
-   *
-   * This is the whole reason painting is incremental. Rebuilding the list on
-   * each paint threw away the node the user had scrolled, and a removed node
-   * takes its scrollTop with it — so with traffic arriving the list snapped
-   * back to the top on every frame and could not be scrolled at all.
+   * The list's holder, built once and never replaced. The page itself scrolls
+   * (the table's head sticks to the top of the window), and painting is
+   * incremental so that a reader's place survives traffic: rebuilding the list
+   * on each paint snapped it back to the top on every frame.
    */
-  const listNode = el('div', { class: 'net-list' });
-  /** Rendered rows by request id, with a signature of what they were drawn from. */
+  const scroller = el('div', { class: 'nt-wrap' });
+  /**
+   * One tbody per request: the row, and under it the opened detail. Keeping the
+   * pair in one node is what lets the keyed walk below move a request without
+   * leaving its detail behind.
+   */
+  const table = el('table', { class: 'nt' });
+  scroller.append(table);
+  /** Rendered requests by id, with a signature of what they were drawn from. */
   const drawn = new Map<string, { node: HTMLElement; sig: string }>();
   /** Changing the filter reorders everything; that alone justifies a full rebuild. */
   let drawnFilterKey = '';
+
+  const nameFor = (config: Config, id: string): string =>
+    id === DIRECT ? 'Direct' : id === SYSTEM ? 'System' : (profileById(config, id)?.name ?? 'Unknown');
 
   /* ---------------- routing attribution ---------------- */
 
@@ -126,38 +192,52 @@ export function networkPanel(host: NetworkHost): HTMLElement {
    *
    * Computed, not observed: Chrome tells an extension the request happened but
    * never which proxy carried it, so this is what the rules SAY should happen.
-   * Almost always the same thing; the column header says "computed" so nobody
-   * reads it as a measurement.
+   * Almost always the same thing; the column header says so on hover.
    */
-  const resolveFor = (url: string): { targetId: string; why: string } => {
+  const resolveFor = (url: string): Pick<Row, 'targetId' | 'how' | 'howText' | 'edges'> => {
     const config = host.config();
     const activeId = config.activeId;
-    if (activeId === SYSTEM) return { targetId: '', why: 'System proxy — the OS decides' };
-    if (activeId === DIRECT) return { targetId: DIRECT, why: 'Direct is active' };
+    const all = (targetId: string, howText = ''): Pick<Row, 'targetId' | 'how' | 'howText' | 'edges'> => ({
+      targetId,
+      how: { kind: 'all' },
+      howText,
+      edges: [],
+    });
+    if (activeId === SYSTEM) return all(SYSTEM, 'OS decides');
+    if (activeId === DIRECT) return all(DIRECT);
     const start = profileById(config, activeId);
-    if (!start) return { targetId: '', why: 'no active profile' };
+    if (!start) return all('');
     let u: URL;
     try {
       u = new URL(url);
     } catch {
-      return { targetId: '', why: 'unparsable URL' };
+      return all('');
     }
-    const route = resolveRoute(
-      config,
-      start,
-      pacRequestUrl(u.href),
-      u.hostname,
-      tempRules,
-      new Date()
-    );
-    const why = route.bypassed
-      ? `${nameFor(config, route.targetId)} — sent direct by its bypass list`
-      : nameFor(config, route.targetId);
-    return { targetId: route.bypassed ? DIRECT : route.targetId, why };
+    const edges: TraceEdge[] = [];
+    const route = resolveRoute(config, start, pacRequestUrl(u.href), u.hostname, tempRules, new Date(), edges);
+    if (route.bypassed) {
+      return { targetId: DIRECT, how: { kind: 'bypass', viaColour: colourOf(config, route.targetId) }, howText: 'bypass', edges };
+    }
+    // The first decision taken, past any alias standing in front of it.
+    const first = edges.find((e) => e.kind !== 'alias');
+    let how: How = { kind: 'all' };
+    let howText = '';
+    if (first?.kind === 'temp-rule') {
+      how = { kind: 'override' };
+      howText = 'override';
+    } else if (first?.kind === 'rule') {
+      const index = edgeRuleIndex(config, first);
+      how = { kind: 'rule', label: index >= 0 ? String(index + 1) : '?' };
+      howText = index >= 0 ? `rule ${index + 1}` : 'rule';
+    } else if (first?.kind === 'default' || first?.kind === 'list-default') {
+      how = { kind: 'default' };
+      howText = 'default';
+    } else if (first?.kind === 'list-match') {
+      how = { kind: 'list' };
+      howText = 'on the list';
+    }
+    return { targetId: route.targetId, how, howText, edges };
   };
-
-  const nameFor = (config: Config, id: string): string =>
-    id === DIRECT ? 'Direct' : (profileById(config, id)?.name ?? 'Unknown');
 
   /* ---------------- listeners ---------------- */
 
@@ -172,7 +252,6 @@ export function networkPanel(host: NetworkHost): HTMLElement {
     } catch {
       /* keep the row; a URL we cannot parse is still a request that happened */
     }
-    const { targetId, why } = resolveFor(d.url);
     const row: Row = {
       id: d.requestId,
       at: Date.now(),
@@ -180,8 +259,7 @@ export function networkPanel(host: NetworkHost): HTMLElement {
       url: d.url,
       host: hostname,
       type: d.type,
-      targetId,
-      why,
+      ...resolveFor(d.url),
       status: 'pending',
     };
     byRequestId.set(d.requestId, row);
@@ -228,6 +306,7 @@ export function networkPanel(host: NetworkHost): HTMLElement {
     chrome.webRequest.onCompleted.addListener(onCompleted, FILTER, ['responseHeaders']);
     chrome.webRequest.onErrorOccurred.addListener(onErrorOccurred, FILTER);
     recording = true;
+    recordingSince = Date.now();
     paint();
   };
 
@@ -268,70 +347,286 @@ export function networkPanel(host: NetworkHost): HTMLElement {
   };
 
   const visible = (): Row[] => {
+    const config = host.config();
     const needle = filter.trim().toLowerCase();
     return rows.filter((r) => {
       if (failedOnly && r.status !== 'error') return false;
       if (!needle) return true;
       return (
         r.url.toLowerCase().includes(needle) ||
-        r.why.toLowerCase().includes(needle) ||
-        r.type.includes(needle)
+        nameFor(config, r.targetId).toLowerCase().includes(needle) ||
+        r.howText.includes(needle) ||
+        r.type.includes(needle) ||
+        (r.status === 'error' && shortError(r.error).toLowerCase().includes(needle)) ||
+        String(r.statusCode ?? '').startsWith(needle)
       );
     });
   };
 
-  const rowNode = (r: Row): HTMLElement => {
+  /** The route a request took: its destination's line key, its name, and how. */
+  const routeCell = (r: Row): HTMLElement => {
     const config = host.config();
-    const target =
-      r.targetId && r.targetId !== DIRECT ? profileById(config, r.targetId) : null;
-    const chip = el(
-      'button',
-      {
-        class: `net-chip${r.targetId === DIRECT ? ' direct' : ''}${target ? '' : ' unknown'}`,
-        type: 'button',
-        title: r.why,
-        onclick: () => {
-          if (target) host.open(target.id);
-        },
-      },
-      target ? el('i', { style: { background: target.color } }) : null,
-      r.targetId === DIRECT ? 'Direct' : target ? target.name : '—'
-    );
-    if (!target) (chip as HTMLButtonElement).disabled = true;
+    if (!r.targetId) return el('span', { class: 'meta' }, '—');
+    const target = r.targetId !== DIRECT && r.targetId !== SYSTEM ? profileById(config, r.targetId) : null;
+    const key = paintRoute(el('span', { class: `key${r.targetId === SYSTEM ? ' system' : ''}` }), colourOf(config, r.targetId));
+    const inner: Array<Node | string> = [key, el('span', { class: 'rv-n' }, nameFor(config, r.targetId))];
+    if (r.howText) inner.push(el('span', { class: 'meta' }, r.howText));
+    return target
+      ? el('button', { class: 'rv', type: 'button', title: `Open ${target.name}`, onclick: () => host.open(target.id) }, ...inner)
+      : el('span', { class: 'rv' }, ...inner);
+  };
 
-    const statusText =
-      r.status === 'pending'
-        ? '···'
-        : r.status === 'error'
-          ? (r.error ?? 'failed').replace(/^net::/, '')
-          : String(r.statusCode ?? '');
+  const resultCell = (r: Row): HTMLElement => {
+    if (r.status === 'pending') return el('span', { class: 'meta' }, '···');
+    if (r.status === 'error') return el('span', { class: 'st bad', title: r.error ?? '' }, shortError(r.error));
+    return el('span', { class: 'mono dim' }, `${r.statusCode ?? ''}${r.fromCache ? ' · cache' : ''}`);
+  };
+
+  /** The opened request: its track, what decided it, what came back, and what to do next. */
+  const detail = (r: Row): HTMLElement => {
+    const config = host.config();
+    const destId = r.targetId || DIRECT;
+    const dest = profileById(config, destId);
+    const destName = nameFor(config, destId);
+    const failing = r.status === 'error' && proxyFault(r.error);
+    const strip = routeStrip({
+      how: r.how,
+      dest: { name: destName, colour: colourOf(config, destId), system: destId === SYSTEM },
+      broken: failing,
+      label: `${r.host || r.url} went to ${destName}${r.howText ? `, by ${r.howText}` : ''}${failing ? ', where the connection failed' : ''}.`,
+    });
+
+    const hostNode = el('b', { class: 'mono host' }, r.host || r.url);
+    const endpoint = dest?.kind === 'proxy' ? el('span', { class: 'mono' }, `${dest.host}:${dest.port}`) : null;
+    const first = r.edges.find((e) => e.kind !== 'alias');
+    const decider = first ? profileById(config, first.from) : null;
+    const story: Array<Node | string> = [hostNode];
+    switch (r.how.kind) {
+      case 'rule':
+        story.push(
+          ` matched ${r.howText}, `,
+          el('span', { class: 'mono' }, first?.pattern ?? ''),
+          `, in ${decider?.name ?? 'the active profile'}, and went to ${destName}`
+        );
+        break;
+      case 'override':
+        story.push(` has an override, set from the popup, that sends it to ${destName}`);
+        break;
+      case 'default':
+        story.push(
+          decider?.kind === 'rulelist'
+            ? ` is not on ${decider.name}’s list, so it went to ${destName}`
+            : ` matched no rule in ${decider?.name ?? 'the active profile'}, so it took the default, ${destName}`
+        );
+        break;
+      case 'list':
+        story.push(` is on ${decider?.name ?? 'the rule list'}’s list, so it went to ${destName}`);
+        break;
+      case 'bypass': {
+        const via = [...r.edges].reverse().find((e) => e.to !== DIRECT)?.to;
+        story.push(` is on ${via ? nameFor(config, via) : 'the proxy'}’s bypass list, so it went straight out, Direct`);
+        break;
+      }
+      case 'all':
+        story.push(
+          destId === SYSTEM
+            ? ' was handed to your operating system’s proxy settings'
+            : destId === DIRECT
+              ? ' went straight out: Direct is active'
+              : ` went through ${destName}, which carries everything`
+        );
+        break;
+    }
+    if (endpoint && r.how.kind !== 'bypass') story.push(' at ', endpoint);
+    story.push('.');
+
+    const facts: Array<Node | string> = [];
+    if (r.status === 'error') {
+      facts.push('Chrome answered ', el('span', { class: 'mono' }, r.error ?? 'an error'), r.ms !== undefined ? ` after ${r.ms} ms.` : '.');
+      // The advice is about proxies; on a direct request it would blame one that was never involved.
+      const advice = dest?.kind === 'proxy' ? codeAdvice(r.error ?? '') : null;
+      if (advice) facts.push(` ${advice}`);
+    } else if (r.status === 'ok') {
+      facts.push(
+        `Answered ${r.statusCode ?? ''}${r.fromCache ? ' from the cache' : ''}${r.ms !== undefined ? ` in ${r.ms} ms` : ''}`,
+        r.ip ? el('span', {}, ' from ', el('span', { class: 'mono' }, r.ip)) : '',
+        '.'
+      );
+    } else {
+      facts.push('Still waiting for an answer.');
+    }
+    facts.push(` ${r.method} · ${r.type.replace(/_/g, ' ')}${r.bytes !== undefined ? ` · ${humanBytes(r.bytes)}` : ''}`);
+
+    const acts: HTMLElement[] = [];
+    let testOut: HTMLElement | null = null;
+    if (dest?.kind === 'proxy') {
+      testOut = el('span', { class: 'note test-result', dataset: { profile: dest.id } });
+      const testBtn = el(
+        'button',
+        { class: `btn${failing ? ' primary' : ''} test-btn`, type: 'button', dataset: { profile: dest.id } },
+        `Test ${dest.name}`
+      );
+      testBtn.onclick = () => host.test(dest.id, testBtn, testOut!);
+      acts.push(testBtn);
+    }
+    acts.push(
+      el('button', { class: `btn${failing ? '' : ' primary'}`, type: 'button', onclick: () => host.inspect(r.url) }, 'Open in Inspector'),
+      el(
+        'button',
+        {
+          class: 'btn quiet',
+          type: 'button',
+          onclick: async () => {
+            const text = [
+              `${r.method} ${r.url}`,
+              `Route: ${destName}${r.howText ? ` (${r.howText})` : ''}`,
+              `Result: ${r.status === 'error' ? (r.error ?? 'failed') : r.status === 'ok' ? String(r.statusCode ?? '') : 'pending'}${r.ms !== undefined ? ` in ${r.ms} ms` : ''}`,
+              `At: ${new Date(r.at).toISOString()}`,
+            ].join('\n');
+            try {
+              await navigator.clipboard.writeText(text);
+              toast('Copied');
+            } catch {
+              toast('Could not copy');
+            }
+          },
+        },
+        'Copy as text'
+      )
+    );
 
     return el(
       'div',
-      { class: `net-row ${r.status}` },
-      el('span', { class: 'net-time' }, new Date(r.at).toLocaleTimeString()),
-      el('span', { class: 'net-method' }, r.method),
-      el('span', { class: 'net-url', title: r.url }, r.url),
-      chip,
-      el('span', { class: 'net-type' }, r.type),
-      el('span', { class: 'net-status', title: r.error ?? '' }, statusText),
-      el(
-        'span',
-        { class: 'net-size', title: r.bytes === undefined ? 'No Content-Length on this response' : '' },
-        r.bytes === undefined ? '—' : humanBytes(r.bytes)
-      ),
-      el('span', { class: 'net-ms' }, r.ms === undefined ? '' : `${r.ms} ms`)
+      { class: 'det' },
+      strip,
+      el('div', { class: 'det-text' }, el('p', {}, ...story), el('p', {}, ...facts), el('div', { class: 'acts' }, ...acts, testOut))
     );
   };
 
+  const rowNode = (r: Row): HTMLElement => {
+    const open = openId === r.id;
+    const time = new Date(r.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+    return el(
+      'tbody',
+      { class: `nt-r ${r.status}${open ? ' is-open' : ''}` },
+      el(
+        'tr',
+        {},
+        el('td', { class: 'c-time mono' }, time),
+        el('td', { class: 'c-m mono' }, r.method),
+        el(
+          'td',
+          { class: 'c-url' },
+          el(
+            'button',
+            {
+              class: 'nt-url mono',
+              type: 'button',
+              title: r.url,
+              ariaExpanded: String(open),
+              onclick: () => {
+                const prev = openId;
+                openId = open ? null : r.id;
+                redraw(r.id, true);
+                if (prev && prev !== r.id) redraw(prev, false);
+              },
+            },
+            r.url
+          )
+        ),
+        el('td', { class: 'c-route' }, routeCell(r)),
+        el('td', { class: 'c-res' }, resultCell(r)),
+        el('td', { class: 'c-took mono' }, r.ms === undefined ? '' : `${r.ms} ms`)
+      ),
+      open ? el('tr', { class: 'nt-detail' }, el('td', { colSpan: 6 }, detail(r))) : null
+    );
+  };
+
+  /**
+   * Repaint one request in place — opening or closing it, mostly. The button
+   * that was pressed is replaced with its row, so focus is put back on the new
+   * one, or a keyboard user would be dropped at the top of the page.
+   */
+  const redraw = (id: string, refocus: boolean): void => {
+    const entry = drawn.get(id);
+    const r = byRequestId.get(id);
+    if (!entry || !r) return;
+    const node = rowNode(r);
+    entry.node.replaceWith(node);
+    drawn.set(id, { node, sig: signature(r) });
+    if (refocus) node.querySelector<HTMLElement>('.nt-url')?.focus({ preventScroll: true });
+  };
+
+  /** Of everything recorded: how much went where, as one bar and its key. */
+  const paintMix = (): void => {
+    if (!rows.length) {
+      mix.replaceChildren();
+      return;
+    }
+    const config = host.config();
+    const counts = new Map<string, number>();
+    let failed = 0;
+    for (const r of rows) {
+      const id = r.targetId || DIRECT;
+      counts.set(id, (counts.get(id) ?? 0) + 1);
+      if (r.status === 'error') failed++;
+    }
+    const order = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+    const bar = el('div', { class: 'mix-bar', role: 'img' });
+    bar.setAttribute(
+      'aria-label',
+      `Of ${rows.length} request${rows.length === 1 ? '' : 's'}: ${order.map(([id, n]) => `${n} ${nameFor(config, id)}`).join(', ')}`
+    );
+    for (const [id, n] of order) {
+      const seg = paintRoute(el('i', { class: id === SYSTEM ? 'system' : '' }), id === DIRECT || id === SYSTEM ? BUILTIN_FILL : colourOf(config, id));
+      seg.style.flex = String(n);
+      bar.append(seg);
+    }
+    const key = el(
+      'p',
+      { class: 'mix-key' },
+      ...order.map(([id, n]) =>
+        el(
+          'span',
+          {},
+          paintRoute(el('span', { class: `key${id === SYSTEM ? ' system' : ''}` }), colourOf(config, id)),
+          `${nameFor(config, id)} `,
+          el('span', { class: 'tnum' }, n.toLocaleString())
+        )
+      ),
+      failed ? el('span', { class: 'st bad' }, `${failed.toLocaleString()} failed`) : null
+    );
+    mix.replaceChildren(bar, key);
+  };
+
+  const head = (): HTMLElement =>
+    el(
+      'thead',
+      {},
+      el(
+        'tr',
+        {},
+        el('th', { class: 'c-time' }, 'Time'),
+        el('th', { class: 'c-m' }, 'Method'),
+        el('th', { class: 'c-url' }, 'URL'),
+        el('th', { class: 'c-route', title: 'Where Sockitt’s rules send this request — worked out from the rules, since Chrome never says' }, 'Route'),
+        el('th', { class: 'c-res' }, 'Result'),
+        el('th', { class: 'c-took' }, 'Took')
+      )
+    );
+
   const paint = (): void => {
     const shown = visible();
-    countLabel.textContent = rows.length
-      ? `${shown.length} of ${rows.length} request${rows.length === 1 ? '' : 's'}`
-      : '';
-    recordBtn.textContent = recording ? 'Stop' : 'Record';
-    recordBtn.classList.toggle('on', recording);
+    host.setCount(rows.length);
+    recordBtn.replaceChildren(icon(recording ? 'pause' : 'record', 'sm'), recording ? 'Stop' : 'Record');
+    since.textContent = recording && recordingSince
+      ? `Recording since ${new Date(recordingSince).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}`
+      : granted
+        ? 'Stopped'
+        : '';
     panel.classList.toggle('stopped', granted && !recording);
+    toolbar.hidden = !granted;
+    paintMix();
 
     if (!granted) {
       body.replaceChildren(permissionGate());
@@ -341,7 +636,7 @@ export function networkPanel(host: NetworkHost): HTMLElement {
       body.replaceChildren(
         el(
           'p',
-          { class: 'net-empty' },
+          { class: 'nt-empty' },
           recording
             ? 'Recording. Reload a page, or browse — requests appear here as they are made.'
             : 'Stopped. Nothing is being observed: the listeners are detached, not just ignored. Press Record to start.'
@@ -350,20 +645,20 @@ export function networkPanel(host: NetworkHost): HTMLElement {
       return;
     }
     if (!shown.length) {
-      body.replaceChildren(el('p', { class: 'net-empty' }, 'No request matches that filter.'));
+      body.replaceChildren(el('p', { class: 'nt-empty' }, 'No request matches that filter.'));
       drawn.clear();
-      listNode.replaceChildren();
+      table.replaceChildren();
       drawnFilterKey = '';
       return;
     }
 
     // Mount the list once. Re-mounting is what destroyed the scroll position,
     // so anything below here mutates the node in place rather than swapping it.
-    if (listNode.parentNode !== body) {
-      body.replaceChildren(header(), listNode);
+    if (scroller.parentNode !== body) {
+      body.replaceChildren(scroller);
       // Coming back from an empty state, nothing on screen is reusable.
       drawn.clear();
-      listNode.replaceChildren();
+      table.replaceChildren(head());
       drawnFilterKey = '';
     }
 
@@ -377,7 +672,8 @@ export function networkPanel(host: NetworkHost): HTMLElement {
       // A different set in a different order — rebuild, and let it start at the
       // top, which is where someone who has just typed a filter expects to be.
       drawn.clear();
-      listNode.replaceChildren(
+      table.replaceChildren(
+        head(),
         ...order.map((r) => {
           const node = rowNode(r);
           drawn.set(r.id, { node, sig: signature(r) });
@@ -385,7 +681,9 @@ export function networkPanel(host: NetworkHost): HTMLElement {
         })
       );
       drawnFilterKey = filterKey;
-      listNode.scrollTop = 0;
+      // Let it start at the top, which is where someone who has just typed a
+      // filter expects to be — but only pull the page back if it had moved on.
+      if (table.getBoundingClientRect().top < 0) table.scrollIntoView({ block: 'start' });
       return;
     }
 
@@ -413,11 +711,13 @@ export function networkPanel(host: NetworkHost): HTMLElement {
     // belongs. Keyed rather than "prepend the new ones": with Failed only on, a
     // request that was pending and then failed becomes newly visible but sorts
     // into the middle, and prepending would file it above rows newer than it.
-    const scrollBefore = listNode.scrollTop;
-    const heightBefore = listNode.scrollHeight;
+    // Whether the reader is down in the list, and how tall it was, before rows go in.
+    const readingBelow = table.getBoundingClientRect().top < 0;
+    const heightBefore = table.offsetHeight;
     let inserted = false;
 
-    let cursor: ChildNode | null = listNode.firstChild;
+    // The head stays first; requests follow it.
+    let cursor: ChildNode | null = table.firstChild?.nextSibling ?? null;
     for (const r of order) {
       let entry = drawn.get(r.id);
       if (!entry) {
@@ -428,80 +728,71 @@ export function networkPanel(host: NetworkHost): HTMLElement {
       if (entry.node === cursor) {
         cursor = cursor.nextSibling;
       } else {
-        listNode.insertBefore(entry.node, cursor);
+        table.insertBefore(entry.node, cursor);
       }
     }
 
     // New rows go in above whatever is being read, pushing it down by exactly
-    // their height. Give that height back to scrollTop so the rows under the
-    // pointer stay put — the other half of making the list scrollable while
-    // traffic is flowing. Only when already scrolled: at rest at the top, the
-    // newest arriving in view is the point.
-    if (inserted && scrollBefore > 0) {
-      listNode.scrollTop = scrollBefore + (listNode.scrollHeight - heightBefore);
-    }
+    // their height. Give that height back to the page's scroll so the rows
+    // under the pointer stay put — the other half of making the list readable
+    // while traffic is flowing. Only when already scrolled into the list: at
+    // rest above it, the newest arriving in view is the point.
+    if (inserted && readingBelow) window.scrollBy(0, table.offsetHeight - heightBefore);
   };
 
   /** What a row was drawn from — cheaper than diffing the node it produced. */
   const signature = (r: Row): string =>
-    `${r.status}|${r.statusCode ?? ''}|${r.error ?? ''}|${r.bytes ?? ''}|${r.ms ?? ''}|${r.targetId}`;
-
-  // The header wears the same classes as the cells it labels. Without them the
-  // rules that drop a column at narrow widths hid the data but not its heading,
-  // and the leftover headings wrapped onto a second row of their own.
-  const header = (): HTMLElement =>
-    el(
-      'div',
-      { class: 'net-row net-head' },
-      el('span', { class: 'net-time' }, 'Time'),
-      el('span', { class: 'net-method' }, 'Method'),
-      el('span', { class: 'net-url' }, 'URL'),
-      el('span', { title: 'Where Sockitt’s rules send this request' }, 'Routed via'),
-      el('span', { class: 'net-type' }, 'Kind'),
-      el('span', { class: 'net-status' }, 'Result'),
-      el('span', { class: 'net-size', title: 'Declared Content-Length. Streamed responses do not carry one.' }, 'Size'),
-      el('span', { class: 'net-ms' }, 'Took')
-    );
+    `${r.status}|${r.statusCode ?? ''}|${r.error ?? ''}|${r.bytes ?? ''}|${r.ms ?? ''}|${r.targetId}|${openId === r.id}`;
 
   const permissionGate = (): HTMLElement =>
     el(
       'div',
-      { class: 'net-gate' },
-      el('p', {}, 'The monitor needs permission to observe requests before it can show any.'),
+      { class: 'callout info nt-gate' },
       el(
-        'p',
-        { class: 'note' },
-        'It grants Sockitt access to read the requests your browser makes. Nothing is stored: ' +
-          'the log lives in this page only, and closing it discards everything. Recording stops ' +
-          'the moment you leave this page.'
+        'div',
+        {},
+        el('h3', {}, 'The monitor needs permission to observe requests'),
+        el(
+          'p',
+          {},
+          'It lets Sockitt read the requests your browser makes. Nothing is stored: the log lives in this page only, ' +
+            'closing it discards everything, and recording stops the moment you leave.'
+        )
       ),
       el(
-        'button',
-        {
-          class: 'btn primary',
-          onclick: async () => {
-            const ok = await chrome.permissions.request(MONITOR_PERMS).catch(() => false);
-            if (!ok) {
-              toast('Permission declined');
-              return;
-            }
-            granted = true;
-            host.setRecording(true);
-            await start();
+        'div',
+        { class: 'acts' },
+        el(
+          'button',
+          {
+            class: 'btn primary',
+            type: 'button',
+            onclick: async () => {
+              const ok = await chrome.permissions.request(MONITOR_PERMS).catch(() => false);
+              if (!ok) {
+                toast('Permission declined');
+                return;
+              }
+              granted = true;
+              host.setRecording(true);
+              await start();
+            },
           },
-        },
-        'Turn on the monitor'
+          'Turn on the monitor'
+        )
       )
     );
 
   /* ---------------- chrome ---------------- */
 
   const filterInput = el('input', {
-    class: 'input mono',
-    placeholder: 'Filter by URL, profile, or kind',
+    class: 'input',
+    type: 'search',
+    placeholder: 'Filter by URL, profile or result',
+    ariaLabel: 'Filter requests',
     spellcheck: false,
     oninput: () => {
-      filter = (filterInput as HTMLInputElement).value;
+      filter = filterInput.value;
       paint();
     },
   }) as HTMLInputElement;
@@ -517,73 +808,57 @@ export function networkPanel(host: NetworkHost): HTMLElement {
    * away on every navigation — stopping the monitor and stepping over to the
    * Overview used to bring it back recording.
    */
-  const recordBtn = el(
-    'button',
-    {
-      class: 'btn net-rec',
-      onclick: () => {
-        const next = !recording;
-        host.setRecording(next);
-        if (next) void start();
-        else {
-          stop();
-          paint();
-        }
-      },
-    },
-    'Stop'
-  );
-
-  const failedBtn = el(
-    'button',
-    {
-      class: 'btn',
-      onclick: () => {
-        failedOnly = !failedOnly;
-        failedBtn.classList.toggle('on', failedOnly);
+  const recordBtn = el('button', {
+    class: 'btn net-rec',
+    type: 'button',
+    onclick: () => {
+      const next = !recording;
+      host.setRecording(next);
+      if (next) void start();
+      else {
+        stop();
         paint();
-      },
+      }
     },
-    'Failed only'
+  });
+
+  const failedBox = el('input', {
+    class: 'check',
+    type: 'checkbox',
+    onchange: () => {
+      failedOnly = failedBox.checked;
+      paint();
+    },
+  }) as HTMLInputElement;
+
+  const toolbar = el(
+    'div',
+    { class: 'toolbar' },
+    el('div', { class: 'search nt-find' }, filterInput),
+    el('label', { class: 'chk' }, failedBox, 'Failed only'),
+    el('span', { class: 'grow' }),
+    since,
+    recordBtn,
+    el(
+      'button',
+      {
+        class: 'btn quiet',
+        type: 'button',
+        onclick: () => {
+          rows.length = 0;
+          byRequestId.clear();
+          drawn.clear();
+          openId = null;
+          table.replaceChildren();
+          drawnFilterKey = '';
+          paint();
+        },
+      },
+      'Clear'
+    )
   );
 
-  panel.append(
-    el(
-      'div',
-      { class: 'doc-head' },
-      el('h2', { class: 'doc-title' }, 'Network monitor'),
-      countLabel
-    ),
-    el(
-      'p',
-      { class: 'net-lede' },
-      'Every request this browser makes while the page is open, and which profile Sockitt’s ' +
-        'rules route it through. Nothing is recorded once you leave.'
-    ),
-    el(
-      'div',
-      { class: 'net-bar' },
-      filterInput,
-      failedBtn,
-      recordBtn,
-      el(
-        'button',
-        {
-          class: 'btn ghost',
-          onclick: () => {
-            rows.length = 0;
-            byRequestId.clear();
-            drawn.clear();
-            listNode.replaceChildren();
-            drawnFilterKey = '';
-            paint();
-          },
-        },
-        'Clear'
-      )
-    ),
-    body
-  );
+  panel.append(mix, toolbar, body);
 
   // Permission state decides whether we start; both are async, so the panel
   // paints its gate first and swaps itself out when the answer lands.

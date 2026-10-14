@@ -30,33 +30,35 @@ default permission set, and a rule engine that compiles to an optimised PAC
 script.
 
 <p align="center">
-  <img src="img/store/screenshot-6-overview.png" width="720" alt="Sockitt Overview dashboard - live route, routing map, and config health"><br>
-  <sub>Overview: the live route and its exit IP, a map of how your profiles feed into each other, and a health check with one-click fixes</sub>
+  <img src="img/store/screenshot-6-overview.png" width="720" alt="Sockitt Overview: the active auto switch drawn as a track map, each rule a numbered junction and each destination a coloured line"><br>
+  <sub>Overview: your rules drawn as a track map, in the order they are tried — every line is a profile, in its own colour, ending where that traffic exits</sub>
 </p>
 <p align="center">
-  <img src="img/store/screenshot-1-popup.png" width="720" alt="Sockitt popup"><br>
-  <sub>Popup: switch profiles on the left; on the right, where this tab routes, its rule, and where it exits</sub>
+  <img src="img/store/screenshot-1-popup.png" width="720" alt="Sockitt popup in the light and dark themes"><br>
+  <sub>Popup: the route this tab takes and the rule that sends it there, and every profile a click — or a number key — away</sub>
 </p>
 <p align="center">
-  <img src="img/store/screenshot-2-rules.png" width="720" alt="Sockitt options - Auto Switch rules"><br>
-  <sub>Options: an ordered, first-match-wins rule table, compiled to a PAC script</sub>
+  <img src="img/store/screenshot-2-rules.png" width="720" alt="Sockitt options: an auto switch profile's map and its numbered rules"><br>
+  <sub>Auto switch: an ordered, first-match-wins rule table, compiled to a PAC script — each rule a numbered junction on the map above it</sub>
 </p>
 <p align="center">
-  <img src="img/store/screenshot-7-monitor.png" width="720" alt="Sockitt network monitor - each request and the profile routing it"><br>
-  <sub>Network monitor: every request while the page is open, and the profile your rules send it through</sub>
+  <img src="img/store/screenshot-7-monitor.png" width="720" alt="Sockitt Activity: each request with the route it took, one opened to show its track"><br>
+  <sub>Activity: every request while the page is open, the line it took and why — open one to see its track, test its proxy, or trace it</sub>
 </p>
 
 ## Features
 
-- **Overview dashboard.** The page the options tab opens on, and the answer to
-  the question you arrive with: what is active, where traffic exits, and whether
-  anything is broken. A live route console with the hop chain and exit IP, a
-  drawn **routing map** of how your profiles feed into each other with the
-  active path picked out, a **config health** audit with one-click fixes
-  (patterns that will not compile, rules buried under a catch-all, credentials
-  without their permission, stale rule lists, reference loops), per-server
-  reachability, a profile timeline, and an inline URL resolver. Everything on it
-  is derived from your own configuration — nothing watches your browsing.
+- **A map of your routing.** The Overview draws the active profile as a track
+  map: requests enter on the left, each rule is a numbered junction in the
+  order rules are tried, and a request that matches leaves onto its
+  destination's line — every profile drawn in its own colour, ending at its
+  name with the tabs on it, a connection test and the measured exit. Paste a
+  URL into **Trace a URL** and the map lights the path that one request would
+  take. Below it, **Needs attention** lists what is wrong with the
+  configuration (patterns that will not compile, rules buried under a
+  catch-all, credentials without their permission, stale rule lists, reference
+  loops) with one-click fixes, beside a timeline of this session. Everything on
+  it is derived from your own configuration — nothing watches your browsing.
 - **Proxy profiles.** SOCKS5, SOCKS4, HTTP, or HTTPS servers with a host, port,
   and per-profile bypass list, plus optional username/password authentication
   for HTTP(S) proxies. Each profile has an identity: an initials avatar in a
@@ -83,17 +85,19 @@ script.
   per-site override that lasts only until the browser restarts. An optional
   exit-IP line (off by default) shows where the current tab actually exits —
   flag, IP, and latency, with the country named in the tooltip.
-- **Route inspector.** Trace any URL through your configuration with the same
-  resolver real routing uses — which rule fired, the chain it walked, where it
+- **Inspector.** Trace any URL through your configuration with the same
+  resolver real routing uses: the start profile's map with the path lit, then
+  every step — which rule fired, each profile it passed through, where it
   landed.
-- **Network monitor.** Where the inspector answers for one URL you type, this
+- **Activity.** Where the Inspector answers for one URL you type, Activity
   answers for everything the browser actually asks for: each request as it
-  happens and the profile your rules route it through — including the
-  subresources a page pulls in, which is where a rule quietly not firing hides.
-  It records only while its page is open and only in that page: nothing is
-  written to disk, and closing or leaving the page discards the log and stops
-  the recording. Off until you open it, and it asks for the access it needs
-  then.
+  happens, the route your rules give it and how they decided — rule 2, the
+  default, an override, a bypass list — including the subresources a page pulls
+  in, which is where a rule quietly not firing hides. Open a request to see its
+  track and test its proxy. It records only while its page is open and only in
+  that page: nothing is written to disk, and closing or leaving the page
+  discards the log and stops the recording. Off until you open it, and it asks
+  for the access it needs then.
 - **Connection tests.** One click routes briefly through a proxy, measures the
   exit IP/country/latency (auth included), and restores your configuration. Like
   the exit-IP line, this uses the opt-in IP address lookups (off by default).
@@ -111,11 +115,14 @@ script.
 - **Sync and control.** Optional configuration sync across machines via your
   browser account, a startup profile, and a guard that re-takes proxy control
   if another extension grabs it.
+- **Light and dark.** Follows the system, or keep Sockitt light or dark on one
+  device. Every profile colour is adjusted per theme so its line holds 3:1
+  against the page and its name 4.5:1.
 - **Honest failure states.** When a proxy is down, requests fail closed rather
   than silently leaking direct. A red mark on the toolbar icon says so — with a
-  count (`!`, `!4`, `!9+`) once the failure repeats — and a **Proxy errors**
-  page names the error, explains it, says which proxy was carrying traffic, and
-  keeps a log. The mark clears itself after 30 seconds without a new failure,
+  count (`!`, `!4`, `!9+`) once the failure repeats — and **Activity › Proxy
+  errors** names the error, explains it, says which proxy was carrying traffic,
+  and keeps a log. The mark clears itself after 30 seconds without a new failure,
   because a proxy coming back is something the browser never announces.
 
 ## Install
@@ -149,12 +156,12 @@ Opera, Vivaldi, and other Chromium browsers (Chrome 110+).
 
 ## Quick start
 
-1. Click the Sockitt icon, then **Manage profiles & rules**, open **Create** in
-   the sidebar and choose **Proxy**. Pick the protocol and enter the host and
-   port - for example a SOCKS5 `ssh -D 1080 myserver` tunnel on
+1. Open Sockitt's options (right-click the toolbar icon, **Options**), go to
+   **Profiles**, and choose **New › Proxy server**. Pick the protocol and enter
+   the host and port - for example a SOCKS5 `ssh -D 1080 myserver` tunnel on
    `127.0.0.1:1080`, or an HTTP proxy with a username and password.
 2. Pick the profile in the popup. Everything now routes through it.
-3. For per-site routing, create an **Auto Switch** profile and activate it. As
+3. For per-site routing, create an **Auto switch** profile and activate it. As
    you browse, the popup shows where the current tab routes and lets you add or
    edit a rule for it - permanently, or as a temporary override. This works while
    a page is still loading too: a site you cannot reach directly is shown as the
@@ -175,17 +182,17 @@ you configure; enabling IP address lookups (opt-in, below) adds lookups of
 
 Extra capabilities are strictly opt-in and requested only when you use them:
 
-- **Per-tab route badge** requests `tabs` and `webNavigation`. Together they ask
+- **Route badge** requests `tabs` and `webNavigation`. Together they ask
   for "Read your browsing history" once — the same prompt `tabs` alone already
   showed. `webNavigation` is what tells the badge a navigation has *started*, so
   a site that never answers stops reading out the previous page's profile. The
-  Overview's "Where your tabs go" breakdown needs only `tabs`. Either way, tab
+  Overview's count of the tabs on each line needs only `tabs`. Either way, tab
   URLs are resolved locally through your own rules, and nothing is stored or
   sent.
 - **HTTP/HTTPS proxy authentication** requests `webRequest`,
   `webRequestAuthProvider`, and all-sites access, which Chromium needs to answer
   proxy auth challenges. Sockitt asks when you set credentials.
-- **The Network monitor** requests the same grant for a different purpose:
+- **Activity** requests the same grant for a different purpose:
   observing requests so it can list them. It asks the first time you open the
   page, records only in that page, and writes nothing to disk. An install that
   never opens it never grants it. (It asks for `webRequestAuthProvider` too,

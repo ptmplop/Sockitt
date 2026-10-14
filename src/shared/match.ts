@@ -248,6 +248,15 @@ export function compileBypassEntry(entry: string): CompiledCondition {
 }
 
 /**
+ * Whether a parsed URL's host could be one. Chrome's parser is lenient: it
+ * takes "not a host at all" and percent-encodes the spaces into the hostname,
+ * which then traces as though it were a site.
+ */
+export function hostLooksReal(host: string): boolean {
+  return /^(\[[0-9a-f:.]+\]|[a-z0-9_-]+(\.[a-z0-9_-]+)*\.?)$/i.test(host);
+}
+
+/**
  * The URL as Chrome hands it to a PAC script. Chrome strips the path and query
  * from https:// (and ftp/wss) URLs for privacy, passing only `scheme://host/`;
  * http:// URLs keep their full path. The popup preview and per-tab badge must
