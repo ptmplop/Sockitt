@@ -21,8 +21,8 @@ meet junctions, and leave on coloured lines that end at their destination.
    mix bar, the popup's strip. The chrome is graphite and white.
 2. **Status is an icon and a word**, never a hue alone: a cross and red ink
    for failing, a triangle and amber for a warning, a tick and green for clear.
-3. **The brand violet belongs to the logo alone.** Focus rings, links, the
-   selected tab and the primary button are ink.
+3. **The brand violet belongs to the logo alone**, and so does its trim.
+   Focus rings, links, the selected tab and the primary button are ink.
 4. **One tinted surface per page**: the full-bleed band the Overview's map sits
    on (`--yard`). Everything else is white paper divided by hairlines.
 5. **One ink action per view.** Everything else is a quiet button with an edge,
@@ -49,6 +49,7 @@ Light values; the dark theme redefines the same names (see *Themes*).
 | `--bad-ink`, `--warn-ink`, `--good-ink` | | status as text, 4.5:1 on paper and on its tint |
 | `--bad-tint`/`-edge`, `--warn-tint`/`-edge` | | callout fills |
 | `--brand` | `#7543e8` | the logo's sock. The mark only |
+| `--brand-trim` | `#2c1b6f` | the mark's cuff, heel and toe; `#b9a3e9` on dark. The mark only |
 
 Radii: 10px callouts, menus and the popup window; 8px the selected row and
 panels; 6px buttons and fields; 4px junction squares and inline code.
@@ -129,7 +130,8 @@ destination's line ending at its name; a failing proxy breaks the line.
 
 ## Layout
 
-- **Top bar**: the mark, six tabs (Overview, Profiles, Activity, Inspector,
+- **Top bar**: the mark (drawn inline by `src/shared/mark.ts`, so its trim
+  follows the theme; see [logo.md](logo.md)), six tabs (Overview, Profiles, Activity, Inspector,
   Settings, Docs) and, on the right, the route picker — a native select with
   the active route's line key beside it. Activity carries a red count while
   requests are failing; Settings an amber count while a setting needs a

@@ -30,6 +30,7 @@ import {
   removeTempRule,
   saveConfig,
 } from '../shared/state';
+import { brandMark } from '../shared/mark';
 import { StripModel, routeStrip } from '../shared/strip';
 import { TabTarget, tabTarget } from '../shared/tabs';
 import { ERROR_KEY, ProxyAlert, asProxyAlert, errorSummaryLine, loadProxyAlert } from '../shared/errors';
@@ -736,7 +737,7 @@ function header(): HTMLElement {
   return el(
     'header',
     { class: 'pop-top' },
-    el('span', { class: 'brand' }, el('img', { class: 'mark', src: 'img/logo-mark.png', alt: '' }), 'Sockitt'),
+    el('span', { class: 'brand' }, brandMark(), 'Sockitt'),
     scopeLabel,
     el('span', { class: 'grow' }),
     options

@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="img/logo-banner.png" width="300" alt="Sockitt - Proxify your browser.">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="img/logo-banner-dark.png">
+    <img src="img/logo-banner.png" width="300" alt="Sockitt">
+  </picture>
 </p>
 
 <p align="center">
@@ -239,10 +242,11 @@ npm run watch       # dev build with inline sourcemaps
 npm run zip         # store-ready sockitt.zip
 npm run crx         # signed sockitt.crx for Chrome Web Store uploads
 npm run shots       # regenerate the README + store screenshots from the built UI
-npm run icons       # regenerate icons from img/logo-source.png (needs ImageMagick)
+npm run icons       # regenerate icons, banners and promo tiles from img/logo/ (needs rsvg-convert)
 ```
 
-Project layout and design notes are in [docs/development.md](docs/development.md).
+Project layout and design notes are in [docs/development.md](docs/development.md); the logo and
+how to use it are in [docs/logo.md](docs/logo.md).
 
 ## Acknowledgements
 

@@ -65,6 +65,7 @@
   --press: #eceef1;
 
   --brand: #7543e8;    /* the logo's sock. The mark only. */
+  --brand-trim: #2c1b6f; /* the mark's cuff, heel and toe; lavender on dark */
 
   /* status: the vivid tone for icons, the ink for text, a tint and its edge */
   --bad: #d92d20;   --bad-ink: #b42318;   --bad-tint: #fef3f2;  --bad-edge: #f6c4bf;
@@ -119,6 +120,7 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --paper: #0f1013; --ground: #16181c; --ground-2: #1d2025; --yard: #131418;
+    --brand-trim: #b9a3e9;
     --ink: #eceef1; --ink-2: #b4b9c4; --ink-3: #8f95a1; --on-ink: #0f1013; --trunk: #d9dce1;
     --rule: #24272d; --rule-2: #31353c; --field: #3c4149; --field-edge: #6a707b;
     --hover: #1a1c21; --press: #202328;
@@ -134,6 +136,7 @@
 }
 :root[data-theme="dark"] {
   --paper: #0f1013; --ground: #16181c; --ground-2: #1d2025; --yard: #131418;
+  --brand-trim: #b9a3e9;
   --ink: #eceef1; --ink-2: #b4b9c4; --ink-3: #8f95a1; --on-ink: #0f1013; --trunk: #d9dce1;
   --rule: #24272d; --rule-2: #31353c; --field: #3c4149; --field-edge: #6a707b;
   --hover: #1a1c21; --press: #202328;
@@ -229,6 +232,9 @@ button, input, select, textarea { font: inherit; font-stretch: inherit; color: i
 
 /* ---- brand mark ---- */
 .mark { width: 24px; height: 24px; flex: none; display: block; }
+.mark svg { display: block; width: 100%; height: 100%; }
+.m-sock { fill: var(--brand); }
+.m-trim { fill: var(--brand-trim); }
 .brand { display: inline-flex; align-items: center; gap: 9px; font-size: 17px; font-weight: 650; font-stretch: 108%; letter-spacing: -0.01em; }
 
 /* ---- buttons ----

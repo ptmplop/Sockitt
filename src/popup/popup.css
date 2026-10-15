@@ -33,9 +33,6 @@ body { overflow: hidden; font-size: 13.5px; }
   border-bottom: 1px solid var(--rule);
 }
 .pop-top .brand { font-size: 15.5px; }
-/* The committed mark is opaque-white-backed: on a dark header it reads as a
-   white tile, so it is shaped like one. Invisible on white, and a no-op once
-   the mark is transparent. */
 .pop-top .mark { width: 22px; height: 22px; }
 .pop-top .grow { flex: 1; }
 .pop-top .cog .ic { margin: 0; }

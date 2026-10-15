@@ -484,7 +484,7 @@ function framePage(scene) {
 </head>
 <body>
   <div class="head">
-    <div class="wordmark"><img src="logo-mark.png" alt=""><span>Sockitt</span></div>
+    <div class="wordmark"><img src="logo-mark.svg" alt=""><span>Sockitt</span></div>
     <h1>${scene.title}</h1>
     <p>${scene.subtitle}</p>
   </div>
@@ -576,7 +576,7 @@ async function main() {
   await mkdir(STAGE, { recursive: true });
   await mkdir(OUT, { recursive: true });
   await cp(resolve('dist'), STAGE, { recursive: true });
-  await cp(resolve('img/logo-mark.png'), resolve(STAGE, 'logo-mark.png'));
+  await cp(resolve('img/logo/logo-mark.svg'), resolve(STAGE, 'logo-mark.svg'));
   await writeFile(resolve(STAGE, 'mock.js'), mockSource());
 
   // The UI pages get the shim injected ahead of their bundle, once each.

@@ -19,6 +19,7 @@ import { yardSvg } from './yardview';
 import { FetchRoute, listFetchRoute } from '../shared/listroute';
 import { Explanation, ListFetchFailure, RouteName, explainListFailure } from '../shared/listfetch';
 import { docsPanel } from './docs';
+import { brandMark } from '../shared/mark';
 import { EXIT_IP_PERMS, flagSrc } from '../shared/exitip';
 import { TraceEdge, hostLooksReal, pacRequestUrl, patternError, resolveRoute } from '../shared/match';
 import { RULE_LIST_MAX_BYTES, looksLikeSwitchyOmega, parseRuleList } from '../shared/rulelist';
@@ -349,7 +350,7 @@ function topNav(): HTMLElement {
       el(
         'button',
         { class: 'brand', type: 'button', title: 'Overview', onclick: () => goTo(DASH_ID) },
-        el('img', { class: 'mark', src: 'img/logo-mark.png', alt: '' }),
+        brandMark(),
         el('span', {}, 'Sockitt')
       ),
       tabs,

@@ -27,6 +27,16 @@ interface Release {
 
 const RELEASES: Release[] = [
   {
+    from: '1.28.0',
+    date: '15 October 2026',
+    title: 'The sock, redrawn',
+    notes: [
+      'Sockitt has a new logo. It is the same violet sock bent into an S, drawn flat and crisp: the shading, the ribbing and the speed lines are gone, and the cuff, heel and toe are knitted in a darker trim.',
+      'In the dark theme the trim turns lavender, so the heel and toe no longer disappear against a dark page. The mark at the top of the popup and the options page follows your Theme setting.',
+      'When no profile is active, the toolbar shows the new sock on a white tile, which stays clear on a dark toolbar too. The store listing’s icon and images use it as well.',
+    ],
+  },
+  {
     from: '1.27.0',
     to: '1.27.2',
     date: '14 October 2026',

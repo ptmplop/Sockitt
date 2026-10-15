@@ -1,55 +1,71 @@
-// Regenerates every image asset from img/logo-source.png (the original artwork)
-// using ImageMagick (`brew install imagemagick`).
+// Regenerates every logo image from the SVG masters in img/logo/ (see
+// docs/logo.md), using rsvg-convert (`brew install librsvg`, or
+// `apt install librsvg2-bin`).
 //
-//   img/logo-banner.png   full lockup, trimmed, on its light background (README)
-//   img/logo-mark.png     the sock alone, on transparency (in-app brand, either theme)
-//   img/icon-*.png        transparent toolbar/store icons (16/32/48/128)
-//
-// The service worker repaints the toolbar icon at runtime with the active
-// profile's initials avatar; the icon-*.png files are the neutral defaults.
+//   img/icon-16/32/48.png      toolbar and extensions page: the sock on the white tile
+//                              (sockitt-toolbar.svg). The service worker paints the
+//                              active profile's initials tile over it at runtime;
+//                              this is what shows when no profile is active.
+//   img/icon-128.png           store and install dialog: the same tile at 96 px with
+//                              16 px of transparent padding (sockitt-store-icon.svg)
+//   img/logo-banner.png        README, light theme (logo-banner.svg)
+//   img/logo-banner-dark.png   README, dark theme (logo-banner-dark.svg)
+//   img/store/promo-*.png      store promo tiles (promo-*.svg)
+//   src/shared/mark-paths.ts   the in-app mark's path data (logo-mark.svg). The pages
+//                              draw the mark inline so its trim can follow their theme.
 import { execFileSync } from 'node:child_process';
-import { rmSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 
-const SRC = 'img/logo-source.png';
-const BG = 'srgb(254,254,254)';
-const magick = (...args) => execFileSync('magick', args, { stdio: 'inherit' });
+const LOGO = 'img/logo';
 
-function sockTrimmed(out, extraArgs) {
-  // Crop the sock (above the wordmark), then trim its border.
-  magick(SRC, '-crop', '640x600+300+150', '+repage', '-fuzz', '8%', ...extraArgs, out);
+function rsvg(src, out, size) {
+  try {
+    execFileSync('rsvg-convert', [...size, '-o', out, `${LOGO}/${src}`], { stdio: 'inherit' });
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      console.error('rsvg-convert not found: brew install librsvg (macOS) or apt install librsvg2-bin (Debian)');
+      process.exit(1);
+    }
+    throw err;
+  }
+  console.log(out);
 }
 
-// README banner: whole lockup, trimmed, light background kept.
-magick(SRC, '-fuzz', '6%', '-transparent', BG, '-trim', '+repage', '-background', BG,
-  '-bordercolor', BG, '-border', '40', '-resize', '900x900', '-strip', 'img/logo-banner.png');
+for (const s of [16, 32, 48]) rsvg('sockitt-toolbar.svg', `img/icon-${s}.png`, ['-w', s, '-h', s].map(String));
+rsvg('sockitt-store-icon.svg', 'img/icon-128.png', ['-w', '128', '-h', '128']);
+rsvg('logo-banner.svg', 'img/logo-banner.png', ['-a', '-w', '900']);
+rsvg('logo-banner-dark.svg', 'img/logo-banner-dark.png', ['-a', '-w', '900']);
+rsvg('promo-small-440x280.svg', 'img/store/promo-small-440x280.png', ['-w', '440', '-h', '280']);
+rsvg('promo-large-1400x560.svg', 'img/store/promo-large-1400x560.png', ['-w', '1400', '-h', '560']);
 
-// In-app brand mark: the sock alone, on transparency. The pages follow the
-// system theme since 1.27, and a light tile behind the mark showed as a white
-// square on the dark one.
-sockTrimmed('img/mark-raw.png', ['-transparent', BG, '-trim', '+repage', '-strip']);
-const [w, h] = execFileSync('magick', ['identify', '-format', '%w %h', 'img/mark-raw.png'])
-  .toString().trim().split(' ').map(Number);
-const markSide = Math.round(Math.max(w, h) * 1.06);
-magick('img/mark-raw.png', '-background', 'none', '-gravity', 'center', '-extent', `${markSide}x${markSide}`,
-  '-resize', '256x256', '-strip', 'img/logo-mark.png');
-
-// Toolbar / extensions-page / store icons: the sock on a light tile, with the
-// corners rounded (26%). A tile rather than a transparent sock, so the icon
-// reads as one solid mark on a dark toolbar as well as a light one instead of
-// dissolving into it.
-const side = Math.round(Math.max(w, h) * 1.22);
-magick('img/mark-raw.png', '-background', BG, '-gravity', 'center', '-extent', `${side}x${side}`,
-  '-resize', '256x256', '-strip', 'img/mark-square.png');
-const RADIUS = Math.round(256 * 0.26);
-magick('img/mark-square.png', '-alpha', 'set',
-  '(', '+clone', '-alpha', 'transparent', '-background', 'none', '-fill', 'white',
-  '-draw', `roundrectangle 0,0,255,255,${RADIUS},${RADIUS}`, ')',
-  '-compose', 'DstIn', '-composite', '-strip', 'img/mark-tile.png');
-for (const size of [16, 32, 48, 128]) {
-  magick('img/mark-tile.png', '-resize', `${size}x${size}`, '-strip', `img/icon-${size}.png`);
-  console.log(`img/icon-${size}.png`);
+// The inline mark: the whole sock first (painted --brand), then the cuff, heel
+// and toe laid over it (painted --brand-trim). Two decimals is far below a
+// pixel at the 22-26 px the pages draw it.
+const master = readFileSync(`${LOGO}/logo-mark.svg`, 'utf8');
+const viewBox = master.match(/viewBox="([^"]+)"/)[1];
+const paths = [...master.matchAll(/<path fill="([^"]+)" d="([^"]+)"/g)].map(([, fill, d]) => ({
+  fill,
+  d: d.replace(/-?\d*\.\d+/g, (n) => String(Number(Number(n).toFixed(2)))).replace(/\s+/g, ' ').trim(),
+}));
+const [sock, ...trims] = paths;
+if (!sock || trims.length !== 3 || trims.some((t) => t.fill !== trims[0].fill) || sock.fill === trims[0].fill) {
+  throw new Error(`${LOGO}/logo-mark.svg: expected the sock then three trims (cuff, heel, toe)`);
 }
-rmSync('img/mark-raw.png');
-rmSync('img/mark-square.png');
-rmSync('img/mark-tile.png');
-console.log('img/logo-banner.png, img/logo-mark.png done');
+writeFileSync(
+  'src/shared/mark-paths.ts',
+  `// Generated by scripts/gen-icons.mjs from img/logo/logo-mark.svg. Don't edit by
+// hand: change the master and run \`npm run icons\`.
+
+export const MARK_VIEWBOX = '${viewBox}';
+
+/** The whole sock, painted var(--brand). */
+export const MARK_SOCK =
+  '${sock.d}';
+
+/** The cuff, heel and toe, laid over the sock and painted var(--brand-trim). */
+export const MARK_TRIMS = [
+${trims.map((t) => `  '${t.d}',`).join('\n')}
+];
+`
+);
+console.log('src/shared/mark-paths.ts');

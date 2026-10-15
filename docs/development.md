@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - Node.js 20+ (developed on 26)
-- ImageMagick (`brew install imagemagick`), only if you regenerate icons
+- rsvg-convert (`brew install librsvg`), only if you regenerate icons
 - A Chromium browser for manual testing
 
 ## Setup and commands
@@ -18,7 +18,7 @@ npm run watch       # rebuild on change, inline sourcemaps
 npm run zip         # builds, then packs dist/ into sockitt.zip
 npm run crx         # builds, then signs dist/ into sockitt.crx (see Signing below)
 npm run shots       # builds, then regenerates img/store/ from the real UI
-npm run icons       # regenerate img/ assets from img/logo-source.png (ImageMagick)
+npm run icons       # regenerate img/ assets from the SVG masters in img/logo/ (rsvg-convert)
 ```
 
 Load `dist/` via `chrome://extensions` > Developer mode > Load unpacked. After
@@ -62,11 +62,13 @@ src/
   shared/yard.ts         lays a profile out as a track map (pure; tested)
   shared/colour.ts       a profile colour's line and text variants per theme
   shared/strip.ts        one request's route, drawn small (popup, Activity)
+  shared/mark.ts         the logo mark, drawn inline (paths: mark-paths.ts,
+                         generated from img/logo/ by npm run icons)
   theme.css              design tokens and shared components for both pages
                          (the spec is docs/design.md — read it before UI work)
 static/fonts/            Archivo + IBM Plex Mono, subset from upstream; the
                          README there says how they were cut, and why not npm
-scripts/gen-icons.mjs    logo-source.png to PNG icon set (ImageMagick)
+scripts/gen-icons.mjs    img/logo/ SVG masters to icons, banners, promos + mark-paths.ts
 scripts/gen-store-shots.mjs  README + Web Store screenshots, captured from the built UI
 build.mjs                esbuild driver and static copier
 test/pac.test.mjs        PAC, parity, matcher, sanitiser, and sync tests
